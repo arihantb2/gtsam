@@ -71,12 +71,12 @@ private:
  *
  * Reference: van Goor et al. [6] Eq. (13), equivariance of the lift
  * Fornasier 2023 Lemma 8 Eq. (20) for G_TG = SE_2(3) ⋉ se_2(3):
- *   psi(X, u)_w   = Ad_{C^{-1}}(w - a^vee)   in R^9
- *   psi(X, u)_tau = Ad_{C^{-1}}(tau)           in R^9
- *   psi(X, u)_g   = g_vec                       (unchanged)
+ *   psi(X, u)_w   = Ad_{C^{-1}}(w - a^vee) + Omega(C^{-1})   in R^9
+ *   psi(X, u)_tau = Ad_{C^{-1}}(tau)                          in R^9
+ *   psi(X, u)_g   = g_vec                                      (unchanged)
  *
- * where C = SE_2(3) part of X, a = se_2(3) part of X, w and tau from u.
- * The w component has a -a^vee SHIFT before applying Ad_{C^{-1}}.
+ * where C = SE_2(3) part of X, a = se_2(3) part of X, w and tau from u,
+ * and Omega(C^{-1}) = (0, 0, a) places C^{-1}'s position in the a_tilde slot.
  */
 struct InputOrbit {
     TGInput u;
