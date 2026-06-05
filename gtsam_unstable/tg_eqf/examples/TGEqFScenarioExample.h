@@ -26,7 +26,39 @@ struct RunOptions {
   double duration = 30.0;
   double dt = 0.01;
   std::string output_path = "tg_eqf_trajectory.csv";
+
+  // IMU error model. Defaults describe an ideal IMU (no bias, no noise) so the
+  // clean dead-reckoning baseline is reproduced exactly; see scenario_analysis.md.
+  Eigen::Vector3d gyro_bias = Eigen::Vector3d::Zero();   // rad/s
+  Eigen::Vector3d accel_bias = Eigen::Vector3d::Zero();  // m/s^2
+  double gyro_noise_sigma = 0.0;   // rad/s/sqrt(Hz)
+  double accel_noise_sigma = 0.0;  // m/s^2/sqrt(Hz)
+
+  /// True when any IMU bias/noise is configured (use corrupted measurements).
+  bool hasImuErrors() const {
+    return !gyro_bias.isZero() || !accel_bias.isZero() ||
+           gyro_noise_sigma > 0.0 || accel_noise_sigma > 0.0;
+  }
 };
+
+/// Parse "x,y,z" into a Vector3 (throws on malformed input).
+inline Eigen::Vector3d parseVector3(const std::string& s) {
+  Eigen::Vector3d v;
+  std::size_t start = 0;
+  for (int k = 0; k < 3; ++k) {
+    const std::size_t comma = s.find(',', start);
+    const std::string tok =
+        s.substr(start, comma == std::string::npos ? comma : comma - start);
+    v(k) = std::stod(tok);
+    if (k < 2) {
+      if (comma == std::string::npos) {
+        throw std::runtime_error("expected 'x,y,z', got: " + s);
+      }
+      start = comma + 1;
+    }
+  }
+  return v;
+}
 
 inline RunOptions parseRunOptions(int argc, char* argv[],
                                   const char* default_output) {
@@ -40,6 +72,14 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.duration = std::stod(argv[++i]);
     } else if (arg == "--dt" && i + 1 < argc) {
       opts.dt = std::stod(argv[++i]);
+    } else if (arg == "--gyro-bias" && i + 1 < argc) {
+      opts.gyro_bias = parseVector3(argv[++i]);
+    } else if (arg == "--accel-bias" && i + 1 < argc) {
+      opts.accel_bias = parseVector3(argv[++i]);
+    } else if (arg == "--gyro-noise" && i + 1 < argc) {
+      opts.gyro_noise_sigma = std::stod(argv[++i]);
+    } else if (arg == "--accel-noise" && i + 1 < argc) {
+      opts.accel_noise_sigma = std::stod(argv[++i]);
     }
   }
   return opts;
@@ -85,8 +125,19 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   constexpr double kGravity = 9.81;
 
   auto params = gtsam::PreintegrationParams::MakeSharedU(kGravity);
-  const gtsam::imuBias::ConstantBias zero_bias;
-  gtsam::ScenarioRunner runner(scenario, params, opts.dt, zero_bias);
+  const bool corrupted = opts.hasImuErrors();
+  if (corrupted) {
+    // Noise samplers in ScenarioRunner draw from these covariances.
+    params->setGyroscopeCovariance(opts.gyro_noise_sigma *
+                                   opts.gyro_noise_sigma *
+                                   Eigen::Matrix3d::Identity());
+    params->setAccelerometerCovariance(opts.accel_noise_sigma *
+                                       opts.accel_noise_sigma *
+                                       Eigen::Matrix3d::Identity());
+  }
+  // True IMU bias injected into the measurements (the filter does not know it).
+  const gtsam::imuBias::ConstantBias imu_bias(opts.accel_bias, opts.gyro_bias);
+  gtsam::ScenarioRunner runner(scenario, params, opts.dt, imu_bias);
 
   // Initialize the filter at the scenario's true initial state. IMU-only
   // propagation cannot observe the initial pose/velocity, so the origin must
@@ -140,8 +191,10 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
       break;
     }
 
-    const gtsam::Vector3 omega = runner.actualAngularVelocity(t);
-    const gtsam::Vector3 accel = runner.actualSpecificForce(t);
+    const gtsam::Vector3 omega = corrupted ? runner.measuredAngularVelocity(t)
+                                           : runner.actualAngularVelocity(t);
+    const gtsam::Vector3 accel = corrupted ? runner.measuredSpecificForce(t)
+                                           : runner.actualSpecificForce(t);
     filter.propagate(omega, accel, g_vec, Qc, opts.dt);
     t += opts.dt;
   }

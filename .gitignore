@@ -34,4 +34,8 @@ conductor/
 .ccache/
 gtsam_unstable/timing/data/
 timing/results/bayes_tree_covariance/
+
+# TG-EqF docs and outputs
 gtsam_unstable/tg_eqf/docs
+*.png
+*.csv

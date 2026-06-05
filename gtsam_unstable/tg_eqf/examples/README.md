@@ -24,11 +24,40 @@ python3 ../gtsam_unstable/tg_eqf/scripts/plot_trajectory.py tg_eqf_circle.csv --
 | `--output <path>` | scenario-specific (below) | Output CSV path |
 | `--duration <s>` | `30.0` | Simulation length (seconds) |
 | `--dt <s>` | `0.01` | IMU sample period (100 Hz) |
+| `--gyro-bias <x,y,z>` | `0,0,0` | Constant true gyro bias (rad/s) |
+| `--accel-bias <x,y,z>` | `0,0,0` | Constant true accel bias (m/s²) |
+| `--gyro-noise <σ>` | `0` | Gyro noise density (rad/s/√Hz) |
+| `--accel-noise <σ>` | `0` | Accel noise density (m/s²/√Hz) |
 
 Default output files:
 
 - Straight line: `tg_eqf_straight_line.csv`
 - Circle: `tg_eqf_circle.csv`
+
+### IMU error model
+
+Defaults give an **ideal IMU**, reproducing the clean baseline (see
+[`scenario_analysis.md`](scenario_analysis.md)). Any non-zero bias/noise switches
+the runner to corrupted measurements (`measuredAngularVelocity` /
+`measuredSpecificForce`): the *true* bias is injected into the IMU but the filter
+does not know it. Noise `σ` is a continuous density; the discrete per-sample
+stddev is `σ/√dt`.
+
+These examples run **IMU-only with no aiding**, so unaided inertial
+dead-reckoning drifts unbounded under any imperfection — expected physics, not a
+filter fault. Bounding the drift requires `update_dvl` / `update_position`.
+Illustrative values:
+
+```bash
+# attitude/velocity drift from a small gyro bias
+./TGEqFCircleExample --gyro-bias 0,0,0.002
+
+# realistic MEMS noise densities (drifts ~tens of metres over 30 s, unaided)
+./TGEqFCircleExample --gyro-noise 1e-3 --accel-noise 1e-2
+```
+
+Noise samplers in `ScenarioRunner` use fixed internal seeds, so corrupted runs
+are reproducible.
 
 ## Simulation settings (shared)
 
@@ -40,8 +69,8 @@ Defined in [`TGEqFScenarioExample.h`](TGEqFScenarioExample.h).
 | Reference state `xi_ref` | `scenario.navState(0)` | EqF chart origin = true initial state (IMU-only cannot observe it) |
 | Initial covariance `Sigma0` | `0.01 * I_18` | Same scale as `testTGEqF.cpp` |
 | Gravity | `9.81 m/s²`, Z-up ENU | `PreintegrationParams::MakeSharedU(9.81)` → `n_gravity = (0, 0, -9.81)` |
-| IMU bias (simulation) | Zero | `imuBias::ConstantBias()` in `ScenarioRunner` |
-| IMU noise | None | `actualAngularVelocity` / `actualSpecificForce` (perfect IMU) |
+| IMU bias (simulation) | Zero (configurable) | `--gyro-bias` / `--accel-bias` → `imuBias::ConstantBias` |
+| IMU noise | None (configurable) | `--gyro-noise` / `--accel-noise`; clean run uses `actual*`, corrupted uses `measured*` |
 | Process noise `Qc` | Block-diagonal | See table below |
 | GT source | `scenario.navState(t)` | GTSAM `Scenario` interface |
 | IMU synthesis | `ScenarioRunner` | `actualAngularVelocity(t)`, `actualSpecificForce(t)` |
