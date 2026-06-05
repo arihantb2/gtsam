@@ -18,6 +18,11 @@ void TGEqF::update_dvl(const Eigen::Vector3d&, const Covariance3&) {
   throw std::runtime_error("tgeqf::TGEqF::update_dvl not implemented");
 }
 
+void TGEqF::update_position(const Eigen::Vector3d&, const Covariance3&,
+                             bool) {
+  throw std::runtime_error("tgeqf::TGEqF::update_position not implemented");
+}
+
 gtsam::Rot3 TGEqF::attitude() const {
   throw std::runtime_error("tgeqf::TGEqF::attitude not implemented");
 }

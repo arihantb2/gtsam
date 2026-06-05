@@ -36,10 +36,10 @@ struct TGSymmetry {
 
         explicit Orbit(const TGState& xi_ref);
 
-        /// phi(X, xi_ref) with optional Jacobian d(phi)/dX in R^{18 x 21}
+        /// phi(X, xi_ref) with optional Jacobian d(phi)/dX in R^{18 x 18}
         TGState operator()(
             const TGGroupElement& X,
-            Eigen::Matrix<double, 18, 21>* H = nullptr) const;
+            Eigen::Matrix<double, 18, 18>* H = nullptr) const;
     };
 
     /**

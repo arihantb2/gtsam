@@ -41,18 +41,15 @@ struct se2_3 {
  * Reference: proposal Section 6.4, Fornasier et al. [1]
  */
 struct TGGroupElement {
-    // Navigation part A in SE_2(3)
-    gtsam::Rot3     R_X;   // rotation component of A_T
-    Eigen::Vector3d p_X;   // position component of A_T
-    Eigen::Vector3d v_X;   // velocity component of A_T
-    Eigen::Vector3d alpha; // A_alpha in R^3 (extra SE_3(3) component)
-                           // Reference: proposal Eq. (10d)
+    // Navigation part: C in SE_2(3)
+    gtsam::Rot3     R_X;   // rotation component
+    Eigen::Vector3d p_X;   // position component
+    Eigen::Vector3d v_X;   // velocity component
 
-    // Bias part a in se_2(3)
+    // Bias part: gamma in se_2(3)
     se2_3 a;               // [a_omega, a_v, a_a]
 
-    static constexpr int dimension = 21; // dim(G) = dim(M_extended with bd)
-                                         // For unbiased DVL: check if 21 or 18
+    static constexpr int dimension = 18; // dim(G_TG) = dim(SE_2(3)) + dim(se_2(3)) = 9 + 9
 
     /// Identity element
     static TGGroupElement Identity();
@@ -65,19 +62,20 @@ struct TGGroupElement {
     /// Reference: proposal Eq. (11)
     TGGroupElement inverse() const;
 
-    /// Adjoint map Ad_X : g -> g
-    /// Ad_X[xi] applied to Lie algebra element xi
-    se2_3 Ad(const se2_3& xi) const;
+    /// Ad_{C} : se_2(3) -> se_2(3)  (adjoint of the SE_2(3) part on its Lie algebra)
+    /// Used in group product: (XY).a = a_X + Ad_{C_X}[a_Y]
+    se2_3 Ad_AT(const se2_3& xi) const;
 
-    /// Ad_{A_T^{-1}} applied to a vector in se_2(3)
-    /// Reference: proposal Eq. (11a)
+    /// Ad_{C^{-1}} : se_2(3) -> se_2(3)
+    /// Used in group inverse: X^{-1}.a = -Ad_{C^{-1}}[a]
+    /// and in InputOrbit: psi(X, u)_w = Ad_{C^{-1}}(w - a^vee)
     se2_3 Ad_AT_inv(const se2_3& xi) const;
 
     /// Exponential map: g -> G (from Lie algebra to group)
-    static TGGroupElement Expmap(const Eigen::Matrix<double, 21, 1>& xi);
+    static TGGroupElement Expmap(const Eigen::Matrix<double, 18, 1>& xi);
 
     /// Logarithm map: G -> g
-    Eigen::Matrix<double, 21, 1> Logmap() const;
+    Eigen::Matrix<double, 18, 1> Logmap() const;
 
     /// A_T as a 5x5 SE_2(3) matrix
     Eigen::Matrix<double, 5, 5> AT_matrix() const;
@@ -93,34 +91,51 @@ namespace gtsam {
 template <>
 struct traits<tgeqf::TGGroupElement> {
 
-    using ManifoldType  = tgeqf::TGGroupElement;
-    using TangentVector = Eigen::Matrix<double, 21, 1>;
+    using ManifoldType       = tgeqf::TGGroupElement;
+    using TangentVector      = Eigen::Matrix<double, 18, 1>;
     using structure_category = lie_group_tag;
+    using group_flavor       = multiplicative_group_tag;
+    using ChartJacobian      = OptionalJacobian<18, 18>;
 
-    static constexpr int dimension = 21;
+    static constexpr int dimension = 18;
     static int GetDimension(const tgeqf::TGGroupElement&) { return dimension; }
 
+    // --- Testable ---
+    static bool Equals(const tgeqf::TGGroupElement& X,
+                       const tgeqf::TGGroupElement& Y, double tol = 1e-9);
+    static void Print(const tgeqf::TGGroupElement& X,
+                      const std::string& str = "");
+
+    // --- Group (no Jacobians) ---
     static tgeqf::TGGroupElement Identity();
 
     static tgeqf::TGGroupElement Compose(
-        const tgeqf::TGGroupElement& X,
-        const tgeqf::TGGroupElement& Y);
+        const tgeqf::TGGroupElement& X, const tgeqf::TGGroupElement& Y,
+        ChartJacobian Hx = {}, ChartJacobian Hy = {});
 
     static tgeqf::TGGroupElement Between(
-        const tgeqf::TGGroupElement& X,
-        const tgeqf::TGGroupElement& Y);
+        const tgeqf::TGGroupElement& X, const tgeqf::TGGroupElement& Y,
+        ChartJacobian Hx = {}, ChartJacobian Hy = {});
 
-    static tgeqf::TGGroupElement Expmap(const TangentVector& xi);
+    static tgeqf::TGGroupElement Inverse(
+        const tgeqf::TGGroupElement& X, ChartJacobian H = {});
 
-    static TangentVector Logmap(const tgeqf::TGGroupElement& X);
+    // --- Lie group ---
+    static tgeqf::TGGroupElement Expmap(
+        const TangentVector& xi, ChartJacobian H = {});
 
+    static TangentVector Logmap(
+        const tgeqf::TGGroupElement& X, ChartJacobian H = {});
+
+    static Eigen::Matrix<double, 18, 18> AdjointMap(
+        const tgeqf::TGGroupElement& X);
+
+    // --- Manifold ---
     static tgeqf::TGGroupElement Retract(
-        const tgeqf::TGGroupElement& X,
-        const TangentVector& xi);
+        const tgeqf::TGGroupElement& X, const TangentVector& xi);
 
     static TangentVector Local(
-        const tgeqf::TGGroupElement& X,
-        const tgeqf::TGGroupElement& Y);
+        const tgeqf::TGGroupElement& X, const tgeqf::TGGroupElement& Y);
 };
 
 template <>

@@ -3,6 +3,7 @@
 #include "Symmetry.h"
 #include "Lift.h"
 #include "BodyVelocityOutput.h"
+#include "PositionOutput.h"
 #include <gtsam/navigation/EquivariantFilter.h>
 #include <Eigen/Dense>
 
@@ -60,15 +61,31 @@ public:
     /**
      * DVL measurement update (unbiased body-frame velocity).
      *
-     * Calls DVLMeasurement::predict and DVLMeasurement::jacobian,
-     * then Base::updateWithVector.
-     *
      * @param z_dvl   DVL body-frame velocity measurement (m/s)
      * @param R_dvl   DVL measurement noise covariance (3x3)
      */
     void update_dvl(
         const Eigen::Vector3d& z_dvl,
         const Covariance3& R_dvl);
+
+    /**
+     * Global position measurement update (e.g. GNSS).
+     *
+     * Uses equivariant reformulation h'(xi) = R^T(pi - p) from
+     * Fornasier [5] Lemma 15. Reproduces TG-EqF from Fornasier 2023
+     * (2309.03765) when used with IMU propagation.
+     *
+     * Calls PositionMeasurement::jacobian_Cstar (preferred) or
+     * jacobian_C0, then Base::updateWithVector.
+     *
+     * @param pi      Global position measurement in R^3 (e.g. GNSS fix)
+     * @param R_pos   Position measurement noise covariance (3x3)
+     * @param use_Cstar  Use equivariant C* Jacobian (default true)
+     */
+    void update_position(
+        const Eigen::Vector3d& pi,
+        const Covariance3& R_pos,
+        bool use_Cstar = true);
 
     // -----------------------------------------------------------------------
     // State accessors

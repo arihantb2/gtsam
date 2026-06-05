@@ -14,8 +14,8 @@ TGInput TGInput::from_vector(const Eigen::Matrix<double, 21, 1>&) {
 
 Lift::Lift(const TGInput& u) : u(u) {}
 
-Eigen::Matrix<double, 21, 1> Lift::operator()(
-    const TGState&, Eigen::Matrix<double, 21, 18>*) const {
+Eigen::Matrix<double, 18, 1> Lift::operator()(
+    const TGState&, Eigen::Matrix<double, 18, 18>*) const {
   throw std::runtime_error("tgeqf::Lift::operator() not implemented");
 }
 

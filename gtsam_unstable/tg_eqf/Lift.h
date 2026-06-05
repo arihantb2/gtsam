@@ -33,8 +33,8 @@ struct TGInput {
 /**
  * Lift functor Lambda(xi, u) : M x L -> g
  *
- * Lambda_1(xi, u) = (W - B + N) + T^{-1}(G - N)T  in se_2(3)
- * Lambda_2(xi, u) = tau                              in R^9
+ * Lambda_1(xi, u) = (W - B + N) + T^{-1}(G - N)T      in se_2(3)
+ * Lambda_2(xi, u) = ad_b[Lambda_1(xi, u)] - tau^      in se_2(3)
  *
  * Satisfies equivariance: Lambda(phi(X,xi), psi(X,u)) = Ad_{X^{-1}} Lambda(xi,u)
  *
@@ -49,10 +49,10 @@ struct Lift {
 
     explicit Lift(const TGInput& u);
 
-    /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{21 x 18}
-    Eigen::Matrix<double, 21, 1> operator()(
+    /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{18 x 18}
+    Eigen::Matrix<double, 18, 1> operator()(
         const TGState& xi,
-        Eigen::Matrix<double, 21, 18>* D_lift = nullptr) const;
+        Eigen::Matrix<double, 18, 18>* D_lift = nullptr) const;
 
 private:
     /// Compute W, B, N, G matrices as defined in proposal Eq. (8)
@@ -70,7 +70,13 @@ private:
  *   u_origin = psi_u(g_.inverse())
  *
  * Reference: van Goor et al. [6] Eq. (13), equivariance of the lift
- * For TG symmetry: psi(X, u) = Ad_{X^{-1}} u  (in the Lie algebra sense)
+ * Fornasier 2023 Lemma 8 Eq. (20) for G_TG = SE_2(3) ⋉ se_2(3):
+ *   psi(X, u)_w   = Ad_{C^{-1}}(w - a^vee)   in R^9
+ *   psi(X, u)_tau = Ad_{C^{-1}}(tau)           in R^9
+ *   psi(X, u)_g   = g_vec                       (unchanged)
+ *
+ * where C = SE_2(3) part of X, a = se_2(3) part of X, w and tau from u.
+ * The w component has a -a^vee SHIFT before applying Ad_{C^{-1}}.
  */
 struct InputOrbit {
     TGInput u;
