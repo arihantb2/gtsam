@@ -30,7 +30,13 @@ python3 ../gtsam_unstable/tg_eqf/scripts/plot_trajectory.py tg_eqf_circle.csv --
 | `--accel-noise <σ>` | `0` | Accel white-noise density (m/s²/√Hz) |
 | `--gyro-bias-rw <σ>` | `0` | Gyro bias random-walk rate (rad/s/√s) |
 | `--accel-bias-rw <σ>` | `0` | Accel bias random-walk rate (m/s²/√s) |
+| `--init-sigma <σ>` | `0.1` | Initial state stddev: `Sigma0 = σ²·I₁₈` |
+| `--log-decim <n>` | `1` | Log every Nth step (bounds CSV size for sweeps) |
 | `--seed <n>` | `42` | RNG seed for IMU noise (vary for Monte Carlo) |
+
+When IMU noise/RW is set, the filter `Qc` is matched to it (gyro noise → attitude
+block, accel noise → velocity block, bias-RW rates → bias blocks) so the
+covariance is physically meaningful for consistency analysis.
 
 Default output files:
 
@@ -154,17 +160,24 @@ Motion is a horizontal-plane constant-twist orbit starting from the origin at
 
 ## CSV format
 
-```
-t,gt_px,gt_py,gt_pz,gt_vx,gt_vy,gt_vz,est_px,est_py,est_pz,est_vx,est_vy,est_vz
-```
+Columns are keyed by name (read with `csv.DictReader`), so consumers select what
+they need. The full set (see `csvHeader()` in `TGEqFScenarioExample.h`):
 
-| Column | Unit | Description |
-|--------|------|-------------|
+| Columns | Unit | Description |
+|---------|------|-------------|
 | `t` | s | Simulation time |
-| `gt_p*` | m | Ground-truth position (navigation frame) |
-| `gt_v*` | m/s | Ground-truth velocity (navigation frame) |
-| `est_p*` | m | Estimate position from `TGEqF::position()` |
-| `est_v*` | m/s | Estimate velocity from `TGEqF::velocity()` |
+| `gt_p*`, `gt_v*` | m, m/s | Ground-truth position / velocity (nav frame) |
+| `est_p*`, `est_v*` | m, m/s | Estimate from `TGEqF::position()` / `velocity()` |
+| `att_err_*` | rad | Attitude error `Logmap(gt_Rᵀ·est_R)` |
+| `est_bg*`, `est_bv*`, `est_ba*` | — | Estimated gyro / virtual-vel / accel bias |
+| `true_bg*`, `true_ba*` | — | True (simulated) gyro / accel bias |
+| `eps_<grp>_*` | — | EqF origin-frame error per group (att,pos,vel,bg,bv,ba) |
+| `P_<grp>_ij` | — | Upper triangle of each 3×3 origin-frame covariance block |
+
+`plot_trajectory.py` uses only the `gt_*`/`est_*` columns; `monte_carlo.py` uses
+`eps_*` and `P_*` for the per-group NEES consistency analysis. See
+[`scenario_analysis.md`](scenario_analysis.md) for the accuracy discussion and
+[`../scripts/README.md`](../scripts/README.md) for the Monte-Carlo workflow.
 
 ## Expected behaviour (30 s, default `dt`)
 
@@ -186,4 +199,5 @@ discretization error (no position/DVL updates needed for these noise-free runs).
 | `TGEqFCircleExample.cpp` | Constant-twist circle scenario |
 | `CMakeLists.txt` | Registers examples via `gtsamAddExamplesGlob` |
 | `../scripts/plot_trajectory.py` | Plot GT vs estimate and error time series |
+| `../scripts/monte_carlo.py` | Seed-sweep Monte-Carlo: error envelopes + NEES |
 | `../scripts/README.md` | Plotting workflow |
