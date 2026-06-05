@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <string>
 
 namespace tgeqf::examples {
@@ -29,16 +30,13 @@ struct RunOptions {
 
   // IMU error model. Defaults describe an ideal IMU (no bias, no noise) so the
   // clean dead-reckoning baseline is reproduced exactly; see scenario_analysis.md.
-  Eigen::Vector3d gyro_bias = Eigen::Vector3d::Zero();   // rad/s
-  Eigen::Vector3d accel_bias = Eigen::Vector3d::Zero();  // m/s^2
+  Eigen::Vector3d gyro_bias = Eigen::Vector3d::Zero();   // rad/s (initial)
+  Eigen::Vector3d accel_bias = Eigen::Vector3d::Zero();  // m/s^2 (initial)
   double gyro_noise_sigma = 0.0;   // rad/s/sqrt(Hz)
   double accel_noise_sigma = 0.0;  // m/s^2/sqrt(Hz)
-
-  /// True when any IMU bias/noise is configured (use corrupted measurements).
-  bool hasImuErrors() const {
-    return !gyro_bias.isZero() || !accel_bias.isZero() ||
-           gyro_noise_sigma > 0.0 || accel_noise_sigma > 0.0;
-  }
+  double gyro_bias_rw = 0.0;       // gyro bias random-walk rate (rad/s/sqrt(s))
+  double accel_bias_rw = 0.0;      // accel bias random-walk rate (m/s^2/sqrt(s))
+  unsigned seed = 42;              // RNG seed for noise (vary it for Monte Carlo)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -80,6 +78,12 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.gyro_noise_sigma = std::stod(argv[++i]);
     } else if (arg == "--accel-noise" && i + 1 < argc) {
       opts.accel_noise_sigma = std::stod(argv[++i]);
+    } else if (arg == "--gyro-bias-rw" && i + 1 < argc) {
+      opts.gyro_bias_rw = std::stod(argv[++i]);
+    } else if (arg == "--accel-bias-rw" && i + 1 < argc) {
+      opts.accel_bias_rw = std::stod(argv[++i]);
+    } else if (arg == "--seed" && i + 1 < argc) {
+      opts.seed = static_cast<unsigned>(std::stoul(argv[++i]));
     }
   }
   return opts;
@@ -125,19 +129,29 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   constexpr double kGravity = 9.81;
 
   auto params = gtsam::PreintegrationParams::MakeSharedU(kGravity);
-  const bool corrupted = opts.hasImuErrors();
-  if (corrupted) {
-    // Noise samplers in ScenarioRunner draw from these covariances.
-    params->setGyroscopeCovariance(opts.gyro_noise_sigma *
-                                   opts.gyro_noise_sigma *
-                                   Eigen::Matrix3d::Identity());
-    params->setAccelerometerCovariance(opts.accel_noise_sigma *
-                                       opts.accel_noise_sigma *
-                                       Eigen::Matrix3d::Identity());
-  }
-  // True IMU bias injected into the measurements (the filter does not know it).
-  const gtsam::imuBias::ConstantBias imu_bias(opts.accel_bias, opts.gyro_bias);
-  gtsam::ScenarioRunner runner(scenario, params, opts.dt, imu_bias);
+  // Use the ideal (uncorrupted) measurements from the runner and inject the
+  // IMU error model ourselves below, so the noise RNG seed is controllable for
+  // Monte Carlo runs (ScenarioRunner's own samplers use fixed internal seeds).
+  gtsam::ScenarioRunner runner(scenario, params, opts.dt);
+
+  // Discrete per-sample noise stddev = density / sqrt(dt) (same convention as
+  // ScenarioRunner). A fresh generator seeded from opts.seed makes each run
+  // reproducible and each distinct seed an independent noise realization.
+  std::mt19937 rng(opts.seed);
+  std::normal_distribution<double> normal(0.0, 1.0);
+  const double gyro_sd = opts.gyro_noise_sigma / std::sqrt(opts.dt);
+  const double accel_sd = opts.accel_noise_sigma / std::sqrt(opts.dt);
+  auto sampleNoise = [&](double sd) {
+    return Eigen::Vector3d(sd * normal(rng), sd * normal(rng), sd * normal(rng));
+  };
+
+  // True IMU bias drifts as a random walk: b += rate * sqrt(dt) * N(0,1). The
+  // matching continuous PSD is rate^2 (wired into Qc below), so the filter's
+  // assumed bias process noise is consistent with the simulated drift.
+  Eigen::Vector3d gyro_b = opts.gyro_bias;
+  Eigen::Vector3d accel_b = opts.accel_bias;
+  const double gyro_rw_step = opts.gyro_bias_rw * std::sqrt(opts.dt);
+  const double accel_rw_step = opts.accel_bias_rw * std::sqrt(opts.dt);
 
   // Initialize the filter at the scenario's true initial state. IMU-only
   // propagation cannot observe the initial pose/velocity, so the origin must
@@ -149,7 +163,17 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   xi0.v = gt0.velocity();
 
   TGEqF filter(xi0, defaultSigma());
-  const TGEqF::Covariance18 Qc = defaultQc();
+  // Match the filter's bias process noise to the simulated random-walk rate
+  // (continuous PSD = rate^2) so the covariance reflects the true drift.
+  TGEqF::Covariance18 Qc = defaultQc();
+  if (opts.gyro_bias_rw > 0.0) {
+    Qc.block<3, 3>(9, 9) =
+        opts.gyro_bias_rw * opts.gyro_bias_rw * Eigen::Matrix3d::Identity();
+  }
+  if (opts.accel_bias_rw > 0.0) {
+    Qc.block<3, 3>(15, 15) =
+        opts.accel_bias_rw * opts.accel_bias_rw * Eigen::Matrix3d::Identity();
+  }
   const gtsam::Vector3& g_vec = params->n_gravity;
 
   std::ofstream csv(opts.output_path);
@@ -191,11 +215,23 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
       break;
     }
 
-    const gtsam::Vector3 omega = corrupted ? runner.measuredAngularVelocity(t)
-                                           : runner.actualAngularVelocity(t);
-    const gtsam::Vector3 accel = corrupted ? runner.measuredSpecificForce(t)
-                                           : runner.actualSpecificForce(t);
+    // True bias and noise corrupt the IMU; the filter does not know them.
+    // Defaults are zero, so the clean baseline is reproduced exactly.
+    const gtsam::Vector3 omega =
+        runner.actualAngularVelocity(t) + gyro_b + sampleNoise(gyro_sd);
+    const gtsam::Vector3 accel =
+        runner.actualSpecificForce(t) + accel_b + sampleNoise(accel_sd);
     filter.propagate(omega, accel, g_vec, Qc, opts.dt);
+
+    // Random-walk the true bias for the next step (no-op when rate is zero).
+    if (gyro_rw_step > 0.0) {
+      gyro_b += gyro_rw_step *
+                Eigen::Vector3d(normal(rng), normal(rng), normal(rng));
+    }
+    if (accel_rw_step > 0.0) {
+      accel_b += accel_rw_step *
+                 Eigen::Vector3d(normal(rng), normal(rng), normal(rng));
+    }
     t += opts.dt;
   }
 

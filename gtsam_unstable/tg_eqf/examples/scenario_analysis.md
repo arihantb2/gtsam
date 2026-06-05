@@ -86,6 +86,10 @@ estimate degrades in the expected ways:
   measurement updates, so the filter's bias estimate stays at its initial value
   and the integrated trajectory drifts. Gyro bias tilts attitude, which
   mis-rotates gravity compensation and feeds a growing velocity/position error.
+- **Bias random walk:** the true bias itself drifts (`b += rate·√dt·N(0,1)`).
+  The filter models this as bias process noise — the matching PSD (`rate²`) is
+  set on the `Qc` bias blocks — so the covariance grows, though the unaided mean
+  still drifts.
 - **IMU noise:** the mean becomes a random walk; velocity and position errors
   grow roughly as `√t` (velocity) and faster for position.
 - **Trajectory with intra-step variation** (jerk, time-varying `omega`):
@@ -94,4 +98,6 @@ estimate degrades in the expected ways:
 
 All of these are exercised by the configurable error model on `runScenario`
 (`gyro_bias`, `accel_bias`, `gyro_noise_sigma`, `accel_noise_sigma`); defaults
-are zero so the clean baseline above is preserved.
+are zero so the clean baseline above is preserved. Noise is drawn from a
+`std::mt19937` seeded by `seed`, so a run is reproducible for a fixed seed and
+each distinct seed is an independent realization for Monte-Carlo sweeps.

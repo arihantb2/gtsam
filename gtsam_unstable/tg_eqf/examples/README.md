@@ -26,8 +26,11 @@ python3 ../gtsam_unstable/tg_eqf/scripts/plot_trajectory.py tg_eqf_circle.csv --
 | `--dt <s>` | `0.01` | IMU sample period (100 Hz) |
 | `--gyro-bias <x,y,z>` | `0,0,0` | Constant true gyro bias (rad/s) |
 | `--accel-bias <x,y,z>` | `0,0,0` | Constant true accel bias (m/s²) |
-| `--gyro-noise <σ>` | `0` | Gyro noise density (rad/s/√Hz) |
-| `--accel-noise <σ>` | `0` | Accel noise density (m/s²/√Hz) |
+| `--gyro-noise <σ>` | `0` | Gyro white-noise density (rad/s/√Hz) |
+| `--accel-noise <σ>` | `0` | Accel white-noise density (m/s²/√Hz) |
+| `--gyro-bias-rw <σ>` | `0` | Gyro bias random-walk rate (rad/s/√s) |
+| `--accel-bias-rw <σ>` | `0` | Accel bias random-walk rate (m/s²/√s) |
+| `--seed <n>` | `42` | RNG seed for IMU noise (vary for Monte Carlo) |
 
 Default output files:
 
@@ -37,11 +40,19 @@ Default output files:
 ### IMU error model
 
 Defaults give an **ideal IMU**, reproducing the clean baseline (see
-[`scenario_analysis.md`](scenario_analysis.md)). Any non-zero bias/noise switches
-the runner to corrupted measurements (`measuredAngularVelocity` /
-`measuredSpecificForce`): the *true* bias is injected into the IMU but the filter
-does not know it. Noise `σ` is a continuous density; the discrete per-sample
-stddev is `σ/√dt`.
+[`scenario_analysis.md`](scenario_analysis.md)). `runScenario` takes the runner's
+ideal measurements and injects the error model itself: `actual + bias + noise`.
+The *true* bias is added to the IMU but the filter does not know it. White-noise
+`σ` is a continuous density; the discrete per-sample stddev is `σ/√dt`, drawn
+from a `std::mt19937` seeded by `--seed`.
+
+**Bias random walk.** `--gyro-bias-rw` / `--accel-bias-rw` drive the *true* bias
+as a random walk (`b += rate·√dt·N(0,1)`), starting from the constant
+`--*-bias` offset. The filter supports this directly: the bias states have a
+process-noise model, so the matching continuous PSD (`rate²`) is wired into the
+`Qc` gyro/accel-bias blocks and the filter's bias covariance grows accordingly.
+Without measurement updates the bias is unobservable, so the estimate still
+drifts — but the covariance now honestly reflects it.
 
 These examples run **IMU-only with no aiding**, so unaided inertial
 dead-reckoning drifts unbounded under any imperfection — expected physics, not a
@@ -56,8 +67,17 @@ Illustrative values:
 ./TGEqFCircleExample --gyro-noise 1e-3 --accel-noise 1e-2
 ```
 
-Noise samplers in `ScenarioRunner` use fixed internal seeds, so corrupted runs
-are reproducible.
+Same `--seed` reproduces a run exactly; each distinct seed is an independent
+noise realization, so you can Monte-Carlo by sweeping seeds:
+
+```bash
+for s in $(seq 1 50); do
+  ./TGEqFCircleExample --gyro-noise 1e-3 --accel-noise 1e-2 \
+    --seed $s --output /tmp/mc_$s.csv | grep "final position error"
+done
+```
+
+(Bias is deterministic, so a bias-only run is identical regardless of `--seed`.)
 
 ## Simulation settings (shared)
 
@@ -86,7 +106,9 @@ Defined in [`TGEqFScenarioExample.h`](TGEqFScenarioExample.h).
 | `b_v` | 12–14 | (zero) |
 | `b_a` | 15–17 | `1e-5 * I_3` |
 
-Matches `defaultQc()` in `testTGEqF.cpp`.
+Matches `defaultQc()` in `testTGEqF.cpp`. The `b_omega` (9–11) and `b_a` (15–17)
+blocks are overridden to `rate²·I_3` when `--gyro-bias-rw` / `--accel-bias-rw`
+are set, matching the simulated bias random walk.
 
 ### Logged estimate trajectory
 
