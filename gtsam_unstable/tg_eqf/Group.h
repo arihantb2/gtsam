@@ -71,10 +71,13 @@ struct TGGroupElement {
     /// and in InputOrbit: psi(X, u)_w = Ad_{C^{-1}}(w - a^vee)
     se2_3 Ad_AT_inv(const se2_3& xi) const;
 
-    /// Exponential map: g -> G (from Lie algebra to group)
+    /// Exponential map: g -> G (from Lie algebra to group).
+    /// NOTE: the se_2(3) fiber uses a first-order approximation (Xi ~ I), so
+    /// Expmap/Logmap are exact inverses only to first order in the fiber.
+    /// Adequate for EqF propagation where the lifted increment Lambda*dt is small.
     static TGGroupElement Expmap(const Eigen::Matrix<double, 18, 1>& xi);
 
-    /// Logarithm map: G -> g
+    /// Logarithm map: G -> g (first-order fiber; see Expmap note).
     Eigen::Matrix<double, 18, 1> Logmap() const;
 
     /// A_T as a 5x5 SE_2(3) matrix

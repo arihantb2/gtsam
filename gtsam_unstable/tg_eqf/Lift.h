@@ -33,16 +33,20 @@ struct TGInput {
 /**
  * Lift functor Lambda(xi, u) : M x L -> g
  *
- * Lambda_1(xi, u) = (W - B + N) + T^{-1}(G - N)T      in se_2(3)
- * Lambda_2(xi, u) = ad_b[Lambda_1(xi, u)] - tau^      in se_2(3)
+ * Lambda_1(xi, u) = (W - B) + Ad_{T^{-1}}[G] + T^{-1} f1(T)   in se_2(3)
+ * Lambda_2(xi, u) = ad_b[Lambda_1(xi, u)] - tau^              in se_2(3)
+ *
+ * where Ad_{T^{-1}}[G] = T^{-1} G T and f1(T) is the velocity drift matrix
+ * (Eq. 5): the 5x5 matrix carrying the global velocity v in the position
+ * column. The T^{-1} f1(T) term encodes the position kinematics dp = v.
  *
  * Satisfies equivariance: Lambda(phi(X,xi), psi(X,u)) = Ad_{X^{-1}} Lambda(xi,u)
  *
  * Reference: Fornasier et al. [1] Theorem 5.5.2, proposal Section 6.5 (TODO)
  *
  * GTSAM concept requirement:
- *   Lift(u)(xi, D_lift) -> TangentG (R^21)
- *   where D_lift is OptionalJacobian<21, 18> = d(Lambda)/d(xi)
+ *   Lift(u)(xi, D_lift) -> TangentG (R^18, the Lie algebra g)
+ *   where D_lift = d(Lambda)/d(xi) in R^{18 x 18} (dim g x dim M)
  */
 struct Lift {
     TGInput u;
@@ -55,11 +59,14 @@ struct Lift {
         Eigen::Matrix<double, 18, 18>* D_lift = nullptr) const;
 
 private:
-    /// Compute W, B, N, G matrices as defined in proposal Eq. (8)
+    /// W = wedge(w): input twist (Eq. 8)
     Eigen::Matrix<double, 5, 5> W_matrix(const TGInput& u) const;
+    /// B = wedge(b): bias twist (Eq. 8)
     Eigen::Matrix<double, 5, 5> B_matrix(const TGState& xi) const;
-    Eigen::Matrix<double, 5, 5> N_matrix() const;
+    /// G = wedge(0,0,g): gravity in the acceleration slot (Eq. 8)
     Eigen::Matrix<double, 5, 5> G_matrix(const TGInput& u) const;
+    /// f1(T) = velocity drift (Eq. 5): global velocity v in the position column
+    Eigen::Matrix<double, 5, 5> f1_matrix(const TGState& xi) const;
 };
 
 /**

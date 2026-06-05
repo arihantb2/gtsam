@@ -20,11 +20,12 @@ Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
   return M;
 }
 
-// Omega(C^{-1}) in Fornasier 2023: for X=(A,a,b) in SE_2(3), Omega(X)=(0,0,a).
-// Evaluated at C^{-1}, the third se_2(3) slot carries C^{-1}'s position a.
-tgeqf::se2_3 omegaAtCinv(const tgeqf::TGGroupElement& X) {
-  return {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-          X.R_X.unrotate(-X.p_X)};
+// f_1^0(A^{-1}) in vee coordinates (Eq. 10): the velocity-drift matrix of the
+// inverse SE_2(3) part places the velocity of A^{-1} in the position slot.
+// v_{A^{-1}} = -R^T v_X, so vee = (0, -R^T v_X, 0).
+tgeqf::se2_3 f1AtCinv(const tgeqf::TGGroupElement& X) {
+  return {Eigen::Vector3d::Zero(), X.R_X.unrotate(-X.v_X),
+          Eigen::Vector3d::Zero()};
 }
 
 }  // namespace
@@ -73,15 +74,17 @@ Eigen::Matrix<double, 5, 5> Lift::B_matrix(const TGState& xi) const {
   return b.wedge();
 }
 
-Eigen::Matrix<double, 5, 5> Lift::N_matrix() const {
-  Eigen::Matrix<double, 5, 5> N = Eigen::Matrix<double, 5, 5>::Zero();
-  N(3, 4) = 1.0;
-  return N;
-}
-
 Eigen::Matrix<double, 5, 5> Lift::G_matrix(const TGInput& u) const {
   const se2_3 g = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), u.g_vec};
   return g.wedge();
+}
+
+// f1(T) (Eq. 5): 5x5 matrix with the global velocity v in the position column.
+// T^{-1} f1(T) then places R^T v in the position-rate slot, encoding dp = v.
+Eigen::Matrix<double, 5, 5> Lift::f1_matrix(const TGState& xi) const {
+  Eigen::Matrix<double, 5, 5> F = Eigen::Matrix<double, 5, 5>::Zero();
+  F.block<3, 1>(0, 3) = xi.v;
+  return F;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,8 +99,9 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
   const Eigen::Matrix<double, 5, 5> Tinv = T.inverse();
 
   const Eigen::Matrix<double, 5, 5> L1_mat =
-      W_matrix(u) - B_matrix(xi) + N_matrix() +
-      Tinv * (G_matrix(u) - N_matrix()) * T;
+      W_matrix(u) - B_matrix(xi) +
+      Tinv * G_matrix(u) * T +
+      Tinv * f1_matrix(xi);
   const se2_3 Lambda1 = se2_3::vee(L1_mat);
 
   const se2_3 b = {xi.b_omega, xi.b_v, xi.b_a};
@@ -120,8 +124,9 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
       const Eigen::Matrix<double, 5, 5> Tp    = xi_p.T_matrix();
       const Eigen::Matrix<double, 5, 5> Tpinv = Tp.inverse();
       const Eigen::Matrix<double, 5, 5> L1p_mat =
-          W_matrix(u) - B_matrix(xi_p) + N_matrix() +
-          Tpinv * (G_matrix(u) - N_matrix()) * Tp;
+          W_matrix(u) - B_matrix(xi_p) +
+          Tpinv * G_matrix(u) * Tp +
+          Tpinv * f1_matrix(xi_p);
       const se2_3 Lambda1p = se2_3::vee(L1p_mat);
       const se2_3 bp = {xi_p.b_omega, xi_p.b_v, xi_p.b_a};
       const Eigen::Matrix<double, 9, 1> Lambda2p =
@@ -147,13 +152,13 @@ TGInput InputOrbit::operator()(const TGGroupElement& X) const {
   const se2_3 w = {u.omega, u.v_tilde, u.a_tilde};
   const se2_3 tau = {u.tau_omega, u.tau_v, u.tau_a};
 
-  // w' = Ad_{C^{-1}}(w - a) + Omega(C^{-1})  (Fornasier 2023 Lemma 8, Eq. 20)
+  // w' = Ad_{C^{-1}}(w - a) + f_1^0(C^{-1})  (Eq. 10)
   const se2_3 w_minus_a = {w.omega - X.a.omega, w.v_tilde - X.a.v_tilde,
                            w.a_tilde - X.a.a_tilde};
   const se2_3 w_ad      = X.Ad_AT_inv(w_minus_a);
-  const se2_3 omega_C   = omegaAtCinv(X);
-  const se2_3 w_out     = {w_ad.omega, w_ad.v_tilde,
-                           w_ad.a_tilde + omega_C.a_tilde};
+  const se2_3 f1_inv    = f1AtCinv(X);
+  const se2_3 w_out     = {w_ad.omega, w_ad.v_tilde + f1_inv.v_tilde,
+                           w_ad.a_tilde};
 
   const se2_3 tau_out = X.Ad_AT_inv(tau);
 

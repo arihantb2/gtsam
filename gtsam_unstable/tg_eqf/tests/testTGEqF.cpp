@@ -117,6 +117,26 @@ TEST(TGEqF, PropagateUsesVirtualVelocityBiasInput) {
   EXPECT(traits<TGGroupElement>::Equals(g_imu, filter2.groupEstimate(), 1e-9));
 }
 
+// Regression: with a non-zero initial velocity, IMU propagation must advance
+// the position estimate by ~v*dt (dp = v). The constant-N lift froze position
+// at zero while velocity tracked, so guard the integrated position explicitly.
+TEST(TGEqF, PropagateIntegratesPosition) {
+  TGState xi0 = TGState::identity();
+  xi0.v = Eigen::Vector3d(1.0, -0.5, 0.2);  // non-rest start
+  TGEqF filter(xi0, defaultSigma());
+
+  const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
+  const Eigen::Vector3d accel = -g_vec;  // specific force of a level body at rest
+  const double dt = 0.01;
+
+  const Eigen::Vector3d p_before = filter.position();
+  filter.propagate(Eigen::Vector3d::Zero(), accel, g_vec, defaultQc(), dt);
+  const Eigen::Vector3d p_after = filter.position();
+
+  // Position advanced by velocity*dt (velocity ~constant over one small step).
+  EXPECT(veq(p_after - p_before, xi0.v * dt, 1e-4));
+}
+
 // ---------------------------------------------------------------------------
 // Position update
 // ---------------------------------------------------------------------------

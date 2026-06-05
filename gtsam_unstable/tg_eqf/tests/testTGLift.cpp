@@ -122,6 +122,20 @@ TEST(Lift, AtIdentityStateLambda2IsMinusTau) {
   EXPECT(assert_equal((Vector)(-tau_vec), (Vector)Lambda.tail<9>(), kTolL));
 }
 
+// Regression: the lift must encode the position kinematics dp = v. With the
+// virtual velocity input set to the bias estimate (v_tilde = b_v, the filter's
+// operating point), the position-rate slot of Lambda_1 must equal the body
+// velocity R^T v. A constant-N lift drops this term and freezes position.
+TEST(Lift, PositionRateEncodesBodyVelocity) {
+  TGState xi = makeXi();
+  TGInput u = makeU();
+  u.v_tilde = xi.b_v;  // virtual velocity input cancels its bias
+
+  const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
+  const Eigen::Vector3d body_v = xi.R.unrotate(xi.v);
+  EXPECT(veq(body_v, Lambda.segment<3>(3), kTolL));  // v_tilde slot == R^T v
+}
+
 // ---------------------------------------------------------------------------
 // Lift equivariance
 // ---------------------------------------------------------------------------
