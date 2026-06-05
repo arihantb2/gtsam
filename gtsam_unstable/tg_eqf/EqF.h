@@ -22,11 +22,10 @@ namespace tgeqf {
  */
 class TGEqF : public gtsam::EquivariantFilter<TGState, TGSymmetry> {
 
+public:
     using Base = gtsam::EquivariantFilter<TGState, TGSymmetry>;
     using Covariance18 = Eigen::Matrix<double, 18, 18>;
     using Covariance3  = Eigen::Matrix<double, 3, 3>;
-
-public:
 
     /**
      * Construct the filter.
