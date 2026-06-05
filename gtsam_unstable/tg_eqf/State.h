@@ -57,6 +57,7 @@ struct traits<tgeqf::TGState> {
     using ManifoldType = tgeqf::TGState;
     using TangentVector = Eigen::Matrix<double, 18, 1>;
     using Jacobian      = Eigen::Matrix<double, 18, 18>;
+    using structure_category = manifold_tag;
 
     static constexpr int dimension = 18;
     static int GetDimension(const tgeqf::TGState&) { return dimension; }
@@ -85,5 +86,8 @@ struct traits<tgeqf::TGState> {
         const tgeqf::TGState& xi,
         const std::string& str = "");
 };
+
+template <>
+struct traits<const tgeqf::TGState> : traits<tgeqf::TGState> {};
 
 } // namespace gtsam

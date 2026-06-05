@@ -95,6 +95,7 @@ struct traits<tgeqf::TGGroupElement> {
 
     using ManifoldType  = tgeqf::TGGroupElement;
     using TangentVector = Eigen::Matrix<double, 21, 1>;
+    using structure_category = lie_group_tag;
 
     static constexpr int dimension = 21;
     static int GetDimension(const tgeqf::TGGroupElement&) { return dimension; }
@@ -121,5 +122,8 @@ struct traits<tgeqf::TGGroupElement> {
         const tgeqf::TGGroupElement& X,
         const tgeqf::TGGroupElement& Y);
 };
+
+template <>
+struct traits<const tgeqf::TGGroupElement> : traits<tgeqf::TGGroupElement> {};
 
 } // namespace gtsam
