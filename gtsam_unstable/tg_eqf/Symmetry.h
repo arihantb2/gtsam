@@ -25,7 +25,7 @@ struct TGSymmetry {
      * Orbit: functor that maps G -> M by acting on a fixed reference state.
      *
      * Constructed from xi_ref; operator()(X, H) returns phi(X, xi_ref)
-     * and optionally the Jacobian dM/dG at the point X.
+     * and optionally the Jacobian d(phi)/dX in R^{18 x 18}.
      *
      * Used by EquivariantFilter to:
      *   1. Recover state estimate: xi_hat = act_on_ref(g_)
@@ -66,7 +66,7 @@ struct TGSymmetry {
 /**
  * Standalone right group action.
  *
- * phi(X, xi) = [T A_T, Ad_{A_T^{-1}}[b - a^vee]]
+ * phi(X, xi) = [T A, Ad_{A^{-1}}(b - a^vee)]
  *
  * Reference: proposal Eq. (13)
  */

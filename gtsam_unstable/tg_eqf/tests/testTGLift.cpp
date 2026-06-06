@@ -49,7 +49,7 @@ static TGInput makeU() {
   TGInput u;
   u.omega     = Eigen::Vector3d(0.2, -0.1, 0.05);
   u.v_tilde   = Eigen::Vector3d(-0.05, 0.1, 0.0);
-  u.a_tilde   = Eigen::Vector3d(0.0, 0.0, 9.81);
+  u.accel     = Eigen::Vector3d(0.0, 0.0, 9.81);
   u.tau_omega = Eigen::Vector3d::Zero();
   u.tau_v     = Eigen::Vector3d::Zero();
   u.tau_a     = Eigen::Vector3d::Zero();
@@ -79,7 +79,7 @@ TEST(TGInput, VectorRoundTrip) {
   const TGInput recovered = TGInput::from_vector(u.vector());
   EXPECT(veq(u.omega, recovered.omega));
   EXPECT(veq(u.v_tilde, recovered.v_tilde));
-  EXPECT(veq(u.a_tilde, recovered.a_tilde));
+  EXPECT(veq(u.accel, recovered.accel));
   EXPECT(veq(u.tau_omega, recovered.tau_omega));
   EXPECT(veq(u.tau_v, recovered.tau_v));
   EXPECT(veq(u.tau_a, recovered.tau_a));
@@ -96,14 +96,14 @@ TEST(Lift, AtIdentityStateLambda1IsWPlusG) {
   Lift lift(u);
 
   // At T=I, b=0: Lambda_1 = W + G (N cancels in (W-B+N) + (G-N)).
-  const se2_3 w = {u.omega, u.v_tilde, u.a_tilde};
+  const se2_3 w = {u.omega, u.v_tilde, u.accel};
   const se2_3 g = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), u.g_vec};
   const se2_3 expected = se2_3::vee(w.wedge() + g.wedge());
   const Eigen::Matrix<double, 18, 1> Lambda = lift(xi0);
 
   EXPECT(veq(expected.omega, Lambda.segment<3>(0), kTolL));
   EXPECT(veq(expected.v_tilde, Lambda.segment<3>(3), kTolL));
-  EXPECT(veq(expected.a_tilde, Lambda.segment<3>(6), kTolL));
+  EXPECT(veq(expected.accel, Lambda.segment<3>(6), kTolL));
 }
 
 TEST(Lift, AtIdentityStateLambda2IsMinusTau) {
@@ -213,7 +213,7 @@ TEST(InputOrbit, AtIdentityIsNoop) {
   const TGInput result = InputOrbit(u)(TGGroupElement::Identity());
   EXPECT(veq(u.omega, result.omega));
   EXPECT(veq(u.v_tilde, result.v_tilde));
-  EXPECT(veq(u.a_tilde, result.a_tilde));
+  EXPECT(veq(u.accel, result.accel));
   EXPECT(veq(u.tau_omega, result.tau_omega));
   EXPECT(veq(u.tau_v, result.tau_v));
   EXPECT(veq(u.tau_a, result.tau_a));
@@ -232,10 +232,10 @@ TEST(InputOrbit, TauTransformedByAdInv) {
   const TGInput result = InputOrbit(u)(X);
 
   const se2_3 tau = {u.tau_omega, u.tau_v, u.tau_a};
-  const se2_3 tau_expected = X.Ad_AT_inv(tau);
+  const se2_3 tau_expected = X.Ad_A_inv(tau);
   EXPECT(veq(result.tau_omega, tau_expected.omega, kTolL));
   EXPECT(veq(result.tau_v, tau_expected.v_tilde, kTolL));
-  EXPECT(veq(result.tau_a, tau_expected.a_tilde, kTolL));
+  EXPECT(veq(result.tau_a, tau_expected.accel, kTolL));
 }
 
 /* ************************************************************************* */

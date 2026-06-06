@@ -47,7 +47,7 @@ Eigen::Matrix<double, 9, 9> Ad9(const tgeqf::TGGroupElement& X) {
 Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
   const Eigen::Matrix3d Gw = gtsam::skewSymmetric(gamma.omega);
   const Eigen::Matrix3d Gv = gtsam::skewSymmetric(gamma.v_tilde);
-  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.a_tilde);
+  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.accel);
 
   Eigen::Matrix<double, 9, 9> M = Eigen::Matrix<double, 9, 9>::Zero();
   M.block<3, 3>(0, 0) = Gw;
@@ -70,7 +70,7 @@ Eigen::Matrix<double, 9, 1> se2_3::vector() const {
   Eigen::Matrix<double, 9, 1> v;
   v.segment<3>(0) = omega;
   v.segment<3>(3) = v_tilde;
-  v.segment<3>(6) = a_tilde;
+  v.segment<3>(6) = accel;
   return v;
 }
 
@@ -82,7 +82,7 @@ Eigen::Matrix<double, 5, 5> se2_3::wedge() const {
   Eigen::Matrix<double, 5, 5> W = Eigen::Matrix<double, 5, 5>::Zero();
   W.block<3, 3>(0, 0) = gtsam::skewSymmetric(omega);
   W.block<3, 1>(0, 3) = v_tilde;
-  W.block<3, 1>(0, 4) = a_tilde;
+  W.block<3, 1>(0, 4) = accel;
   return W;
 }
 
@@ -105,7 +105,7 @@ TGGroupElement TGGroupElement::Identity() {
   return X;
 }
 
-// XY = (C_X C_Y, a_X + Ad_{C_X}[a_Y])
+// XY = (A_X A_Y, a_X + Ad_{A_X}[a_Y])
 TGGroupElement TGGroupElement::operator*(const TGGroupElement& Y) const {
   const Eigen::Vector3d Rw = R_X.rotate(Y.a.omega);
   TGGroupElement Z;
@@ -114,51 +114,51 @@ TGGroupElement TGGroupElement::operator*(const TGGroupElement& Y) const {
   Z.v_X = R_X.rotate(Y.v_X) + v_X;
   Z.a = {a.omega  + Rw,
          a.v_tilde + R_X.rotate(Y.a.v_tilde) + p_X.cross(Rw),
-         a.a_tilde + R_X.rotate(Y.a.a_tilde) + v_X.cross(Rw)};
+         a.accel + R_X.rotate(Y.a.accel) + v_X.cross(Rw)};
   return Z;
 }
 
-// X^{-1} = (C^{-1}, -Ad_{C^{-1}}[a])
+// X^{-1} = (A^{-1}, -Ad_{A^{-1}}[a])
 TGGroupElement TGGroupElement::inverse() const {
   TGGroupElement Xinv;
   Xinv.R_X = R_X.inverse();
   Xinv.p_X = R_X.unrotate(-p_X);
   Xinv.v_X = R_X.unrotate(-v_X);
-  const se2_3 adj_inv = Ad_AT_inv(a);
-  Xinv.a = {-adj_inv.omega, -adj_inv.v_tilde, -adj_inv.a_tilde};
+  const se2_3 adj_inv = Ad_A_inv(a);
+  Xinv.a = {-adj_inv.omega, -adj_inv.v_tilde, -adj_inv.accel};
   return Xinv;
 }
 
-// Ad_{C_X}[xi] = (R xi_w, R xi_v + p x (R xi_w), R xi_a + v x (R xi_w))
-se2_3 TGGroupElement::Ad_AT(const se2_3& xi) const {
+// Ad_{A_X}[xi] = (R xi_w, R xi_v + p x (R xi_w), R xi_a + v x (R xi_w))
+se2_3 TGGroupElement::Ad_A(const se2_3& xi) const {
   const Eigen::Vector3d Rw = R_X.rotate(xi.omega);
   return {Rw,
           R_X.rotate(xi.v_tilde) + p_X.cross(Rw),
-          R_X.rotate(xi.a_tilde) + v_X.cross(Rw)};
+          R_X.rotate(xi.accel) + v_X.cross(Rw)};
 }
 
-// Ad_{C_X^{-1}}[xi] = (R^T xi_w, R^T(xi_v - p x xi_w), R^T(xi_a - v x xi_w))
-se2_3 TGGroupElement::Ad_AT_inv(const se2_3& xi) const {
+// Ad_{A_X^{-1}}[xi] = (R^T xi_w, R^T(xi_v - p x xi_w), R^T(xi_a - v x xi_w))
+se2_3 TGGroupElement::Ad_A_inv(const se2_3& xi) const {
   return {R_X.unrotate(xi.omega),
           R_X.unrotate(xi.v_tilde - p_X.cross(xi.omega)),
-          R_X.unrotate(xi.a_tilde - v_X.cross(xi.omega))};
+          R_X.unrotate(xi.accel - v_X.cross(xi.omega))};
 }
 
 // Expmap([tau; sigma]):
 //   SE_2(3) part: exact via ExtendedPose3<2>::Expmap(tau)
 //   se_2(3) fiber: first-order Ξ ≈ I, so gamma = sigma
 TGGroupElement TGGroupElement::Expmap(const Eigen::Matrix<double, 18, 1>& v) {
-  const Se23 C = Se23::Expmap(v.head<9>());
+  const Se23 A = Se23::Expmap(v.head<9>());
   TGGroupElement X;
-  X.R_X = C.rotation();
-  X.p_X = C.x(0);
-  X.v_X = C.x(1);
+  X.R_X = A.rotation();
+  X.p_X = A.x(0);
+  X.v_X = A.x(1);
   X.a   = se2_3::from_vector(v.tail<9>());
   return X;
 }
 
 // Logmap(X):
-//   tau   = Logmap_{SE_2(3)}(C)
+//   tau   = Logmap_{SE_2(3)}(A)
 //   sigma = a.vector()  (consistent with first-order Expmap)
 Eigen::Matrix<double, 18, 1> TGGroupElement::Logmap() const {
   Eigen::Matrix<double, 18, 1> v;
@@ -167,7 +167,7 @@ Eigen::Matrix<double, 18, 1> TGGroupElement::Logmap() const {
   return v;
 }
 
-Eigen::Matrix<double, 5, 5> TGGroupElement::AT_matrix() const {
+Eigen::Matrix<double, 5, 5> TGGroupElement::A_matrix() const {
   Eigen::Matrix<double, 5, 5> T = Eigen::Matrix<double, 5, 5>::Zero();
   T.block<3, 3>(0, 0) = R_X.matrix();
   T.block<3, 1>(0, 3) = p_X;
@@ -194,7 +194,7 @@ bool T::Equals(const G& X, const G& Y, double tol) {
          (X.v_X - Y.v_X).norm() < tol &&
          (X.a.omega   - Y.a.omega).norm()   < tol &&
          (X.a.v_tilde - Y.a.v_tilde).norm() < tol &&
-         (X.a.a_tilde - Y.a.a_tilde).norm() < tol;
+         (X.a.accel - Y.a.accel).norm() < tol;
 }
 
 void T::Print(const G& X, const std::string& str) {
@@ -204,7 +204,7 @@ void T::Print(const G& X, const std::string& str) {
             << "  v: "     << X.v_X.transpose()       << "\n"
             << "  a_w: "   << X.a.omega.transpose()   << "\n"
             << "  a_v: "   << X.a.v_tilde.transpose() << "\n"
-            << "  a_a: "   << X.a.a_tilde.transpose() << "\n";
+            << "  a_a: "   << X.a.accel.transpose() << "\n";
 }
 
 G T::Identity() { return G::Identity(); }
@@ -227,18 +227,18 @@ T::TangentVector T::Logmap(const G& X, ChartJacobian) { return X.Logmap(); }
 
 // Full 18x18 Adjoint map of G_TG = SE_2(3) ⋉ se_2(3):
 //
-//   Ad_{(C,gamma)} = [ Ad_C(9x9)            0_{9x9}  ]
-//                    [ ad_gamma * Ad_C       Ad_C     ]
+//   Ad_{(A,gamma)} = [ Ad_A(9x9)            0_{9x9}  ]
+//                    [ ad_gamma * Ad_A       Ad_A     ]
 //
-// where Ad_C and ad_gamma are the 9x9 matrices derived above.
+// where Ad_A and ad_gamma are the 9x9 matrices derived above.
 Eigen::Matrix<double, 18, 18> T::AdjointMap(const G& X) {
-  const Eigen::Matrix<double, 9, 9> AC  = Ad9(X);
+  const Eigen::Matrix<double, 9, 9> AdA  = Ad9(X);
   const Eigen::Matrix<double, 9, 9> adg = ad9(X.a);
 
   Eigen::Matrix<double, 18, 18> Adj = Eigen::Matrix<double, 18, 18>::Zero();
-  Adj.block<9, 9>(0, 0) = AC;
-  Adj.block<9, 9>(9, 0) = adg * AC;
-  Adj.block<9, 9>(9, 9) = AC;
+  Adj.block<9, 9>(0, 0) = AdA;
+  Adj.block<9, 9>(9, 0) = adg * AdA;
+  Adj.block<9, 9>(9, 9) = AdA;
   return Adj;
 }
 

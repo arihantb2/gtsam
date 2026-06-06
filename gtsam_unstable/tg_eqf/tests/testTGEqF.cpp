@@ -39,7 +39,7 @@ static TGInput makeImuInput(const Eigen::Vector3d& omega,
                                 Eigen::Vector3d::Zero()) {
   TGInput u;
   u.omega = omega;
-  u.a_tilde = accel;
+  u.accel = accel;
   u.g_vec = g_vec;
   u.v_tilde = b_v;
   u.tau_omega = Eigen::Vector3d::Zero();
@@ -83,7 +83,7 @@ TEST(TGEqF, PropagateAdvancesGroupAndCovariance) {
 
   const Eigen::Vector3d omega(0.05, -0.02, 0.01);
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
-  const Eigen::Vector3d accel = g_vec;
+  const Eigen::Vector3d& accel = g_vec;
   const double dt = 0.1;
 
   const TGGroupElement g_before = filter.groupEstimate();
@@ -102,7 +102,7 @@ TEST(TGEqF, PropagateUsesVirtualVelocityBiasInput) {
 
   const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
-  const Eigen::Vector3d accel = g_vec;
+  const Eigen::Vector3d& accel = g_vec;
   const double dt = 0.05;
 
   filter.propagate(omega, accel, g_vec, defaultQc(), dt);

@@ -32,10 +32,6 @@ struct TGState {
     /// Identity/origin state: R=I, all vectors zero
     static TGState identity();
 
-    /// Compose two states (used internally for retract)
-    // NOTE: this is NOT standard group composition; it is manifold retraction
-    // TGState operator*(const TGState& other) const;
-
     /// Serialize T as a 5x5 SE_2(3) matrix
     Eigen::Matrix<double, 5, 5> T_matrix() const;
 

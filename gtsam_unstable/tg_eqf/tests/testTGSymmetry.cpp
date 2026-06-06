@@ -116,10 +116,10 @@ TEST(phi, IdentityStateGivesGroupNavigation) {
   EXPECT(veq(result.p, X.p_X));
   EXPECT(veq(result.v, X.v_X));
   // b = Ad_{C_X^{-1}}(0 - a) = -Ad_{C_X^{-1}}(a)
-  const se2_3 b_expected = X.Ad_AT_inv({-X.a.omega, -X.a.v_tilde, -X.a.a_tilde});
+  const se2_3 b_expected = X.Ad_A_inv({-X.a.omega, -X.a.v_tilde, -X.a.accel});
   EXPECT(veq(result.b_omega, b_expected.omega));
   EXPECT(veq(result.b_v,     b_expected.v_tilde));
-  EXPECT(veq(result.b_a,     b_expected.a_tilde));
+  EXPECT(veq(result.b_a,     b_expected.accel));
 }
 
 // Checks the navigation part of phi component-by-component:
@@ -143,11 +143,11 @@ TEST(phi, BiasPartIsCorrect) {
 
   const se2_3 b_diff = {xi.b_omega - X.a.omega,
                          xi.b_v     - X.a.v_tilde,
-                         xi.b_a     - X.a.a_tilde};
-  const se2_3 b_expected = X.Ad_AT_inv(b_diff);
+                         xi.b_a     - X.a.accel};
+  const se2_3 b_expected = X.Ad_A_inv(b_diff);
   EXPECT(veq(result.b_omega, b_expected.omega,   kTol));
   EXPECT(veq(result.b_v,     b_expected.v_tilde, kTol));
-  EXPECT(veq(result.b_a,     b_expected.a_tilde, kTol));
+  EXPECT(veq(result.b_a,     b_expected.accel, kTol));
 }
 
 // ---------------------------------------------------------------------------

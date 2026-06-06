@@ -4,10 +4,10 @@
 
 namespace {
 
-// 9x9 matrix representation of Ad_{C_X^{-1}} acting on se_2(3):
+// 9x9 matrix representation of Ad_{A_X^{-1}} acting on se_2(3):
 //   xi -> (R^T omega, R^T(eta - p x omega), R^T(alpha - v x omega))
 //
-//   Ad_{C^{-1}} = [ R^T           0    0  ]
+//   Ad_{A^{-1}} = [  R^T         0    0  ]
 //                 [ -R^T [p]^x   R^T  0  ]
 //                 [ -R^T [v]^x   0    R^T ]
 Eigen::Matrix<double, 9, 9> Ad9inv(const tgeqf::TGGroupElement& X) {
@@ -33,7 +33,7 @@ Eigen::Matrix<double, 9, 9> Ad9inv(const tgeqf::TGGroupElement& X) {
 Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
   const Eigen::Matrix3d Gw = gtsam::skewSymmetric(gamma.omega);
   const Eigen::Matrix3d Gv = gtsam::skewSymmetric(gamma.v_tilde);
-  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.a_tilde);
+  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.accel);
 
   Eigen::Matrix<double, 9, 9> M = Eigen::Matrix<double, 9, 9>::Zero();
   M.block<3, 3>(0, 0) = Gw;
@@ -51,31 +51,31 @@ namespace tgeqf {
 // ---------------------------------------------------------------------------
 // Standalone right group action
 //
-// phi(X, xi) = (T_xi * C_X,  Ad_{C_X^{-1}}(b_xi - a_X))
+// phi(X, xi) = (T_xi * A_X,  Ad_{A_X^{-1}}(b_xi - a_X))
 //
 // where:
-//   T_xi * C_X is the SE_2(3) product (R_xi*R_X, R_xi*p_X + p_xi, R_xi*v_X + v_xi)
+//   T_xi * A_X is the SE_2(3) product (R_xi*R_X, R_xi*p_X + p_xi, R_xi*v_X + v_xi)
 //   b_xi - a_X is the component-wise difference in se_2(3)
-//   Ad_{C_X^{-1}} is the adjoint of C_X inverse acting on se_2(3)
+//   Ad_{A_X^{-1}} is the adjoint of A_X inverse acting on se_2(3)
 //
 // Reference: Fornasier 2023 Lemma 4.1 / proposal Eq. (13)
 // ---------------------------------------------------------------------------
 TGState phi(const TGGroupElement& X, const TGState& xi) {
   TGState result;
 
-  // Navigation: T_xi * C_X
+  // Navigation: T_xi * A_X
   result.R = xi.R * X.R_X;
   result.p = xi.R.rotate(X.p_X) + xi.p;
   result.v = xi.R.rotate(X.v_X) + xi.v;
 
-  // Bias: Ad_{C_X^{-1}}(b_xi - a_X)
+  // Bias: Ad_{A_X^{-1}}(b_xi - a_X)
   const se2_3 b_diff = {xi.b_omega - X.a.omega,
                         xi.b_v     - X.a.v_tilde,
-                        xi.b_a     - X.a.a_tilde};
-  const se2_3 b_new  = X.Ad_AT_inv(b_diff);
+                        xi.b_a     - X.a.accel};
+  const se2_3 b_new  = X.Ad_A_inv(b_diff);
   result.b_omega = b_new.omega;
   result.b_v     = b_new.v_tilde;
-  result.b_a     = b_new.a_tilde;
+  result.b_a     = b_new.accel;
 
   return result;
 }
@@ -95,7 +95,7 @@ TGSymmetry::Orbit::Orbit(const TGState& xi_ref) : xi_ref(xi_ref) {}
 //   [  0_3          |  0_3       |  R_out     |  0_{3x9}  ]   delta_v_out
 //   [  ad9(b_out)   |  0_{9x3}   |  0_{9x3}   |  -I_9     ]   delta_b_out
 //
-// where R_out = (xi_ref.R * X.R_X).matrix(), and b_out = Ad_{C_X^{-1}}(b_xi - a_X).
+// where R_out = (xi_ref.R * X.R_X).matrix(), and b_out = Ad_{A_X^{-1}}(b_xi - a_X).
 TGState TGSymmetry::Orbit::operator()(const TGGroupElement& X,
                                       Eigen::Matrix<double, 18, 18>* H) const {
   const TGState result = phi(X, xi_ref);

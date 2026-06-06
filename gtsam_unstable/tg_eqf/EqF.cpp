@@ -13,7 +13,7 @@ void TGEqF::propagate(const Eigen::Vector3d& omega_meas,
 
   TGInput u;
   u.omega = omega_meas;
-  u.a_tilde = a_meas;
+  u.accel = a_meas;
   u.g_vec = g_vec;
   u.v_tilde = xi_hat.b_v;
   u.tau_omega = Eigen::Vector3d::Zero();

@@ -7,14 +7,14 @@ namespace tgeqf {
 
 /**
  * Lie algebra element of SE_2(3): se_2(3)
- * Represented as a 5x5 matrix or as a 9-vector [omega; v_tilde; a_tilde]
+ * Represented as a 5x5 matrix or as a 9-vector [omega; v_tilde; accel]
  *
  * Reference: proposal Eq. (7b)
  */
 struct se2_3 {
     Eigen::Vector3d omega;    // angular velocity component
     Eigen::Vector3d v_tilde;  // virtual velocity component
-    Eigen::Vector3d a_tilde;  // acceleration component
+    Eigen::Vector3d accel;  // acceleration component
 
     /// Pack to R^9 vector
     Eigen::Matrix<double, 9, 1> vector() const;
@@ -31,7 +31,7 @@ struct se2_3 {
 };
 
 /**
- * Element of the symmetry group G = SE_2(3) ⋉ se_2(3)  (Tangent Group of SE_2(3))
+ * Element of the symmetry group G = SE_2(3) ⋉ se_2(3)
  *
  * X = [A, a] where A in SE_2(3), a in se_2(3)
  *
@@ -41,7 +41,7 @@ struct se2_3 {
  * Reference: proposal Section 6.4, Fornasier et al. [1]
  */
 struct TGGroupElement {
-    // Navigation part: C in SE_2(3)
+    // Navigation part: A in SE_2(3)
     gtsam::Rot3     R_X;   // rotation component
     Eigen::Vector3d p_X;   // position component
     Eigen::Vector3d v_X;   // velocity component
@@ -62,14 +62,14 @@ struct TGGroupElement {
     /// Reference: proposal Eq. (11)
     TGGroupElement inverse() const;
 
-    /// Ad_{C} : se_2(3) -> se_2(3)  (adjoint of the SE_2(3) part on its Lie algebra)
-    /// Used in group product: (XY).a = a_X + Ad_{C_X}[a_Y]
-    se2_3 Ad_AT(const se2_3& xi) const;
+    /// Ad_{A} : se_2(3) -> se_2(3)  (adjoint of the SE_2(3) part on its Lie algebra)
+    /// Used in group product: (XY).a = a_X + Ad_{A_X}[a_Y]
+    se2_3 Ad_A(const se2_3& xi) const;
 
-    /// Ad_{C^{-1}} : se_2(3) -> se_2(3)
-    /// Used in group inverse: X^{-1}.a = -Ad_{C^{-1}}[a]
-    /// and in InputOrbit: psi(X, u)_w = Ad_{C^{-1}}(w - a^vee)
-    se2_3 Ad_AT_inv(const se2_3& xi) const;
+    /// Ad_{A^{-1}} : se_2(3) -> se_2(3)
+    /// Used in group inverse: X^{-1}.a = -Ad_{A^{-1}}[a]
+    /// and in InputOrbit: psi(X, u)_w = Ad_{A^{-1}}(w - a^vee)
+    se2_3 Ad_A_inv(const se2_3& xi) const;
 
     /// Exponential map: g -> G (from Lie algebra to group).
     /// NOTE: the se_2(3) fiber uses a first-order approximation (Xi ~ I), so
@@ -80,8 +80,8 @@ struct TGGroupElement {
     /// Logarithm map: G -> g (first-order fiber; see Expmap note).
     Eigen::Matrix<double, 18, 1> Logmap() const;
 
-    /// A_T as a 5x5 SE_2(3) matrix
-    Eigen::Matrix<double, 5, 5> AT_matrix() const;
+    /// A as a 5x5 SE_2(3) matrix
+    Eigen::Matrix<double, 5, 5> A_matrix() const;
 };
 
 } // namespace tgeqf

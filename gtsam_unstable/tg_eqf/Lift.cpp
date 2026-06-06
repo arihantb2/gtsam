@@ -9,7 +9,7 @@ namespace {
 Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
   const Eigen::Matrix3d Gw = gtsam::skewSymmetric(gamma.omega);
   const Eigen::Matrix3d Gv = gtsam::skewSymmetric(gamma.v_tilde);
-  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.a_tilde);
+  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.accel);
 
   Eigen::Matrix<double, 9, 9> M = Eigen::Matrix<double, 9, 9>::Zero();
   M.block<3, 3>(0, 0) = Gw;
@@ -23,7 +23,7 @@ Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
 // f_1^0(A^{-1}) in vee coordinates (Eq. 10): the velocity-drift matrix of the
 // inverse SE_2(3) part places the velocity of A^{-1} in the position slot.
 // v_{A^{-1}} = -R^T v_X, so vee = (0, -R^T v_X, 0).
-tgeqf::se2_3 f1AtCinv(const tgeqf::TGGroupElement& X) {
+tgeqf::se2_3 f1_A_inv(const tgeqf::TGGroupElement& X) {
   return {Eigen::Vector3d::Zero(), X.R_X.unrotate(-X.v_X),
           Eigen::Vector3d::Zero()};
 }
@@ -40,7 +40,7 @@ Eigen::Matrix<double, 21, 1> TGInput::vector() const {
   Eigen::Matrix<double, 21, 1> v;
   v.segment<3>(0)  = omega;
   v.segment<3>(3)  = v_tilde;
-  v.segment<3>(6)  = a_tilde;
+  v.segment<3>(6)  = accel;
   v.segment<3>(9)  = tau_omega;
   v.segment<3>(12) = tau_v;
   v.segment<3>(15) = tau_a;
@@ -52,7 +52,7 @@ TGInput TGInput::from_vector(const Eigen::Matrix<double, 21, 1>& v) {
   TGInput u;
   u.omega     = v.segment<3>(0);
   u.v_tilde   = v.segment<3>(3);
-  u.a_tilde   = v.segment<3>(6);
+  u.accel     = v.segment<3>(6);
   u.tau_omega = v.segment<3>(9);
   u.tau_v     = v.segment<3>(12);
   u.tau_a     = v.segment<3>(15);
@@ -65,7 +65,7 @@ TGInput TGInput::from_vector(const Eigen::Matrix<double, 21, 1>& v) {
 // ---------------------------------------------------------------------------
 
 Eigen::Matrix<double, 5, 5> Lift::W_matrix(const TGInput& u) const {
-  const se2_3 w = {u.omega, u.v_tilde, u.a_tilde};
+  const se2_3 w = {u.omega, u.v_tilde, u.accel};
   return w.wedge();
 }
 
@@ -81,6 +81,9 @@ Eigen::Matrix<double, 5, 5> Lift::G_matrix(const TGInput& u) const {
 
 // f1(T) (Eq. 5): 5x5 matrix with the global velocity v in the position column.
 // T^{-1} f1(T) then places R^T v in the position-rate slot, encoding dp = v.
+// Identity: T^{-1} f1(T) = N - T^{-1} N T, so this term replaces the paper's
+// +N + T^{-1}(G - N)T (Theorem 9, Eq. 21) with +T^{-1} G T + T^{-1} f1(T).
+// Position column is column 3 (0-indexed) under gtsam's T = (R, p, v) order.
 Eigen::Matrix<double, 5, 5> Lift::f1_matrix(const TGState& xi) const {
   Eigen::Matrix<double, 5, 5> F = Eigen::Matrix<double, 5, 5>::Zero();
   F.block<3, 1>(0, 3) = xi.v;
@@ -149,26 +152,26 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
 InputOrbit::InputOrbit(const TGInput& u) : u(u) {}
 
 TGInput InputOrbit::operator()(const TGGroupElement& X) const {
-  const se2_3 w = {u.omega, u.v_tilde, u.a_tilde};
+  const se2_3 w = {u.omega, u.v_tilde, u.accel};
   const se2_3 tau = {u.tau_omega, u.tau_v, u.tau_a};
 
   // w' = Ad_{C^{-1}}(w - a) + f_1^0(C^{-1})  (Eq. 10)
   const se2_3 w_minus_a = {w.omega - X.a.omega, w.v_tilde - X.a.v_tilde,
-                           w.a_tilde - X.a.a_tilde};
-  const se2_3 w_ad      = X.Ad_AT_inv(w_minus_a);
-  const se2_3 f1_inv    = f1AtCinv(X);
+                           w.accel - X.a.accel};
+  const se2_3 w_ad      = X.Ad_A_inv(w_minus_a);
+  const se2_3 f1_inv    = f1_A_inv(X);
   const se2_3 w_out     = {w_ad.omega, w_ad.v_tilde + f1_inv.v_tilde,
-                           w_ad.a_tilde};
+                           w_ad.accel};
 
-  const se2_3 tau_out = X.Ad_AT_inv(tau);
+  const se2_3 tau_out = X.Ad_A_inv(tau);
 
   TGInput result;
   result.omega     = w_out.omega;
   result.v_tilde   = w_out.v_tilde;
-  result.a_tilde   = w_out.a_tilde;
+  result.accel   = w_out.accel;
   result.tau_omega = tau_out.omega;
   result.tau_v     = tau_out.v_tilde;
-  result.tau_a     = tau_out.a_tilde;
+  result.tau_a     = tau_out.accel;
   result.g_vec     = u.g_vec;
   return result;
 }

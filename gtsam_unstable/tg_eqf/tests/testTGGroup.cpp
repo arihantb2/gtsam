@@ -55,7 +55,7 @@ TEST(se2_3, VectorRoundTrip) {
               Eigen::Vector3d(7, 8, 9)};
   EXPECT(veq(xi.omega,   se2_3::from_vector(xi.vector()).omega));
   EXPECT(veq(xi.v_tilde, se2_3::from_vector(xi.vector()).v_tilde));
-  EXPECT(veq(xi.a_tilde, se2_3::from_vector(xi.vector()).a_tilde));
+  EXPECT(veq(xi.accel, se2_3::from_vector(xi.vector()).accel));
 }
 
 // Checks that wedge() followed by vee() recovers the original se_2(3) element.
@@ -66,10 +66,10 @@ TEST(se2_3, WedgeVeeRoundTrip) {
   se2_3 recovered = se2_3::vee(xi.wedge());
   EXPECT(veq(xi.omega,   recovered.omega));
   EXPECT(veq(xi.v_tilde, recovered.v_tilde));
-  EXPECT(veq(xi.a_tilde, recovered.a_tilde));
+  EXPECT(veq(xi.accel, recovered.accel));
 }
 
-// Checks that wedge() places omega in the 3x3 skew block, v_tilde and a_tilde
+// Checks that wedge() places omega in the 3x3 skew block, v_tilde and accel
 // in columns 3 and 4, and zeros in the bottom two rows.
 TEST(se2_3, WedgeStructure) {
   se2_3 xi = {Eigen::Vector3d(1, 0, 0), Eigen::Vector3d(0, 1, 0),
@@ -79,7 +79,7 @@ TEST(se2_3, WedgeStructure) {
   EXPECT(meq(W.block<3,3>(0,0), Rot3::Hat(xi.omega)));
   // Translation columns
   EXPECT(veq(xi.v_tilde, W.block<3,1>(0,3)));
-  EXPECT(veq(xi.a_tilde, W.block<3,1>(0,4)));
+  EXPECT(veq(xi.accel, W.block<3,1>(0,4)));
   // Bottom rows zero
   EXPECT(meq(W.block<2,5>(3,0), Eigen::Matrix<double,2,5>::Zero()));
 }
@@ -89,7 +89,7 @@ TEST(se2_3, WedgeStructure) {
 // ---------------------------------------------------------------------------
 
 // Checks that Identity() has R_X=I, all translation vectors zero, and
-// all fiber components (a.omega, a.v_tilde, a.a_tilde) zero.
+// all fiber components (a.omega, a.v_tilde, a.accel) zero.
 TEST(TGGroupElement, Identity) {
   auto I = TGGroupElement::Identity();
   EXPECT(I.R_X.equals(Rot3::Identity(), kTol));
@@ -97,7 +97,7 @@ TEST(TGGroupElement, Identity) {
   EXPECT(veq(I.v_X, Eigen::Vector3d::Zero()));
   EXPECT(veq(I.a.omega,   Eigen::Vector3d::Zero()));
   EXPECT(veq(I.a.v_tilde, Eigen::Vector3d::Zero()));
-  EXPECT(veq(I.a.a_tilde, Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.a.accel, Eigen::Vector3d::Zero()));
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ TEST(TGGroupElement, Identity) {
 
 // Checks that AT_matrix() at the group identity returns the 5x5 identity matrix.
 TEST(TGGroupElement, ATMatrixAtIdentityIsI5) {
-  auto T = TGGroupElement::Identity().AT_matrix();
+  auto T = TGGroupElement::Identity().A_matrix();
   EXPECT(meq(T, Eigen::Matrix<double,5,5>::Identity()));
 }
 
@@ -114,7 +114,7 @@ TEST(TGGroupElement, ATMatrixAtIdentityIsI5) {
 // 1s at (3,3) and (4,4), and zeros in the bottom-left 2x3 block.
 TEST(TGGroupElement, ATMatrixBlocks) {
   auto X = makeX();
-  auto T = X.AT_matrix();
+  auto T = X.A_matrix();
   EXPECT(meq(X.R_X.matrix(), T.block<3,3>(0,0)));
   EXPECT(veq(X.p_X, T.block<3,1>(0,3)));
   EXPECT(veq(X.v_X, T.block<3,1>(0,4)));
@@ -171,30 +171,30 @@ TEST(TGGroupElement, GroupProductAssociativity) {
 // Adjoint maps
 // ---------------------------------------------------------------------------
 
-// Checks that Ad_AT_inv(Ad_AT(xi)) == xi, confirming the two adjoints are
+// Checks that Ad_A_inv(Ad_A(xi)) == xi, confirming the two adjoints are
 // exact inverses of each other on se_2(3).
 TEST(TGGroupElement, AdATAndAdATInvAreInverses) {
   auto X  = makeX();
   se2_3 xi = {Eigen::Vector3d(0.1,-0.2,0.3),
                Eigen::Vector3d(1,2,3), Eigen::Vector3d(-1,0,0.5)};
-  se2_3 round_trip = X.Ad_AT_inv(X.Ad_AT(xi));
+  se2_3 round_trip = X.Ad_A_inv(X.Ad_A(xi));
   EXPECT(veq(xi.omega,   round_trip.omega,   kTolL));
   EXPECT(veq(xi.v_tilde, round_trip.v_tilde, kTolL));
-  EXPECT(veq(xi.a_tilde, round_trip.a_tilde, kTolL));
+  EXPECT(veq(xi.accel, round_trip.accel, kTolL));
 }
 
-// Checks that Ad_{XY}[xi] == Ad_X[Ad_Y[xi]], confirming Ad_AT is a group
+// Checks that Ad_{XY}[xi] == Ad_X[Ad_Y[xi]], confirming Ad_A is a group
 // homomorphism from G_TG into GL(se_2(3)).
 TEST(TGGroupElement, AdATSatisfiesGroupProductHomomorphism) {
   // Ad_{XY}[xi] == Ad_X[Ad_Y[xi]]
   auto X  = makeX(), Y = makeY();
   se2_3 xi = {Eigen::Vector3d(0.2,0.1,-0.1),
                Eigen::Vector3d(0.5,-1,0), Eigen::Vector3d(0,0.3,-0.2)};
-  auto lhs = (X * Y).Ad_AT(xi);
-  auto rhs = X.Ad_AT(Y.Ad_AT(xi));
+  auto lhs = (X * Y).Ad_A(xi);
+  auto rhs = X.Ad_A(Y.Ad_A(xi));
   EXPECT(veq(lhs.omega,   rhs.omega,   kTolL));
   EXPECT(veq(lhs.v_tilde, rhs.v_tilde, kTolL));
-  EXPECT(veq(lhs.a_tilde, rhs.a_tilde, kTolL));
+  EXPECT(veq(lhs.accel, rhs.accel, kTolL));
 }
 
 // ---------------------------------------------------------------------------
