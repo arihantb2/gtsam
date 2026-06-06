@@ -40,3 +40,4 @@ gtsam_unstable/tg_eqf/docs
 gtsam_unstable/tfg_inekf/docs
 *.png
 *.csv
+.antigravitycli

@@ -26,7 +26,8 @@ inline Matrix3 skew(const Vector3& w) { return gtsam::skewSymmetric(w); }
 Matrix3 leftJacobian(const Vector3& phi) {
   const double t2 = phi.squaredNorm();
   const Matrix3 W = skew(phi);
-  if (t2 < 1e-12) return Matrix3::Identity() + 0.5 * W;  // 1st-order limit
+  // t2 < 1e-8 (t < 1e-4) avoids catastrophic cancellation in 1-cos(t)
+  if (t2 < 1e-8) return Matrix3::Identity() + 0.5 * W;  // 1st-order limit
   const double t = std::sqrt(t2);
   const double a = (1.0 - std::cos(t)) / t2;
   const double b = (t - std::sin(t)) / (t2 * t);
@@ -38,7 +39,8 @@ Matrix3 leftJacobian(const Vector3& phi) {
 Matrix3 leftJacobianInverse(const Vector3& phi) {
   const double t2 = phi.squaredNorm();
   const Matrix3 W = skew(phi);
-  if (t2 < 1e-12) return Matrix3::Identity() - 0.5 * W;  // 1st-order limit
+  // t2 < 1e-8 avoids catastrophic cancellation
+  if (t2 < 1e-8) return Matrix3::Identity() - 0.5 * W;  // 1st-order limit
   const double t = std::sqrt(t2);
   const double half = 0.5 * t;
   const double alpha = half * std::cos(half) / std::sin(half);

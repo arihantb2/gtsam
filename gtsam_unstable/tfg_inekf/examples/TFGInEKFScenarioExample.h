@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -45,6 +46,9 @@ struct RunOptions {
   double init_sigma = 0.1;         // initial covariance: P0 = init_sigma^2 I
   unsigned seed = 42;              // RNG seed (vary for Monte Carlo)
   int log_decim = 1;               // log every Nth step
+
+  double pos_rate = 0.0;           // Hz
+  double pos_noise_sigma = 0.0;    // m
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -84,6 +88,8 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     else if (a == "--init-sigma" && i + 1 < argc) o.init_sigma = std::stod(next());
     else if (a == "--log-decim" && i + 1 < argc) o.log_decim = std::max(1, std::stoi(next()));
     else if (a == "--seed" && i + 1 < argc) o.seed = static_cast<unsigned>(std::stoul(next()));
+    else if (a == "--pos-rate" && i + 1 < argc) o.pos_rate = std::stod(next());
+    else if (a == "--pos-noise" && i + 1 < argc) o.pos_noise_sigma = std::stod(next());
   }
   return o;
 }
@@ -202,8 +208,18 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   const size_t num_steps =
       static_cast<size_t>(std::llround(opts.duration / opts.dt));
 
+  double next_pos_t = (opts.pos_rate > 0.0) ? (1.0 / opts.pos_rate) : std::numeric_limits<double>::infinity();
+
   for (size_t k = 0; k <= num_steps; ++k) {
     const gtsam::NavState gt = scenario.navState(t);
+
+    if (opts.pos_rate > 0.0 && t >= next_pos_t - 1e-9) {
+      Eigen::Vector3d pos_meas = gt.position() + sampleNoise(opts.pos_noise_sigma);
+      Eigen::Matrix3d R_pos = opts.pos_noise_sigma * opts.pos_noise_sigma * Eigen::Matrix3d::Identity();
+      filter.update_position(pos_meas, R_pos);
+      next_pos_t += 1.0 / opts.pos_rate;
+    }
+
     const Eigen::Vector3d est_p = filter.position();
     const Eigen::Vector3d est_v = filter.velocity();
 

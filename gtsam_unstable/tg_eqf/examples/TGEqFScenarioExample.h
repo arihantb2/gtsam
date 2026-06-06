@@ -39,6 +39,8 @@ struct RunOptions {
   double init_sigma = 0.1;         // initial state stddev: Sigma0 = init_sigma^2 I
   unsigned seed = 42;              // RNG seed for noise (vary it for Monte Carlo)
   int log_decim = 1;               // log every Nth step (1 = every step)
+  double pos_rate = 0.0;           // GNSS position update rate in Hz (0 = disabled)
+  double pos_noise_sigma = 0.1;    // Position measurement noise stddev (m)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -90,6 +92,10 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.log_decim = std::max(1, std::stoi(argv[++i]));
     } else if (arg == "--seed" && i + 1 < argc) {
       opts.seed = static_cast<unsigned>(std::stoul(argv[++i]));
+    } else if (arg == "--pos-rate" && i + 1 < argc) {
+      opts.pos_rate = std::stod(argv[++i]);
+    } else if (arg == "--pos-noise" && i + 1 < argc) {
+      opts.pos_noise_sigma = std::stod(argv[++i]);
     }
   }
   return opts;
@@ -278,8 +284,19 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   const size_t num_steps =
       static_cast<size_t>(std::llround(opts.duration / opts.dt));
 
+  double next_pos_time = (opts.pos_rate > 0.0) ? (1.0 / opts.pos_rate) : -1.0;
+
   for (size_t k = 0; k <= num_steps; ++k) {
     const gtsam::NavState gt = scenario.navState(t);
+
+    if (opts.pos_rate > 0.0 && t >= next_pos_time - 1e-5) {
+      const Eigen::Vector3d true_pos = gt.position();
+      const Eigen::Vector3d pos_meas = true_pos + sampleNoise(opts.pos_noise_sigma);
+      const TGEqF::Covariance3 R_pos =
+          opts.pos_noise_sigma * opts.pos_noise_sigma * TGEqF::Covariance3::Identity();
+      filter.update_position(pos_meas, R_pos, true);
+      next_pos_time += 1.0 / opts.pos_rate;
+    }
 
     // Estimate comes straight from the filter; the lift already integrates
     // position into the group element (no separate dead-reckoning needed).
