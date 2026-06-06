@@ -38,6 +38,7 @@ timing/results/bayes_tree_covariance/
 # TG-EqF docs and outputs
 gtsam_unstable/tg_eqf/docs
 gtsam_unstable/tfg_inekf/docs
+gtsam_unstable/mekf/docs
 *.png
 *.csv
 .antigravitycli

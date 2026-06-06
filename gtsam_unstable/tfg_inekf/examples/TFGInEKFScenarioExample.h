@@ -47,8 +47,8 @@ struct RunOptions {
   unsigned seed = 42;              // RNG seed (vary for Monte Carlo)
   int log_decim = 1;               // log every Nth step
 
-  double pos_rate = 0.0;           // Hz
-  double pos_noise_sigma = 0.0;    // m
+  double pos_rate = 0.0;           // GNSS position update rate (Hz); 0 = IMU-only
+  double pos_noise_sigma = 0.1;    // position measurement noise stddev (m)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).

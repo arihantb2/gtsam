@@ -24,6 +24,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -50,9 +51,9 @@ struct RunOptions {
   int log_decim = 1;               // log every Nth step
 
   // GNSS-like position aiding. pos_rate > 0 enables position updates; the fix is
-  // ground-truth position corrupted by zero-mean Gaussian noise (stddev pos_noise).
-  double pos_rate = 0.0;           // position-fix rate (Hz); 0 = IMU-only
-  double pos_noise = 0.5;          // position measurement stddev (m)
+  // ground-truth position corrupted by zero-mean Gaussian noise (pos_noise_sigma).
+  double pos_rate = 0.0;           // GNSS position update rate (Hz); 0 = IMU-only
+  double pos_noise_sigma = 0.1;    // position measurement noise stddev (m)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -93,7 +94,7 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     else if (a == "--log-decim" && i + 1 < argc) o.log_decim = std::max(1, std::stoi(next()));
     else if (a == "--seed" && i + 1 < argc) o.seed = static_cast<unsigned>(std::stoul(next()));
     else if (a == "--pos-rate" && i + 1 < argc) o.pos_rate = std::stod(next());
-    else if (a == "--pos-noise" && i + 1 < argc) o.pos_noise = std::stod(next());
+    else if (a == "--pos-noise" && i + 1 < argc) o.pos_noise_sigma = std::stod(next());
   }
   return o;
 }
@@ -155,7 +156,6 @@ inline void writeCsvRow(std::ostream& out, double t, const gtsam::NavState& gt,
 
 struct RunSummary {
   size_t num_samples = 0;
-  size_t num_pos_updates = 0;
   double final_pos_error = 0.0;
   double final_vel_error = 0.0;
   double rms_pos_error = 0.0;
@@ -203,16 +203,6 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   if (opts.accel_bias_rw > 0.0)
     Qc.block<3, 3>(12, 12) = opts.accel_bias_rw * opts.accel_bias_rw * I3;
 
-  // GNSS-like position aiding schedule. pos_rate > 0 enables updates; apply one
-  // every `pos_interval` steps with measurement noise R_pos = pos_noise^2 I.
-  const bool use_pos = opts.pos_rate > 0.0;
-  const size_t pos_interval =
-      use_pos ? std::max<size_t>(
-                    1, static_cast<size_t>(std::llround(
-                           1.0 / (opts.pos_rate * opts.dt))))
-              : 0;
-  const Eigen::Matrix3d R_pos = opts.pos_noise * opts.pos_noise * I3;
-
   std::ofstream csv(opts.output_path);
   if (!csv) throw std::runtime_error("Cannot open output file: " + opts.output_path);
   csv << csvHeader();
@@ -223,8 +213,24 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   const size_t num_steps =
       static_cast<size_t>(std::llround(opts.duration / opts.dt));
 
+  // GNSS-like position aiding: apply a fix every 1/pos_rate seconds (continuous-
+  // time schedule, robust to rates that do not divide dt). pos_rate > 0 enables.
+  double next_pos_t = (opts.pos_rate > 0.0)
+                          ? (1.0 / opts.pos_rate)
+                          : std::numeric_limits<double>::infinity();
+
   for (size_t k = 0; k <= num_steps; ++k) {
     const gtsam::NavState gt = scenario.navState(t);
+
+    if (opts.pos_rate > 0.0 && t >= next_pos_t - 1e-9) {
+      const Eigen::Vector3d pos_meas =
+          Eigen::Vector3d(gt.position()) + sampleNoise(opts.pos_noise_sigma);
+      const Eigen::Matrix3d R_pos =
+          opts.pos_noise_sigma * opts.pos_noise_sigma * I3;
+      filter.update_position(pos_meas, R_pos);
+      next_pos_t += 1.0 / opts.pos_rate;
+    }
+
     const Eigen::Vector3d est_p = filter.position();
     const Eigen::Vector3d est_v = filter.velocity();
 
@@ -254,15 +260,6 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
     if (accel_rw_step > 0.0)
       accel_b += accel_rw_step * Eigen::Vector3d(normal(rng), normal(rng), normal(rng));
     t += opts.dt;
-
-    // GNSS-like position fix at the propagated time t (ground truth + noise).
-    if (use_pos && ((k + 1) % pos_interval == 0)) {
-      const Eigen::Vector3d pi =
-          Eigen::Vector3d(scenario.navState(t).position()) +
-          sampleNoise(opts.pos_noise);
-      filter.update_position(pi, R_pos);
-      ++summary.num_pos_updates;
-    }
   }
 
   if (summary.num_samples > 0) {
@@ -273,8 +270,6 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   std::cout << scenario_name << " scenario complete.\n"
             << "  output: " << opts.output_path << '\n'
             << "  samples: " << summary.num_samples << '\n'
-            << "  position updates: " << summary.num_pos_updates
-            << (use_pos ? "" : " (IMU-only)") << '\n'
             << std::fixed << std::setprecision(6)
             << "  final position error (m): " << summary.final_pos_error << '\n'
             << "  final velocity error (m/s): " << summary.final_vel_error << '\n'
