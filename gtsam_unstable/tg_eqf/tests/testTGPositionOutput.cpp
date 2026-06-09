@@ -26,22 +26,22 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 static TGState makeXi() {
   TGState xi;
   xi.R       = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.p       = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.v       = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_omega = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_v     = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_a     = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v       = Eigen::Vector3d(1.0, -2.0, 0.5);
+  xi.p       = Eigen::Vector3d(0.3,  0.1, -0.4);
+  xi.b_w     = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi.b_a     = Eigen::Vector3d(-0.1,  0.05, 0.0);
+  xi.b_v     = Eigen::Vector3d(0.0,   0.1, -0.05);
   return xi;
 }
 
 static TGGroupElement makeX() {
   TGGroupElement X;
-  X.R_X = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.p_X = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.v_X = Eigen::Vector3d(0.3, 0.1, -0.4);
+  X.R     = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v     = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p     = Eigen::Vector3d(0.3,  0.1, -0.4);
   X.a   = {Eigen::Vector3d(0.1, -0.1, 0.05),
-            Eigen::Vector3d(-0.2, 0.3, 0.0),
-            Eigen::Vector3d(0.0, 0.1, -0.1)};
+           Eigen::Vector3d(-0.2, 0.3, 0.0),
+           Eigen::Vector3d(0.0, 0.1, -0.1)};
   return X;
 }
 
@@ -100,7 +100,7 @@ TEST(PositionOutput, OutputActionAtIdentityIsNoop) {
 TEST(PositionOutput, OutputActionMatchesFormula) {
   const TGGroupElement X = makeX();
   const Eigen::Vector3d y(0.3, -0.1, 0.2);
-  const Eigen::Vector3d expected = X.R_X.unrotate(y - X.p_X);
+  const Eigen::Vector3d expected = X.R.unrotate(y - X.p);
   EXPECT(veq(expected, PositionMeasurement::output_action(X, y)));
 }
 
@@ -162,7 +162,7 @@ TEST(PositionOutput, JacobianC0AtIdentity) {
   const TGState xi_ref = TGState::identity();
   Eigen::Matrix<double, 3, 18> expected =
       Eigen::Matrix<double, 3, 18>::Zero();
-  expected.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity();
+  expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   EXPECT(meq(expected, PositionMeasurement::jacobian_C0(xi_ref)));
 }
 
@@ -177,7 +177,7 @@ TEST(PositionOutput, JacobianC0PositionBlockMatchesNumerical) {
   // C0 is first-order at the fixed origin: rotation block is zero by design.
   EXPECT(meq(H_anal.block<3, 3>(0, 0),
              Eigen::Matrix3d::Zero(), kTol));
-  EXPECT(meq(H_anal.block<3, 3>(0, 3), H_num.block<3, 3>(0, 3), 1e-5));
+  EXPECT(meq(H_anal.block<3, 3>(0, 6), H_num.block<3, 3>(0, 6), 1e-5));
 }
 
 TEST(PositionOutput, JacobianCstarMatchesDocumentedFormula) {
@@ -189,7 +189,7 @@ TEST(PositionOutput, JacobianCstarMatchesDocumentedFormula) {
       Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 0) =
       0.5 * gtsam::skewSymmetric(y + xi.p);
-  expected.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity();
+  expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
 
   EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi, pi)));
 }
@@ -201,7 +201,7 @@ TEST(PositionOutput, JacobianCstarAtIdentityWithPi) {
       Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 0) =
       0.5 * gtsam::skewSymmetric(pi);
-  expected.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity();
+  expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi, pi)));
 }
 

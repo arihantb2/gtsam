@@ -9,8 +9,8 @@ namespace tgeqf {
  * Physical manifold state for the TG-EqF biased INS.
  *
  * xi = [T, b] in M := SE_2(3) x R^9
- * T = [R, p, v] in SE_2(3)
- * b = [b_omega, b_v, b_a] in R^9
+ * T = [R, v, p] in SE_2(3)
+ * b = [b_w, b_a, b_v] in R^9
  *
  * dim(M) = 9 (SE_2(3)) + 9 (biases) = 18
  *
@@ -19,23 +19,23 @@ namespace tgeqf {
 struct TGState {
     // Navigation states
     gtsam::Rot3     R;   // SO(3): body orientation
-    Eigen::Vector3d p;   // R^3:   position in global frame
     Eigen::Vector3d v;   // R^3:   velocity in global frame
+    Eigen::Vector3d p;   // R^3:   position in global frame
 
     // IMU bias states (body frame)
-    Eigen::Vector3d b_omega;  // gyroscope bias
-    Eigen::Vector3d b_v;      // virtual velocity bias (from TG extension)
+    Eigen::Vector3d b_w;      // gyroscope bias
     Eigen::Vector3d b_a;      // accelerometer bias
+    Eigen::Vector3d b_v;      // virtual velocity bias (from TG extension)
 
     static constexpr int dimension = 18;
 
     /// Identity/origin state: R=I, all vectors zero
     static TGState identity();
 
-    /// Serialize T as a 5x5 SE_2(3) matrix
+    /// Serialize T = [R, v, p] as a 5x5 SE_2(3) matrix
     Eigen::Matrix<double, 5, 5> T_matrix() const;
 
-    /// Pack bias vector b = [b_omega; b_v; b_a] in R^9
+    /// Pack bias vector b = [b_w, b_a, b_v] as a 9x1 vector
     Eigen::Matrix<double, 9, 1> bias_vector() const;
 };
 
@@ -60,7 +60,7 @@ struct traits<tgeqf::TGState> {
 
     /// xi_ref (+) delta -> new state on M
     /// Retraction: apply a tangent perturbation at identity origin
-    /// delta = [delta_R (3); delta_p (3); delta_v (3); delta_b (9)]
+    /// delta = [delta_R (3); delta_v (3); delta_p (3); delta_b (9)]
     static tgeqf::TGState Retract(
         const tgeqf::TGState& xi,
         const TangentVector& delta);

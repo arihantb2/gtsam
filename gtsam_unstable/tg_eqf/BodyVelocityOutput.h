@@ -38,11 +38,11 @@ struct DVLMeasurement {
      *   d(h_d)/d(delta_v) =  R^T
      *
      * At identity origin (R=I, v=0):
-     *   H_d = [0_{3x3}  0_{3x3}  I_3  0_{3x9}]
+     *   H_d = [0_{3x3}  I_3  0_{3x3}  0_{3x9}]
      *
      * Layout of epsilon (18-vector):
-     *   [delta_R(3), delta_p(3), delta_v(3), delta_b_omega(3),
-     *    delta_b_v(3), delta_b_a(3)]
+     *   [delta_R(3), delta_v(3), delta_p(3), delta_b_omega(3),
+     *    delta_b_a(3), delta_b_v(3)]
      */
     static Eigen::Matrix<double, 3, 18> jacobian(const TGState& xi_ref);
 

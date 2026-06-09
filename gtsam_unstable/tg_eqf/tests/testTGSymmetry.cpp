@@ -30,34 +30,34 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 static TGState makeXi() {
   TGState xi;
   xi.R       = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.p       = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.v       = Eigen::Vector3d(0.3,  0.1, -0.4);
-  xi.b_omega = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_v     = Eigen::Vector3d(-0.1,  0.05, 0.0);
-  xi.b_a     = Eigen::Vector3d(0.0,   0.1, -0.05);
+  xi.v       = Eigen::Vector3d(1.0, -2.0, 0.5);
+  xi.p       = Eigen::Vector3d(0.3,  0.1, -0.4);
+  xi.b_w     = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi.b_a     = Eigen::Vector3d(-0.1,  0.05, 0.0);
+  xi.b_v     = Eigen::Vector3d(0.0,   0.1, -0.05);
   return xi;
 }
 
 // Non-trivial group element
 static TGGroupElement makeX() {
   TGGroupElement X;
-  X.R_X = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.p_X = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.v_X = Eigen::Vector3d(0.3,  0.1, -0.4);
-  X.a   = {Eigen::Vector3d(0.1, -0.1, 0.05),
-            Eigen::Vector3d(-0.2, 0.3, 0.0),
-            Eigen::Vector3d(0.0,  0.1, -0.1)};
+  X.R     = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v     = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p     = Eigen::Vector3d(0.3,  0.1, -0.4);
+  X.a     = {Eigen::Vector3d(0.1, -0.1, 0.05),
+             Eigen::Vector3d(-0.2, 0.3, 0.0),
+             Eigen::Vector3d(0.0,  0.1, -0.1)};
   return X;
 }
 
 static TGGroupElement makeY() {
   TGGroupElement Y;
-  Y.R_X = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
-  Y.p_X = Eigen::Vector3d(-0.5, 1.0, 2.0);
-  Y.v_X = Eigen::Vector3d(0.2, -0.3, 0.1);
-  Y.a   = {Eigen::Vector3d(0.05, 0.0, -0.05),
-            Eigen::Vector3d(0.1, -0.1, 0.2),
-            Eigen::Vector3d(-0.1, 0.0, 0.05)};
+  Y.R     = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
+  Y.v     = Eigen::Vector3d(-0.5, 1.0, 2.0);
+  Y.p     = Eigen::Vector3d(0.2, -0.3, 0.1);
+  Y.a     = {Eigen::Vector3d(0.05, 0.0, -0.05),
+             Eigen::Vector3d(0.1, -0.1, 0.2),
+             Eigen::Vector3d(-0.1, 0.0, 0.05)};
   return Y;
 }
 
@@ -111,15 +111,16 @@ TEST(phi, IdentityStateGivesGroupNavigation) {
   const TGState result = phi(X, xi0);
 
   // R = I * R_X = R_X
-  EXPECT(result.R.equals(X.R_X, kTol));
+  EXPECT(result.R.equals(X.R, kTol));
+  // v = I*v_X + 0 = v_X
+  EXPECT(veq(result.v, X.v));
   // p = I*p_X + 0 = p_X
-  EXPECT(veq(result.p, X.p_X));
-  EXPECT(veq(result.v, X.v_X));
-  // b = Ad_{C_X^{-1}}(0 - a) = -Ad_{C_X^{-1}}(a)
-  const se2_3 b_expected = X.Ad_A_inv({-X.a.omega, -X.a.v_tilde, -X.a.accel});
-  EXPECT(veq(result.b_omega, b_expected.omega));
-  EXPECT(veq(result.b_v,     b_expected.v_tilde));
-  EXPECT(veq(result.b_a,     b_expected.accel));
+  EXPECT(veq(result.p, X.p));
+  // b = Ad_{A_X^{-1}}(0 - a) = -Ad_{A_X^{-1}}(a)
+  const se2_3 b_expected = X.Ad_A_inv({-X.a.w, -X.a.a, -X.a.v});
+  EXPECT(veq(result.b_w, b_expected.w));
+  EXPECT(veq(result.b_a, b_expected.a));
+  EXPECT(veq(result.b_v, b_expected.v));
 }
 
 // Checks the navigation part of phi component-by-component:
@@ -129,25 +130,25 @@ TEST(phi, NavigationPartIsCorrect) {
   const TGState xi = makeXi();
   const TGState result = phi(X, xi);
 
-  EXPECT(result.R.equals(xi.R * X.R_X, kTol));
-  EXPECT(veq(result.p, xi.R.rotate(X.p_X) + xi.p));
-  EXPECT(veq(result.v, xi.R.rotate(X.v_X) + xi.v));
+  EXPECT(result.R.equals(xi.R * X.R, kTol));
+  EXPECT(veq(result.v, xi.R.rotate(X.v) + xi.v));
+  EXPECT(veq(result.p, xi.R.rotate(X.p) + xi.p));
 }
 
 // Checks the bias part of phi component-by-component:
-// b_new = Ad_{C_X^{-1}}(b_xi - a_X), confirming the adjoint-shift formula.
+// b_new = Ad_{A_X^{-1}}(b_xi - a_X), confirming the adjoint-shift formula.
 TEST(phi, BiasPartIsCorrect) {
   const TGGroupElement X = makeX();
   const TGState xi = makeXi();
   const TGState result = phi(X, xi);
 
-  const se2_3 b_diff = {xi.b_omega - X.a.omega,
-                         xi.b_v     - X.a.v_tilde,
-                         xi.b_a     - X.a.accel};
+  const se2_3 b_diff = {xi.b_w - X.a.w,
+                        xi.b_a - X.a.a,
+                        xi.b_v - X.a.v};
   const se2_3 b_expected = X.Ad_A_inv(b_diff);
-  EXPECT(veq(result.b_omega, b_expected.omega,   kTol));
-  EXPECT(veq(result.b_v,     b_expected.v_tilde, kTol));
-  EXPECT(veq(result.b_a,     b_expected.accel, kTol));
+  EXPECT(veq(result.b_w, b_expected.w,   kTol));
+  EXPECT(veq(result.b_a, b_expected.a, kTol));
+  EXPECT(veq(result.b_v, b_expected.v, kTol));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,64 +1,6 @@
 #include <gtsam_unstable/tg_eqf/Group.h>
 
-#include <gtsam/geometry/ExtendedPose3.h>
-#include <gtsam/geometry/ExtendedPose3-inl.h>
 #include <iostream>
-
-namespace {
-
-// SE_2(3) = ExtendedPose3<2>. Tangent vector is [omega; eta; alpha] in R^9.
-using Se23 = gtsam::ExtendedPose3<2>;
-
-Se23 toSe23(const tgeqf::TGGroupElement& X) {
-  Eigen::Matrix<double, 3, 2> pv;
-  pv.col(0) = X.p_X;
-  pv.col(1) = X.v_X;
-  return Se23(X.R_X, pv);
-}
-
-// 9x9 Adjoint of a SE_2(3) element on se_2(3):
-// Ad_{(R,p,v)}(omega, eta, alpha) = (R*omega, R*eta + p×(R*omega), R*alpha + v×(R*omega))
-//
-//   Ad_C = [ R        0   0 ]
-//           [ p^× R   R   0 ]
-//           [ v^× R   0   R ]
-Eigen::Matrix<double, 9, 9> Ad9(const tgeqf::TGGroupElement& X) {
-  const Eigen::Matrix3d R  = X.R_X.matrix();
-  const Eigen::Matrix3d pR = gtsam::skewSymmetric(X.p_X) * R;
-  const Eigen::Matrix3d vR = gtsam::skewSymmetric(X.v_X) * R;
-
-  Eigen::Matrix<double, 9, 9> A = Eigen::Matrix<double, 9, 9>::Zero();
-  A.block<3, 3>(0, 0) = R;
-  A.block<3, 3>(3, 0) = pR;
-  A.block<3, 3>(3, 3) = R;
-  A.block<3, 3>(6, 0) = vR;
-  A.block<3, 3>(6, 6) = R;
-  return A;
-}
-
-// 9x9 adjoint representation of gamma in se_2(3):
-// ad_gamma(xi) = [gamma, xi] = (gamma_w x xi_w,
-//                                gamma_w x xi_v + gamma_v x xi_w,
-//                                gamma_w x xi_a + gamma_a x xi_w)
-//
-//   ad_gamma = [ gw^×    0     0   ]
-//              [ gv^×   gw^×   0   ]
-//              [ ga^×    0    gw^× ]
-Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& gamma) {
-  const Eigen::Matrix3d Gw = gtsam::skewSymmetric(gamma.omega);
-  const Eigen::Matrix3d Gv = gtsam::skewSymmetric(gamma.v_tilde);
-  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(gamma.accel);
-
-  Eigen::Matrix<double, 9, 9> M = Eigen::Matrix<double, 9, 9>::Zero();
-  M.block<3, 3>(0, 0) = Gw;
-  M.block<3, 3>(3, 0) = Gv;
-  M.block<3, 3>(3, 3) = Gw;
-  M.block<3, 3>(6, 0) = Ga;
-  M.block<3, 3>(6, 6) = Gw;
-  return M;
-}
-
-}  // namespace
 
 namespace tgeqf {
 
@@ -67,11 +9,11 @@ namespace tgeqf {
 // ============================================================
 
 Eigen::Matrix<double, 9, 1> se2_3::vector() const {
-  Eigen::Matrix<double, 9, 1> v;
-  v.segment<3>(0) = omega;
-  v.segment<3>(3) = v_tilde;
-  v.segment<3>(6) = accel;
-  return v;
+  Eigen::Matrix<double, 9, 1> result;
+  result.segment<3>(0) = w;
+  result.segment<3>(3) = a;
+  result.segment<3>(6) = v;
+  return result;
 }
 
 se2_3 se2_3::from_vector(const Eigen::Matrix<double, 9, 1>& v) {
@@ -80,9 +22,9 @@ se2_3 se2_3::from_vector(const Eigen::Matrix<double, 9, 1>& v) {
 
 Eigen::Matrix<double, 5, 5> se2_3::wedge() const {
   Eigen::Matrix<double, 5, 5> W = Eigen::Matrix<double, 5, 5>::Zero();
-  W.block<3, 3>(0, 0) = gtsam::skewSymmetric(omega);
-  W.block<3, 1>(0, 3) = v_tilde;
-  W.block<3, 1>(0, 4) = accel;
+  W.block<3, 3>(0, 0) = gtsam::skewSymmetric(w);
+  W.block<3, 1>(0, 3) = a;
+  W.block<3, 1>(0, 4) = v;
   return W;
 }
 
@@ -97,62 +39,63 @@ se2_3 se2_3::vee(const Eigen::Matrix<double, 5, 5>& mat) {
 
 TGGroupElement TGGroupElement::Identity() {
   TGGroupElement X;
-  X.R_X = gtsam::Rot3::Identity();
-  X.p_X = Eigen::Vector3d::Zero();
-  X.v_X = Eigen::Vector3d::Zero();
-  X.a   = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-            Eigen::Vector3d::Zero()};
+  X.R = gtsam::Rot3::Identity();
+  X.v = Eigen::Vector3d::Zero();
+  X.p = Eigen::Vector3d::Zero();
+  X.a = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+         Eigen::Vector3d::Zero()};
   return X;
 }
 
 // XY = (A_X A_Y, a_X + Ad_{A_X}[a_Y])
 TGGroupElement TGGroupElement::operator*(const TGGroupElement& Y) const {
-  const Eigen::Vector3d Rw = R_X.rotate(Y.a.omega);
   TGGroupElement Z;
-  Z.R_X = R_X * Y.R_X;
-  Z.p_X = R_X.rotate(Y.p_X) + p_X;
-  Z.v_X = R_X.rotate(Y.v_X) + v_X;
-  Z.a = {a.omega  + Rw,
-         a.v_tilde + R_X.rotate(Y.a.v_tilde) + p_X.cross(Rw),
-         a.accel + R_X.rotate(Y.a.accel) + v_X.cross(Rw)};
+
+  const auto A_X = to_A_matrix();
+  const auto A_Y = Y.to_A_matrix();
+  Z.A_from_matrix(A_X * A_Y);
+
+  const auto Ad_AX_aY = Ad_A(Y.a);
+  Z.a = se2_3::from_vector(a.vector() + Ad_AX_aY.vector());
+
   return Z;
 }
 
 // X^{-1} = (A^{-1}, -Ad_{A^{-1}}[a])
 TGGroupElement TGGroupElement::inverse() const {
   TGGroupElement Xinv;
-  Xinv.R_X = R_X.inverse();
-  Xinv.p_X = R_X.unrotate(-p_X);
-  Xinv.v_X = R_X.unrotate(-v_X);
+  Xinv.R = R.inverse();
+  Xinv.v = R.unrotate(-v);
+  Xinv.p = R.unrotate(-p);
   const se2_3 adj_inv = Ad_A_inv(a);
-  Xinv.a = {-adj_inv.omega, -adj_inv.v_tilde, -adj_inv.accel};
+  Xinv.a = {-adj_inv.w, -adj_inv.a, -adj_inv.v};
   return Xinv;
 }
 
 // Ad_{A_X}[xi] = (R xi_w, R xi_v + p x (R xi_w), R xi_a + v x (R xi_w))
 se2_3 TGGroupElement::Ad_A(const se2_3& xi) const {
-  const Eigen::Vector3d Rw = R_X.rotate(xi.omega);
+  const Eigen::Vector3d Rw = R.rotate(xi.w);
+  const Eigen::Vector3d Ra = R.rotate(xi.a);
+  const Eigen::Vector3d Rv = R.rotate(xi.v);
   return {Rw,
-          R_X.rotate(xi.v_tilde) + p_X.cross(Rw),
-          R_X.rotate(xi.accel) + v_X.cross(Rw)};
+          Ra + v.cross(Rw),
+          Rv + p.cross(Rw)};
 }
 
 // Ad_{A_X^{-1}}[xi] = (R^T xi_w, R^T(xi_v - p x xi_w), R^T(xi_a - v x xi_w))
 se2_3 TGGroupElement::Ad_A_inv(const se2_3& xi) const {
-  return {R_X.unrotate(xi.omega),
-          R_X.unrotate(xi.v_tilde - p_X.cross(xi.omega)),
-          R_X.unrotate(xi.accel - v_X.cross(xi.omega))};
+  return {R.unrotate(xi.w),
+          R.unrotate(xi.a - v.cross(xi.w)),
+          R.unrotate(xi.v - p.cross(xi.w))};
 }
 
 // Expmap([tau; sigma]):
 //   SE_2(3) part: exact via ExtendedPose3<2>::Expmap(tau)
-//   se_2(3) fiber: first-order Ξ ≈ I, so gamma = sigma
+//   se_2(3) part: first-order Ξ ≈ I, so a = sigma
 TGGroupElement TGGroupElement::Expmap(const Eigen::Matrix<double, 18, 1>& v) {
   const Se23 A = Se23::Expmap(v.head<9>());
   TGGroupElement X;
-  X.R_X = A.rotation();
-  X.p_X = A.x(0);
-  X.v_X = A.x(1);
+  X.A_from_matrix(A.matrix());
   X.a   = se2_3::from_vector(v.tail<9>());
   return X;
 }
@@ -167,14 +110,21 @@ Eigen::Matrix<double, 18, 1> TGGroupElement::Logmap() const {
   return v;
 }
 
-Eigen::Matrix<double, 5, 5> TGGroupElement::A_matrix() const {
-  Eigen::Matrix<double, 5, 5> T = Eigen::Matrix<double, 5, 5>::Zero();
-  T.block<3, 3>(0, 0) = R_X.matrix();
-  T.block<3, 1>(0, 3) = p_X;
-  T.block<3, 1>(0, 4) = v_X;
-  T(3, 3) = 1.0;
-  T(4, 4) = 1.0;
-  return T;
+Eigen::Matrix<double, 5, 5> TGGroupElement::to_A_matrix() const {
+  // A = [R, v, p; 0, 1, 0; 0, 0, 1]
+  Eigen::Matrix<double, 5, 5> A = Eigen::Matrix<double, 5, 5>::Zero();
+  A.block<3, 3>(0, 0) = R.matrix();
+  A.block<3, 1>(0, 3) = v;
+  A.block<3, 1>(0, 4) = p;
+  A(3, 3) = 1.0;
+  A(4, 4) = 1.0;
+  return A;
+}
+
+void TGGroupElement::A_from_matrix(const Eigen::Matrix<double, 5, 5>& A) {
+  R = gtsam::Rot3(A.block<3, 3>(0, 0));
+  v = A.block<3, 1>(0, 3);
+  p = A.block<3, 1>(0, 4);
 }
 
 }  // namespace tgeqf
@@ -189,22 +139,22 @@ using G = tgeqf::TGGroupElement;
 using T = traits<G>;
 
 bool T::Equals(const G& X, const G& Y, double tol) {
-  return X.R_X.equals(Y.R_X, tol) &&
-         (X.p_X - Y.p_X).norm() < tol &&
-         (X.v_X - Y.v_X).norm() < tol &&
-         (X.a.omega   - Y.a.omega).norm()   < tol &&
-         (X.a.v_tilde - Y.a.v_tilde).norm() < tol &&
-         (X.a.accel - Y.a.accel).norm() < tol;
+  return X.R.equals(Y.R, tol) &&
+         (X.v - Y.v).norm() < tol &&
+         (X.p - Y.p).norm() < tol &&
+         (X.a.w - Y.a.w).norm()   < tol &&
+         (X.a.a - Y.a.a).norm() < tol &&
+         (X.a.v - Y.a.v).norm() < tol;
 }
 
 void T::Print(const G& X, const std::string& str) {
   std::cout << str;
-  X.R_X.print("  R: ");
-  std::cout << "  p: "     << X.p_X.transpose()       << "\n"
-            << "  v: "     << X.v_X.transpose()       << "\n"
-            << "  a_w: "   << X.a.omega.transpose()   << "\n"
-            << "  a_v: "   << X.a.v_tilde.transpose() << "\n"
-            << "  a_a: "   << X.a.accel.transpose() << "\n";
+  X.R.print("   A_R: ");
+  std::cout << "  A_v: "   << X.v.transpose()   << "\n"
+            << "  A_p: "   << X.p.transpose()   << "\n"
+            << "  a_w: "   << X.a.w.transpose() << "\n"
+            << "  a_a: "   << X.a.a.transpose() << "\n"
+            << "  a_v: "   << X.a.v.transpose() << "\n";
 }
 
 G T::Identity() { return G::Identity(); }
@@ -227,17 +177,17 @@ T::TangentVector T::Logmap(const G& X, ChartJacobian) { return X.Logmap(); }
 
 // Full 18x18 Adjoint map of G_TG = SE_2(3) ⋉ se_2(3):
 //
-//   Ad_{(A,gamma)} = [ Ad_A(9x9)            0_{9x9}  ]
-//                    [ ad_gamma * Ad_A       Ad_A     ]
+//   Ad_{(A,a)} = [ Ad_A(9x9)         0_{9x9}  ]
+//                [ ad_a * Ad_A       Ad_A     ] in R^18x18
 //
-// where Ad_A and ad_gamma are the 9x9 matrices derived above.
+// where Ad_A and ad_a are the 9x9 matrices derived above.
 Eigen::Matrix<double, 18, 18> T::AdjointMap(const G& X) {
-  const Eigen::Matrix<double, 9, 9> AdA  = Ad9(X);
-  const Eigen::Matrix<double, 9, 9> adg = ad9(X.a);
+  const Eigen::Matrix<double, 9, 9> AdA  = Ad_SE23(X);
+  const Eigen::Matrix<double, 9, 9> ada = ad_se23(X.a);
 
   Eigen::Matrix<double, 18, 18> Adj = Eigen::Matrix<double, 18, 18>::Zero();
   Adj.block<9, 9>(0, 0) = AdA;
-  Adj.block<9, 9>(9, 0) = adg * AdA;
+  Adj.block<9, 9>(9, 0) = ada * AdA;
   Adj.block<9, 9>(9, 9) = AdA;
   return Adj;
 }

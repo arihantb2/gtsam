@@ -27,11 +27,11 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 TEST(TGState, IdentityIsZero) {
   TGState xi = TGState::identity();
   EXPECT(xi.R.equals(Rot3::Identity(), kTol));
-  EXPECT(veq(xi.p,       Eigen::Vector3d::Zero()));
-  EXPECT(veq(xi.v,       Eigen::Vector3d::Zero()));
-  EXPECT(veq(xi.b_omega, Eigen::Vector3d::Zero()));
-  EXPECT(veq(xi.b_v,     Eigen::Vector3d::Zero()));
-  EXPECT(veq(xi.b_a,     Eigen::Vector3d::Zero()));
+  EXPECT(veq(xi.v,   Eigen::Vector3d::Zero()));
+  EXPECT(veq(xi.p,   Eigen::Vector3d::Zero()));
+  EXPECT(veq(xi.b_w, Eigen::Vector3d::Zero()));
+  EXPECT(veq(xi.b_a, Eigen::Vector3d::Zero()));
+  EXPECT(veq(xi.b_v, Eigen::Vector3d::Zero()));
 }
 
 // ---------------------------------------------------------------------------
@@ -44,20 +44,19 @@ TEST(TGState, TMatrixAtIdentityIsI5) {
   EXPECT(meq(T, Eigen::Matrix<double, 5, 5>::Identity()));
 }
 
-// Checks that T_matrix() places R in (0:3,0:3), p in col 3, v in col 4,
+// Checks that T_matrix() places R in (0:3,0:3), v in col 3, p in col 4,
 // 1s at (3,3) and (4,4), and zeros in the bottom-left 2x3 padding block.
 TEST(TGState, TMatrixBlocks) {
   TGState xi;
   xi.R       = Rot3::Rx(M_PI / 2.0);
-  xi.p       = Eigen::Vector3d(1.0, 2.0, 3.0);
-  xi.v       = Eigen::Vector3d(4.0, 5.0, 6.0);
-  xi.b_omega = xi.b_v = xi.b_a = Eigen::Vector3d::Zero();
+  xi.v       = Eigen::Vector3d(1.0, 2.0, 3.0);
+  xi.p       = Eigen::Vector3d(4.0, 5.0, 6.0);
 
   auto T = xi.T_matrix();
 
   EXPECT(meq(xi.R.matrix(), T.block<3, 3>(0, 0)));
-  EXPECT(veq(xi.p, T.block<3, 1>(0, 3)));
-  EXPECT(veq(xi.v, T.block<3, 1>(0, 4)));
+  EXPECT(veq(xi.v, T.block<3, 1>(0, 3)));
+  EXPECT(veq(xi.p, T.block<3, 1>(0, 4)));
   DOUBLES_EQUAL(1.0, T(3, 3), kTol);
   DOUBLES_EQUAL(1.0, T(4, 4), kTol);
   DOUBLES_EQUAL(0.0, T(3, 4), kTol);
@@ -70,18 +69,18 @@ TEST(TGState, TMatrixBlocks) {
 // TGState::bias_vector
 // ---------------------------------------------------------------------------
 
-// Checks that bias_vector() packs b_omega at [0:3], b_v at [3:6], b_a at [6:9].
+// Checks that bias_vector() packs b_w at [0:3], b_a at [3:6], b_v at [6:9].
 TEST(TGState, BiasVectorPacking) {
   TGState xi       = TGState::identity();
-  xi.b_omega = Eigen::Vector3d(1.0, 2.0, 3.0);
-  xi.b_v     = Eigen::Vector3d(4.0, 5.0, 6.0);
-  xi.b_a     = Eigen::Vector3d(7.0, 8.0, 9.0);
+  xi.b_w     = Eigen::Vector3d(1.0, 2.0, 3.0);
+  xi.b_a     = Eigen::Vector3d(4.0, 5.0, 6.0);
+  xi.b_v     = Eigen::Vector3d(7.0, 8.0, 9.0);
 
   auto b = xi.bias_vector();
 
-  EXPECT(veq(xi.b_omega, b.segment<3>(0)));
-  EXPECT(veq(xi.b_v,     b.segment<3>(3)));
-  EXPECT(veq(xi.b_a,     b.segment<3>(6)));
+  EXPECT(veq(xi.b_w,     b.segment<3>(0)));
+  EXPECT(veq(xi.b_a,     b.segment<3>(3)));
+  EXPECT(veq(xi.b_v,     b.segment<3>(6)));
 }
 
 // ---------------------------------------------------------------------------
@@ -93,12 +92,12 @@ TEST(TGState, EqualsIdentities) {
   EXPECT(traits<TGState>::Equals(TGState::identity(), TGState::identity(), kTol));
 }
 
-// Checks that Equals returns false when two states differ only in position,
+// Checks that Equals returns false when two states differ only in velocity,
 // confirming all fields contribute to equality.
 TEST(TGState, EqualsDistinguishesStates) {
   TGState a = TGState::identity();
   TGState b = TGState::identity();
-  b.p       = Eigen::Vector3d(1.0, 0.0, 0.0);
+  b.v       = Eigen::Vector3d(1.0, 0.0, 0.0);
   EXPECT(!traits<TGState>::Equals(a, b, kTol));
 }
 
@@ -111,11 +110,11 @@ TEST(TGState, EqualsDistinguishesStates) {
 TEST(TGState, RetractZeroDeltaIsNoop) {
   TGState xi;
   xi.R       = Rot3::Ry(0.3);
-  xi.p       = Eigen::Vector3d(1.0, 2.0, 3.0);
-  xi.v       = Eigen::Vector3d(0.1, 0.2, 0.3);
-  xi.b_omega = Eigen::Vector3d(0.01, 0.02, 0.03);
-  xi.b_v     = Eigen::Vector3d::Zero();
+  xi.v       = Eigen::Vector3d(1.0, 2.0, 3.0);
+  xi.p       = Eigen::Vector3d(0.1, 0.2, 0.3);
+  xi.b_w     = Eigen::Vector3d(0.01, 0.02, 0.03);
   xi.b_a     = Eigen::Vector3d::Zero();
+  xi.b_v     = Eigen::Vector3d::Zero();
 
   Eigen::Matrix<double, 18, 1> zero = Eigen::Matrix<double, 18, 1>::Zero();
   TGState result = traits<TGState>::Retract(xi, zero);
@@ -146,11 +145,11 @@ TEST(TGState, LocalRetractRoundTripFromIdentity) {
 TEST(TGState, RetractLocalRoundTripFromNonIdentity) {
   TGState xi_ref;
   xi_ref.R       = Rot3::Rz(0.5) * Rot3::Rx(0.3);
-  xi_ref.p       = Eigen::Vector3d(10.0, -5.0, 2.0);
-  xi_ref.v       = Eigen::Vector3d(1.0, 0.5, -0.2);
-  xi_ref.b_omega = Eigen::Vector3d(0.01, -0.01, 0.02);
-  xi_ref.b_v     = Eigen::Vector3d(0.05, 0.0, -0.05);
+  xi_ref.v       = Eigen::Vector3d(10.0, -5.0, 2.0);
+  xi_ref.p       = Eigen::Vector3d(1.0, 0.5, -0.2);
+  xi_ref.b_w     = Eigen::Vector3d(0.01, -0.01, 0.02);
   xi_ref.b_a     = Eigen::Vector3d(-0.1, 0.0, 0.1);
+  xi_ref.b_v     = Eigen::Vector3d(0.05, 0.0, -0.05);
 
   Eigen::Matrix<double, 18, 1> delta;
   delta << 0.05, -0.1,  0.02,

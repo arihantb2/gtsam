@@ -11,9 +11,11 @@ Eigen::Vector3d PositionMeasurement::predict(const TGState& xi,
 
 Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
     const TGState& /*xi_ref*/) {
+  // Tangent order is [delta_R | delta_v | delta_p | delta_b] (State::Retract).
+  // d(R^T(pi - p))/d(delta_p) = -I sits in the position columns (6..8).
   Eigen::Matrix<double, 3, 18> C0 =
       Eigen::Matrix<double, 3, 18>::Zero();
-  C0.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity();
+  C0.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   return C0;
 }
 
@@ -26,7 +28,7 @@ Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_Cstar(
       Eigen::Matrix<double, 3, 18>::Zero();
   Cstar.block<3, 3>(0, 0) =
       0.5 * gtsam::skewSymmetric(vec);
-  Cstar.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity();
+  Cstar.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   return Cstar;
 }
 
@@ -38,7 +40,7 @@ Eigen::Vector3d PositionMeasurement::innovation(
 
 Eigen::Vector3d PositionMeasurement::output_action(
     const TGGroupElement& X, const Eigen::Vector3d& y) {
-  return X.R_X.unrotate(y - X.p_X);
+  return X.R.unrotate(y - X.p);
 }
 
 }  // namespace tgeqf

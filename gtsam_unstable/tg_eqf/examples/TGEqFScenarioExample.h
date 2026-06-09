@@ -141,11 +141,11 @@ inline TGState trueState(const gtsam::NavState& gt,
                          const Eigen::Vector3d& true_ba) {
   TGState xi;
   xi.R = gt.attitude();
-  xi.p = gt.position();
   xi.v = gt.velocity();
-  xi.b_omega = true_bg;
-  xi.b_v = Eigen::Vector3d::Zero();  // virtual bias: no physical truth
+  xi.p = gt.position();
+  xi.b_w = true_bg;
   xi.b_a = true_ba;
+  xi.b_v = Eigen::Vector3d::Zero();  // virtual bias: no physical truth
   return xi;
 }
 

@@ -26,22 +26,22 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 static TGState makeXi() {
   TGState xi;
   xi.R       = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.p       = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.v       = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_omega = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_v     = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_a     = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v       = Eigen::Vector3d(1.0, -2.0, 0.5);
+  xi.p       = Eigen::Vector3d(0.3, 0.1, -0.4);
+  xi.b_w     = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi.b_a     = Eigen::Vector3d(-0.1, 0.05, 0.0);
+  xi.b_v     = Eigen::Vector3d(0.0, 0.1, -0.05);
   return xi;
 }
 
 static TGGroupElement makeX() {
   TGGroupElement X;
-  X.R_X = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.p_X = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.v_X = Eigen::Vector3d(0.3, 0.1, -0.4);
+  X.R     = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v     = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p     = Eigen::Vector3d(0.3, 0.1, -0.4);
   X.a   = {Eigen::Vector3d(0.1, -0.1, 0.05),
-            Eigen::Vector3d(-0.2, 0.3, 0.0),
-            Eigen::Vector3d(0.0, 0.1, -0.1)};
+           Eigen::Vector3d(-0.2, 0.3, 0.0),
+           Eigen::Vector3d(0.0, 0.1, -0.1)};
   return X;
 }
 
@@ -96,7 +96,7 @@ TEST(BodyVelocityOutput, OutputActionMatchesFormula) {
   const TGGroupElement X = makeX();
   const Eigen::Vector3d y(0.3, -0.1, 0.2);
   const Eigen::Vector3d expected =
-      X.R_X.unrotate(y) + X.R_X.unrotate(X.v_X);
+      X.R.unrotate(y) + X.R.unrotate(X.v);
   EXPECT(veq(expected, DVLMeasurement::output_action(X, y)));
 }
 
@@ -155,7 +155,7 @@ TEST(BodyVelocityOutput, JacobianAtIdentity) {
   const TGState xi_ref = TGState::identity();
   Eigen::Matrix<double, 3, 18> expected =
       Eigen::Matrix<double, 3, 18>::Zero();
-  expected.block<3, 3>(0, 6) = Eigen::Matrix3d::Identity();
+  expected.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
   EXPECT(meq(expected, DVLMeasurement::jacobian(xi_ref)));
 }
 
@@ -166,7 +166,7 @@ TEST(BodyVelocityOutput, JacobianMatchesDocumentedFormula) {
   Eigen::Matrix<double, 3, 18> expected =
       Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 0) = gtsam::skewSymmetric(body_v);
-  expected.block<3, 3>(0, 6) = xi.R.matrix().transpose();
+  expected.block<3, 3>(0, 3) = xi.R.matrix().transpose();
 
   EXPECT(meq(expected, DVLMeasurement::jacobian(xi)));
 }

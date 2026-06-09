@@ -26,33 +26,33 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 static TGState makeXi() {
   TGState xi;
   xi.R       = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.p       = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.v       = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_omega = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_v     = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_a     = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v       = Eigen::Vector3d(1.0, -2.0, 0.5);
+  xi.p       = Eigen::Vector3d(0.3, 0.1, -0.4);
+  xi.b_w     = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi.b_a     = Eigen::Vector3d(-0.1, 0.05, 0.0);
+  xi.b_v     = Eigen::Vector3d(0.0, 0.1, -0.05);
   return xi;
 }
 
 static TGGroupElement makeX() {
   TGGroupElement X;
-  X.R_X = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.p_X = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.v_X = Eigen::Vector3d(0.3, 0.1, -0.4);
-  X.a   = {Eigen::Vector3d(0.1, -0.1, 0.05),
-            Eigen::Vector3d(-0.2, 0.3, 0.0),
-            Eigen::Vector3d(0.0, 0.1, -0.1)};
+  X.R     = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v     = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p     = Eigen::Vector3d(0.3, 0.1, -0.4);
+  X.a     = {Eigen::Vector3d(0.01, -0.02, 0.03),
+            Eigen::Vector3d(-0.1, 0.05, 0.0),
+            Eigen::Vector3d(0.0, 0.1, -0.05)};
   return X;
 }
 
 static TGInput makeU() {
   TGInput u;
-  u.omega     = Eigen::Vector3d(0.2, -0.1, 0.05);
-  u.v_tilde   = Eigen::Vector3d(-0.05, 0.1, 0.0);
-  u.accel     = Eigen::Vector3d(0.0, 0.0, 9.81);
-  u.tau_omega = Eigen::Vector3d::Zero();
-  u.tau_v     = Eigen::Vector3d::Zero();
-  u.tau_a     = Eigen::Vector3d::Zero();
+  u.w     = Eigen::Vector3d(0.2, -0.1, 0.05);
+  u.a     = Eigen::Vector3d(-0.05, 0.1, 0.0);
+  u.v     = Eigen::Vector3d(0.0, 0.0, 9.81);
+  u.tau_w = Eigen::Vector3d::Zero();
+  u.tau_a = Eigen::Vector3d::Zero();
+  u.tau_v = Eigen::Vector3d::Zero();
   u.g_vec     = Eigen::Vector3d(0.0, 0.0, -9.81);
   return u;
 }
@@ -77,12 +77,12 @@ static Eigen::Matrix<double, 18, 18> numericalLiftJacobian(
 TEST(TGInput, VectorRoundTrip) {
   const TGInput u = makeU();
   const TGInput recovered = TGInput::from_vector(u.vector());
-  EXPECT(veq(u.omega, recovered.omega));
-  EXPECT(veq(u.v_tilde, recovered.v_tilde));
-  EXPECT(veq(u.accel, recovered.accel));
-  EXPECT(veq(u.tau_omega, recovered.tau_omega));
-  EXPECT(veq(u.tau_v, recovered.tau_v));
+  EXPECT(veq(u.w, recovered.w));
+  EXPECT(veq(u.a, recovered.a));
+  EXPECT(veq(u.v, recovered.v));
+  EXPECT(veq(u.tau_w, recovered.tau_w));
   EXPECT(veq(u.tau_a, recovered.tau_a));
+  EXPECT(veq(u.tau_v, recovered.tau_v));
   EXPECT(veq(u.g_vec, recovered.g_vec));
 }
 
@@ -96,29 +96,30 @@ TEST(Lift, AtIdentityStateLambda1IsWPlusG) {
   Lift lift(u);
 
   // At T=I, b=0: Lambda_1 = W + G (N cancels in (W-B+N) + (G-N)).
-  const se2_3 w = {u.omega, u.v_tilde, u.accel};
-  const se2_3 g = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), u.g_vec};
+  // Gravity sits in the velocity ("a") slot: vdot = Ra + g (Eq. 3b).
+  const se2_3 w = {u.w, u.a, u.v};
+  const se2_3 g = {Eigen::Vector3d::Zero(), u.g_vec, Eigen::Vector3d::Zero()};
   const se2_3 expected = se2_3::vee(w.wedge() + g.wedge());
   const Eigen::Matrix<double, 18, 1> Lambda = lift(xi0);
 
-  EXPECT(veq(expected.omega, Lambda.segment<3>(0), kTolL));
-  EXPECT(veq(expected.v_tilde, Lambda.segment<3>(3), kTolL));
-  EXPECT(veq(expected.accel, Lambda.segment<3>(6), kTolL));
+  EXPECT(veq(expected.w, Lambda.segment<3>(0), kTolL));
+  EXPECT(veq(expected.a, Lambda.segment<3>(3), kTolL));
+  EXPECT(veq(expected.v, Lambda.segment<3>(6), kTolL));
 }
 
 TEST(Lift, AtIdentityStateLambda2IsMinusTau) {
   TGInput u = makeU();
-  u.tau_omega = Eigen::Vector3d(0.01, -0.02, 0.0);
-  u.tau_v     = Eigen::Vector3d(0.0, 0.03, -0.01);
-  u.tau_a     = Eigen::Vector3d(0.02, 0.0, 0.01);
+  u.tau_w = Eigen::Vector3d(0.01, -0.02, 0.0);
+  u.tau_a = Eigen::Vector3d(0.02, 0.0, 0.01);
+  u.tau_v = Eigen::Vector3d(0.0, 0.03, -0.01);
 
   const TGState xi0 = TGState::identity();
   const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi0);
 
   Eigen::Matrix<double, 9, 1> tau_vec;
-  tau_vec.segment<3>(0) = u.tau_omega;
-  tau_vec.segment<3>(3) = u.tau_v;
-  tau_vec.segment<3>(6) = u.tau_a;
+  tau_vec.segment<3>(0) = u.tau_w;
+  tau_vec.segment<3>(3) = u.tau_a;
+  tau_vec.segment<3>(6) = u.tau_v;
   EXPECT(assert_equal((Vector)(-tau_vec), (Vector)Lambda.tail<9>(), kTolL));
 }
 
@@ -129,11 +130,11 @@ TEST(Lift, AtIdentityStateLambda2IsMinusTau) {
 TEST(Lift, PositionRateEncodesBodyVelocity) {
   TGState xi = makeXi();
   TGInput u = makeU();
-  u.v_tilde = xi.b_v;  // virtual velocity input cancels its bias
+  u.v = xi.b_v;  // virtual velocity input cancels its bias
 
   const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
   const Eigen::Vector3d body_v = xi.R.unrotate(xi.v);
-  EXPECT(veq(body_v, Lambda.segment<3>(3), kTolL));  // v_tilde slot == R^T v
+  EXPECT(veq(body_v, Lambda.segment<3>(6), kTolL));  // v slot == R^T v
 }
 
 // ---------------------------------------------------------------------------
@@ -211,12 +212,12 @@ TEST(Lift, JacobianMatchesNumerical) {
 TEST(InputOrbit, AtIdentityIsNoop) {
   const TGInput u = makeU();
   const TGInput result = InputOrbit(u)(TGGroupElement::Identity());
-  EXPECT(veq(u.omega, result.omega));
-  EXPECT(veq(u.v_tilde, result.v_tilde));
-  EXPECT(veq(u.accel, result.accel));
-  EXPECT(veq(u.tau_omega, result.tau_omega));
-  EXPECT(veq(u.tau_v, result.tau_v));
+  EXPECT(veq(u.w, result.w));
+  EXPECT(veq(u.a, result.a));
+  EXPECT(veq(u.v, result.v));
+  EXPECT(veq(u.tau_w, result.tau_w));
   EXPECT(veq(u.tau_a, result.tau_a));
+  EXPECT(veq(u.tau_v, result.tau_v));
   EXPECT(veq(u.g_vec, result.g_vec));
 }
 
@@ -231,11 +232,11 @@ TEST(InputOrbit, TauTransformedByAdInv) {
   const TGGroupElement X = makeX();
   const TGInput result = InputOrbit(u)(X);
 
-  const se2_3 tau = {u.tau_omega, u.tau_v, u.tau_a};
+  const se2_3 tau = {u.tau_w, u.tau_a, u.tau_v};
   const se2_3 tau_expected = X.Ad_A_inv(tau);
-  EXPECT(veq(result.tau_omega, tau_expected.omega, kTolL));
-  EXPECT(veq(result.tau_v, tau_expected.v_tilde, kTolL));
-  EXPECT(veq(result.tau_a, tau_expected.accel, kTolL));
+  EXPECT(veq(result.tau_w, tau_expected.w, kTolL));
+  EXPECT(veq(result.tau_a, tau_expected.a, kTolL));
+  EXPECT(veq(result.tau_v, tau_expected.v, kTolL));
 }
 
 /* ************************************************************************* */

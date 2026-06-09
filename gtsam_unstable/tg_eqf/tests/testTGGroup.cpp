@@ -25,20 +25,20 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 // Factory: group element with known non-trivial values.
 static TGGroupElement makeX() {
   TGGroupElement X;
-  X.R_X = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.p_X = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.v_X = Eigen::Vector3d(0.3, 0.1, -0.4);
+  X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p = Eigen::Vector3d(0.3, 0.1, -0.4);
   X.a   = {Eigen::Vector3d(0.1, -0.1, 0.05),
-            Eigen::Vector3d(-0.2, 0.3, 0.0),
-            Eigen::Vector3d(0.0, 0.1, -0.1)};
+           Eigen::Vector3d(-0.2, 0.3, 0.0),
+           Eigen::Vector3d(0.0, 0.1, -0.1)};
   return X;
 }
 
 static TGGroupElement makeY() {
   TGGroupElement Y;
-  Y.R_X = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
-  Y.p_X = Eigen::Vector3d(-0.5, 1.0, 2.0);
-  Y.v_X = Eigen::Vector3d(0.2, -0.3, 0.1);
+  Y.R = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
+  Y.p = Eigen::Vector3d(-0.5, 1.0, 2.0);
+  Y.v = Eigen::Vector3d(0.2, -0.3, 0.1);
   Y.a   = {Eigen::Vector3d(0.05, 0.0, -0.05),
             Eigen::Vector3d(0.1, -0.1, 0.2),
             Eigen::Vector3d(-0.1, 0.0, 0.05)};
@@ -51,35 +51,37 @@ static TGGroupElement makeY() {
 
 // Checks that vector() followed by from_vector() recovers all three components.
 TEST(se2_3, VectorRoundTrip) {
-  se2_3 xi = {Eigen::Vector3d(1, 2, 3), Eigen::Vector3d(4, 5, 6),
-              Eigen::Vector3d(7, 8, 9)};
-  EXPECT(veq(xi.omega,   se2_3::from_vector(xi.vector()).omega));
-  EXPECT(veq(xi.v_tilde, se2_3::from_vector(xi.vector()).v_tilde));
-  EXPECT(veq(xi.accel, se2_3::from_vector(xi.vector()).accel));
+  se2_3 a = {Eigen::Vector3d(1, 2, 3),
+             Eigen::Vector3d(4, 5, 6),
+             Eigen::Vector3d(7, 8, 9)};
+  EXPECT(veq(a.w,   se2_3::from_vector(a.vector()).w));
+  EXPECT(veq(a.a, se2_3::from_vector(a.vector()).a));
+  EXPECT(veq(a.v, se2_3::from_vector(a.vector()).v));
 }
 
 // Checks that wedge() followed by vee() recovers the original se_2(3) element.
 TEST(se2_3, WedgeVeeRoundTrip) {
-  se2_3 xi = {Eigen::Vector3d(0.1, -0.2, 0.3),
-              Eigen::Vector3d(1.0, 2.0, 3.0),
-              Eigen::Vector3d(-1.0, 0.5, 0.2)};
-  se2_3 recovered = se2_3::vee(xi.wedge());
-  EXPECT(veq(xi.omega,   recovered.omega));
-  EXPECT(veq(xi.v_tilde, recovered.v_tilde));
-  EXPECT(veq(xi.accel, recovered.accel));
+  se2_3 a = {Eigen::Vector3d(0.1, -0.2, 0.3),
+             Eigen::Vector3d(1.0, 2.0, 3.0),
+             Eigen::Vector3d(-1.0, 0.5, 0.2)};
+  se2_3 recovered = se2_3::vee(a.wedge());
+  EXPECT(veq(a.w,   recovered.w));
+  EXPECT(veq(a.a, recovered.a));
+  EXPECT(veq(a.v, recovered.v));
 }
 
-// Checks that wedge() places omega in the 3x3 skew block, v_tilde and accel
+// Checks that wedge() places w in the 3x3 skew block, a and v
 // in columns 3 and 4, and zeros in the bottom two rows.
 TEST(se2_3, WedgeStructure) {
-  se2_3 xi = {Eigen::Vector3d(1, 0, 0), Eigen::Vector3d(0, 1, 0),
-              Eigen::Vector3d(0, 0, 1)};
-  auto W = xi.wedge();
+  se2_3 a = {Eigen::Vector3d(1, 0, 0), 
+             Eigen::Vector3d(0, 1, 0),
+             Eigen::Vector3d(0, 0, 1)};
+  auto W = a.wedge();
   // Rotation block is skew of omega
-  EXPECT(meq(W.block<3,3>(0,0), Rot3::Hat(xi.omega)));
+  EXPECT(meq(W.block<3,3>(0,0), Rot3::Hat(a.w)));
   // Translation columns
-  EXPECT(veq(xi.v_tilde, W.block<3,1>(0,3)));
-  EXPECT(veq(xi.accel, W.block<3,1>(0,4)));
+  EXPECT(veq(a.a, W.block<3,1>(0,3)));
+  EXPECT(veq(a.v, W.block<3,1>(0,4)));
   // Bottom rows zero
   EXPECT(meq(W.block<2,5>(3,0), Eigen::Matrix<double,2,5>::Zero()));
 }
@@ -88,42 +90,42 @@ TEST(se2_3, WedgeStructure) {
 // TGGroupElement::Identity
 // ---------------------------------------------------------------------------
 
-// Checks that Identity() has R_X=I, all translation vectors zero, and
-// all fiber components (a.omega, a.v_tilde, a.accel) zero.
+// Checks that Identity() has R=I, all translation vectors zero, and
+// all fiber components (a.w, a.a, a.v) zero.
 TEST(TGGroupElement, Identity) {
   auto I = TGGroupElement::Identity();
-  EXPECT(I.R_X.equals(Rot3::Identity(), kTol));
-  EXPECT(veq(I.p_X, Eigen::Vector3d::Zero()));
-  EXPECT(veq(I.v_X, Eigen::Vector3d::Zero()));
-  EXPECT(veq(I.a.omega,   Eigen::Vector3d::Zero()));
-  EXPECT(veq(I.a.v_tilde, Eigen::Vector3d::Zero()));
-  EXPECT(veq(I.a.accel, Eigen::Vector3d::Zero()));
+  EXPECT(I.R.equals(Rot3::Identity(), kTol));
+  EXPECT(veq(I.p,   Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.v,   Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.a.w, Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.a.a, Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.a.v, Eigen::Vector3d::Zero()));
 }
 
 // ---------------------------------------------------------------------------
-// TGGroupElement::AT_matrix
+// TGGroupElement::to_A_matrix
 // ---------------------------------------------------------------------------
 
 // Checks that AT_matrix() at the group identity returns the 5x5 identity matrix.
-TEST(TGGroupElement, ATMatrixAtIdentityIsI5) {
-  auto T = TGGroupElement::Identity().A_matrix();
-  EXPECT(meq(T, Eigen::Matrix<double,5,5>::Identity()));
+TEST(TGGroupElement, to_A_matrixAtIdentityIsI5) {
+  auto A = TGGroupElement::Identity().to_A_matrix();
+  EXPECT(meq(A, Eigen::Matrix<double,5,5>::Identity()));
 }
 
-// Checks that AT_matrix() places R_X in (0:3,0:3), p_X in col 3, v_X in col 4,
+// Checks that to_A_matrix() places R in (0:3,0:3), v in col 3, p in col 4,
 // 1s at (3,3) and (4,4), and zeros in the bottom-left 2x3 block.
-TEST(TGGroupElement, ATMatrixBlocks) {
+TEST(TGGroupElement, to_A_matrixBlocks) {
   auto X = makeX();
-  auto T = X.A_matrix();
-  EXPECT(meq(X.R_X.matrix(), T.block<3,3>(0,0)));
-  EXPECT(veq(X.p_X, T.block<3,1>(0,3)));
-  EXPECT(veq(X.v_X, T.block<3,1>(0,4)));
-  DOUBLES_EQUAL(1.0, T(3,3), kTol);
-  DOUBLES_EQUAL(1.0, T(4,4), kTol);
-  DOUBLES_EQUAL(0.0, T(3,4), kTol);
-  DOUBLES_EQUAL(0.0, T(4,3), kTol);
-  // bottom-left 2x3 block (rotation coupling) must be zero
-  EXPECT(meq(T.block<2,3>(3,0), Eigen::Matrix<double,2,3>::Zero()));
+  auto A = X.to_A_matrix();
+  EXPECT(meq(X.R.matrix(), A.block<3,3>(0,0)));
+  EXPECT(veq(X.v, A.block<3,1>(0,3)));
+  EXPECT(veq(X.p, A.block<3,1>(0,4)));
+  DOUBLES_EQUAL(1.0, A(3,3), kTol);
+  DOUBLES_EQUAL(1.0, A(4,4), kTol);
+  DOUBLES_EQUAL(0.0, A(3,4), kTol);
+  DOUBLES_EQUAL(0.0, A(4,3), kTol);
+  // bottom-left 2x3 block must be zero
+  EXPECT(meq(A.block<2,3>(3,0), Eigen::Matrix<double,2,3>::Zero()));
 }
 
 // ---------------------------------------------------------------------------
@@ -162,8 +164,8 @@ TEST(TGGroupElement, XTimesInverseIsIdentity) {
 // verifies the semidirect-product composition is associative.
 TEST(TGGroupElement, GroupProductAssociativity) {
   auto X = makeX(), Y = makeY(), Z = makeX();  // reuse X as Z
-  Z.R_X = Rot3::Rx(0.5);
-  Z.p_X = Eigen::Vector3d(0, 0, 1);
+  Z.R = Rot3::Rx(0.5);
+  Z.v = Eigen::Vector3d(0, 0, 1);
   EXPECT(traits<TGGroupElement>::Equals((X * Y) * Z, X * (Y * Z), kTolL));
 }
 
@@ -173,28 +175,30 @@ TEST(TGGroupElement, GroupProductAssociativity) {
 
 // Checks that Ad_A_inv(Ad_A(xi)) == xi, confirming the two adjoints are
 // exact inverses of each other on se_2(3).
-TEST(TGGroupElement, AdATAndAdATInvAreInverses) {
+TEST(TGGroupElement, AdA_And_AdAInv_AreInverses) {
   auto X  = makeX();
-  se2_3 xi = {Eigen::Vector3d(0.1,-0.2,0.3),
-               Eigen::Vector3d(1,2,3), Eigen::Vector3d(-1,0,0.5)};
-  se2_3 round_trip = X.Ad_A_inv(X.Ad_A(xi));
-  EXPECT(veq(xi.omega,   round_trip.omega,   kTolL));
-  EXPECT(veq(xi.v_tilde, round_trip.v_tilde, kTolL));
-  EXPECT(veq(xi.accel, round_trip.accel, kTolL));
+  se2_3 a = {Eigen::Vector3d(0.1,-0.2,0.3),
+             Eigen::Vector3d(1,2,3),
+             Eigen::Vector3d(-1,0,0.5)};
+  se2_3 round_trip = X.Ad_A_inv(X.Ad_A(a));
+  EXPECT(veq(a.w, round_trip.w, kTolL));
+  EXPECT(veq(a.a, round_trip.a, kTolL));
+  EXPECT(veq(a.v, round_trip.v, kTolL));
 }
 
 // Checks that Ad_{XY}[xi] == Ad_X[Ad_Y[xi]], confirming Ad_A is a group
 // homomorphism from G_TG into GL(se_2(3)).
-TEST(TGGroupElement, AdATSatisfiesGroupProductHomomorphism) {
+TEST(TGGroupElement, AdA_SatisfiesGroupProductHomomorphism) {
   // Ad_{XY}[xi] == Ad_X[Ad_Y[xi]]
   auto X  = makeX(), Y = makeY();
-  se2_3 xi = {Eigen::Vector3d(0.2,0.1,-0.1),
-               Eigen::Vector3d(0.5,-1,0), Eigen::Vector3d(0,0.3,-0.2)};
-  auto lhs = (X * Y).Ad_A(xi);
-  auto rhs = X.Ad_A(Y.Ad_A(xi));
-  EXPECT(veq(lhs.omega,   rhs.omega,   kTolL));
-  EXPECT(veq(lhs.v_tilde, rhs.v_tilde, kTolL));
-  EXPECT(veq(lhs.accel, rhs.accel, kTolL));
+  se2_3 a = {Eigen::Vector3d(0.2,0.1,-0.1),
+             Eigen::Vector3d(0.5,-1,0),
+             Eigen::Vector3d(0,0.3,-0.2)};
+  auto lhs = (X * Y).Ad_A(a);
+  auto rhs = X.Ad_A(Y.Ad_A(a));
+  EXPECT(veq(lhs.w, rhs.w, kTolL));
+  EXPECT(veq(lhs.a, rhs.a, kTolL));
+  EXPECT(veq(lhs.v, rhs.v, kTolL));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,12 +221,12 @@ TEST(TGGroupElement, LogmapOfIdentityIsZero) {
 // the SE_2(3) part is exact, and the fiber uses the first-order approximation Ξ≈I.
 TEST(TGGroupElement, ExpmapLogmapRoundTrip) {
   Eigen::Matrix<double,18,1> v;
-  v << 0.1, -0.2, 0.05,   // tau_omega (small for first-order accuracy)
-       0.3, -0.5,  0.2,   // tau_eta
-      -0.1,  0.4, -0.2,   // tau_alpha
-       0.05, 0.1, -0.05,  // sigma_omega
-      -0.2,  0.3,  0.0,   // sigma_v
-       0.0, -0.1,  0.2;   // sigma_a
+  v << 0.1, -0.2, 0.05,   // dR
+       0.3, -0.5,  0.2,   // dv
+      -0.1,  0.4, -0.2,   // dp
+       0.05, 0.1, -0.05,  // dw
+      -0.2,  0.3,  0.0,   // da
+       0.0, -0.1,  0.2;   // dv
   auto v_rec = TGGroupElement::Expmap(v).Logmap();
   EXPECT(assert_equal((Vector)v, (Vector)v_rec, kTolL));
 }
@@ -265,14 +269,14 @@ TEST(TGGroupElement, LocalRetractRoundTripFromNonIdentity) {
 
 // Checks that the 18x18 AdjointMap has the correct block structure:
 // the top-right 9x9 block is zero, and the two diagonal 9x9 blocks are equal
-// (both equal to Ad_C of the SE_2(3) part).
+// (both equal to Ad_A of the SE_2(3) part).
 TEST(TGGroupElement, AdjointMapBlockStructure) {
   auto X   = makeX();
   auto Adj = traits<TGGroupElement>::AdjointMap(X);
 
   // Top-right block must be zero
   EXPECT(meq(Adj.block<9,9>(0,9), Eigen::Matrix<double,9,9>::Zero()));
-  // Diagonal blocks must be equal (both Ad_C)
+  // Diagonal blocks must be equal (both Ad_A)
   EXPECT(meq(Adj.block<9,9>(0,0), Adj.block<9,9>(9,9)));
 }
 

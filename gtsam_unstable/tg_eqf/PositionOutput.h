@@ -52,8 +52,8 @@ struct PositionMeasurement {
      *   d(h')/d(delta_p) = -I
      *   d(h')/d(delta_v) = 0
      *
-     * C0 = [0_{3x3}  -I_3  0_{3x3}  0_{3x9}]  in R^{3x18}
-     *      [delta_R | delta_p | delta_v | delta_b]
+     * C0 = [0_{3x3}  0_{3x3}  -I_3  0_{3x9}]  in R^{3x18}
+     *      [delta_R | delta_v | delta_p | delta_b]
      *
      * Reference: Fornasier [5] Sec. 7.1, Fornasier 2023 (2309.03765)
      *
@@ -66,8 +66,8 @@ struct PositionMeasurement {
     /**
      * Equivariant output approximation C* (third-order linearisation error).
      *
-     * C* = [0.5*(y + p_hat)^  -I_3  0_{3x3}  0_{3x9}]  in R^{3x18}
-     *      [delta_R           | delta_p | delta_v | delta_b]
+     * C* = [0.5*(y + p_hat)^  0_{3x3}  -I_3  0_{3x9}]  in R^{3x18}
+     *      [delta_R           | delta_v | delta_p | delta_b]
      *
      * where y     = h'(xi_hat) = R_hat^T(pi - p_hat)  (predicted measurement)
      *       p_hat = current position estimate

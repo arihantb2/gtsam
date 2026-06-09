@@ -3,6 +3,7 @@
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
+#include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
 using namespace tgeqf;
@@ -38,13 +39,13 @@ static TGInput makeImuInput(const Eigen::Vector3d& omega,
                             const Eigen::Vector3d& b_v =
                                 Eigen::Vector3d::Zero()) {
   TGInput u;
-  u.omega = omega;
-  u.accel = accel;
-  u.g_vec = g_vec;
-  u.v_tilde = b_v;
-  u.tau_omega = Eigen::Vector3d::Zero();
-  u.tau_v = Eigen::Vector3d::Zero();
+  u.w = omega;
+  u.a = accel;
+  u.v = b_v;
+  u.tau_w = Eigen::Vector3d::Zero();
   u.tau_a = Eigen::Vector3d::Zero();
+  u.tau_v = Eigen::Vector3d::Zero();
+  u.g_vec = g_vec;
   return u;
 }
 
@@ -83,7 +84,7 @@ TEST(TGEqF, PropagateAdvancesGroupAndCovariance) {
 
   const Eigen::Vector3d omega(0.05, -0.02, 0.01);
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
-  const Eigen::Vector3d& accel = g_vec;
+  const Eigen::Vector3d accel(0.1, -0.2, 0.05);
   const double dt = 0.1;
 
   const TGGroupElement g_before = filter.groupEstimate();
@@ -102,7 +103,7 @@ TEST(TGEqF, PropagateUsesVirtualVelocityBiasInput) {
 
   const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
-  const Eigen::Vector3d& accel = g_vec;
+  const Eigen::Vector3d accel(0.1, -0.2, 0.05);
   const double dt = 0.05;
 
   filter.propagate(omega, accel, g_vec, defaultQc(), dt);
@@ -176,9 +177,10 @@ TEST(TGEqF, PositionUpdateShrinksPositionCovariance) {
   const Eigen::Vector3d pi(1.0, 0.5, -0.2);
   const TGEqF::Covariance3 R_pos = 0.01 * TGEqF::Covariance3::Identity();
 
-  const double trace_before = filter.covariance().block<3, 3>(3, 3).trace();
+  // Position lives in tangent columns 6..8 ([R,v,p] order); check that block.
+  const double trace_before = filter.covariance().block<3, 3>(6, 6).trace();
   filter.update_position(pi, R_pos, true);
-  const double trace_after = filter.covariance().block<3, 3>(3, 3).trace();
+  const double trace_after = filter.covariance().block<3, 3>(6, 6).trace();
 
   EXPECT(trace_after < trace_before);
 }
@@ -191,7 +193,7 @@ TEST(TGEqF, DvlUpdateReducesInnovation) {
   TGEqF filter(TGState::identity(), defaultSigma());
 
   const Eigen::Vector3d z_dvl(0.4, -0.2, 0.1);
-  const TGEqF::Covariance3 R_dvl = 0.01 * TGEqF::Covariance3::Identity();
+  const TGEqF::Covariance3 R_dvl = 0.001 * TGEqF::Covariance3::Identity();
 
   const double err_before =
       DVLMeasurement::innovation(z_dvl, filter.state()).norm();
@@ -202,6 +204,7 @@ TEST(TGEqF, DvlUpdateReducesInnovation) {
   const double err_after =
       DVLMeasurement::innovation(z_dvl, filter.state()).norm();
   EXPECT(err_after < err_before);
+  EXPECT(err_after < 0.5 * err_before);
 }
 
 TEST(TGEqF, DvlUpdateMovesVelocityTowardMeasurement) {
@@ -213,6 +216,78 @@ TEST(TGEqF, DvlUpdateMovesVelocityTowardMeasurement) {
   filter.update_dvl(z_dvl, R_dvl);
 
   EXPECT((DVLMeasurement::predict(filter.state()) - z_dvl).norm() < 0.2);
+}
+
+TEST(TGEqF, DvlUpdateShrinksVelocityCovariance) {
+  TGEqF filter(TGState::identity(), defaultSigma());
+
+  const Eigen::Vector3d z_dvl(0.5, -0.2, 0.3);
+  const TGEqF::Covariance3 R_dvl = 0.01 * TGEqF::Covariance3::Identity();
+
+  // Velocity lives in tangent columns 3..5 ([R,v,p,...] order).
+  const double trace_before = filter.covariance().block<3, 3>(3, 3).trace();
+  filter.update_dvl(z_dvl, R_dvl);
+  const double trace_after = filter.covariance().block<3, 3>(3, 3).trace();
+
+  EXPECT(trace_after < trace_before);
+}
+
+// ---------------------------------------------------------------------------
+// Virtual-bias pseudo-measurement (Eq. B.20)
+// ---------------------------------------------------------------------------
+
+TEST(TGEqF, VirtualBiasUpdateDrivesBiasToZero) {
+  // Start from a reference whose virtual bias is non-zero; the b_v = 0
+  // constraint update must pull the estimate toward zero.
+  TGState xi_ref = TGState::identity();
+  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
+  TGEqF filter(xi_ref, defaultSigma());
+
+  const double err_before = filter.bias_vel().norm();
+  EXPECT(err_before > 0.2);
+
+  const TGEqF::Covariance3 R_vb = 1e-4 * TGEqF::Covariance3::Identity();
+  filter.update_virtual_bias(R_vb);
+
+  const double err_after = filter.bias_vel().norm();
+  EXPECT(err_after < err_before);
+  EXPECT(err_after < 0.5 * err_before);
+}
+
+TEST(TGEqF, AutoAnchorOffByDefaultLeavesVirtualBias) {
+  TGState xi_ref = TGState::identity();
+  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
+  TGEqF filter(xi_ref, defaultSigma());
+
+  const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
+  filter.propagate(Eigen::Vector3d::Zero(), -g_vec, g_vec, defaultQc(), 0.01);
+
+  // No anchoring requested: bdot = 0, so b_v is unchanged by propagation.
+  EXPECT(veq(xi_ref.b_v, filter.bias_vel(), 1e-9));
+}
+
+TEST(TGEqF, AutoAnchorDrivesVirtualBiasToZeroInPropagate) {
+  TGState xi_ref = TGState::identity();
+  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
+  TGEqF filter(xi_ref, defaultSigma());
+  filter.set_virtual_bias_anchor(true, 1e-4 * TGEqF::Covariance3::Identity());
+
+  const double before = filter.bias_vel().norm();
+  const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
+  filter.propagate(Eigen::Vector3d::Zero(), -g_vec, g_vec, defaultQc(), 0.01);
+
+  EXPECT(filter.bias_vel().norm() < 0.5 * before);
+}
+
+TEST(TGEqF, VirtualBiasUpdateShrinksVirtualBiasCovariance) {
+  TGEqF filter(TGState::identity(), defaultSigma());
+
+  // b_v lives in tangent columns 15..17 ([R,v,p,b_w,b_a,b_v] order).
+  const double trace_before = filter.covariance().block<3, 3>(15, 15).trace();
+  filter.update_virtual_bias(0.01 * TGEqF::Covariance3::Identity());
+  const double trace_after = filter.covariance().block<3, 3>(15, 15).trace();
+
+  EXPECT(trace_after < trace_before);
 }
 
 // ---------------------------------------------------------------------------
