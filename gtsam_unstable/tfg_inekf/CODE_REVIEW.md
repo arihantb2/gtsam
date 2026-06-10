@@ -1,5 +1,19 @@
 # Code review: `gtsam_unstable/tfg_inekf` (TFG-IEKF)
 
+> **Status (2026-06-10): all findings below (F1–F7) have been fixed** in the
+> commits following this report on this branch. F1 is fixed via
+> `Symmetry::liftJacobian` + the `F = Ad_{U^-1}(I + Df dt)` transition in
+> `TfgInEKF::propagate`; F2 via the corrected `C* = [1/2 y_hat^ 0 -I 0]`;
+> F3 via the closed-form chart Jacobians in `Group.cpp`; F4 via
+> `ImuNoise`/`inputNoiseCov`; F5–F7 via the new/updated tests and example
+> cleanups. One note on F5: the old `CstarImprovesConvergenceOverC0` test was
+> replaced — with the *correct* C\*, C0 and C\* converge to the same fixed
+> point in the static-level geometry (the coupling is parallel to the
+> innovation, so `y_hat^ K y_hat`-type attitude feedback vanishes for both);
+> the properties that meaningfully distinguish the fixed formula are
+> translation invariance and convergence, which are what the new tests assert.
+> The report is kept as-is below for the record.
+
 Reference: A. Fornasier, Y. Ng, C. van Goor, T. Hamel, R. Mahony, S. Weiss,
 *"Equivariant Symmetries for Inertial Navigation Systems"*, arXiv:2309.03765v3.
 All equation numbers below (Eq. 3, 16–18, 33–35, Table 2, B.31–B.35) refer to

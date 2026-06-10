@@ -1,6 +1,7 @@
 #include <gtsam_unstable/tfg_inekf/Group.h>
 
 #include <gtsam/base/Matrix.h>
+#include <gtsam/geometry/SO3.h>
 #include <iostream>
 
 // ============================================================================
@@ -199,14 +200,39 @@ G T::Inverse(const G& X, ChartJacobian H) {
   return X.inverse();
 }
 
+// Exact right chart Jacobian. The group factors as SO(3) |x R^12 where every
+// vector block u_i maps to J_l(theta) u_i in Exp -- structurally identical to
+// the SE(3)/SE_2(3) translation block. So the 15x15 Expmap derivative reuses
+// gtsam's so3::DexpFunctor exactly as Pose3::Expmap does: the SO(3) right
+// Jacobian J_r on every diagonal 3x3 block, and the coupling R^T * d(J_l u_i)/
+// d(theta) under the d_theta column of each vector block.
 G T::Expmap(const TangentVector& xi, ChartJacobian H) {
-  if (H) *H = Jacobian::Identity();  // TODO: exact right Jacobian (not needed by InvariantEKF)
+  if (!H) return G::Expmap(xi);
+  const Vector3 theta = xi.segment<3>(0);
+  const gtsam::so3::DexpFunctor local(theta);
+  const auto J = local.Jacobian();
+  const Matrix3 Jr = J.right();
+  const Matrix3 Rt = local.expmap().transpose();  // R^T
+
+  H->setZero();
+  H->block<3, 3>(0, 0) = Jr;
+  for (int o : {3, 6, 9, 12}) {
+    Matrix3 Hi;
+    J.applyLeft(xi.segment<3>(o), &Hi);  // d(J_l(theta) u_i)/d(theta)
+    H->block<3, 3>(o, o) = Jr;
+    H->block<3, 3>(o, 0) = Rt * Hi;
+  }
   return G::Expmap(xi);
 }
 
 T::TangentVector T::Logmap(const G& X, ChartJacobian H) {
-  if (H) *H = Jacobian::Identity();  // TODO: exact inverse right Jacobian
-  return X.Logmap();
+  const TangentVector xi = X.Logmap();
+  if (H) {  // inverse of the Expmap right Jacobian at xi
+    Jacobian Hexp;
+    Expmap(xi, Hexp);
+    *H = Hexp.inverse();
+  }
+  return xi;
 }
 
 T::Jacobian T::AdjointMap(const G& X) { return X.AdjointMap(); }

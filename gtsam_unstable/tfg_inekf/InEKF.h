@@ -38,16 +38,34 @@ public:
     TfgInEKF(const TwoFrameGroup& X0, const Covariance& P0);
 
     /**
-     * IMU propagation. Forms ImuInput, lifts to a group increment, and runs the
-     * left-invariant predict  X <- X * U,  P <- Ad_{U^-1} P Ad_{U^-1}^T + Q dt.
+     * IMU propagation. Lifts to a group increment and runs the left-invariant
+     * predict with the full first-order error transition (bias->navigation
+     * coupling included):  X <- X * U,  P <- F P F^T + Qc dt,  with
+     * F = Ad_{U^-1} (I + Df dt).
      *
      * @param omega  gyroscope reading (body frame, rad/s)
      * @param accel  accelerometer reading (body frame, m/s^2)
-     * @param Qc     continuous-time process noise (15x15), scaled by dt
+     * @param Qc     continuous-time process noise (15x15) already in LIFTED
+     *               TANGENT coordinates [theta,v,p,g_w,g_a]; scaled by dt. Use
+     *               the ImuNoise overload to map raw IMU/bias noise instead.
      * @param dt     time step (s)
      */
     void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
                    const Covariance& Qc, double dt);
+
+    /**
+     * IMU propagation with physically-specified noise. Builds the lifted
+     * discrete process noise Qd = B(X) diag(sigma^2) B(X)^T dt from the IMU
+     * input/bias-driver PSDs (mapping gyro noise into the bias rows through the
+     * lift), then runs the same predict as above.
+     *
+     * @param omega  gyroscope reading (body frame, rad/s)
+     * @param accel  accelerometer reading (body frame, m/s^2)
+     * @param noise  continuous-time IMU noise PSDs
+     * @param dt     time step (s)
+     */
+    void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
+                   const ImuNoise& noise, double dt);
 
     /**
      * Global position update (GNSS). Uses the equivariant residual

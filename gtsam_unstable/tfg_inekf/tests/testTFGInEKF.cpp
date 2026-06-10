@@ -179,30 +179,108 @@ TEST(TfgInEKF, StaticConvergence) {
 }
 
 // ---------------------------------------------------------------------------
-// C* vs C0: the midpoint-symmetrised output matrix should improve convergence
-// in the adversarial static case (large position error couples into attitude
-// through the y_hat^ term; C* centres that coupling, Eq. B.35).
+// C*: the midpoint-symmetrised output matrix (1/2 y_hat^) is the cubic-error
+// linearisation. In this static-level geometry the position->attitude coupling
+// is parallel to the innovation, so C* and C0 converge to the same fixed point
+// (their difference is a subtle, regime-dependent transient effect, not a
+// clean inequality). What must hold is that the default C* path yields a
+// convergent, consistent filter even from a large initial error.
 // ---------------------------------------------------------------------------
 
-static double runStaticFinalPosError(bool use_cstar) {
+TEST(TfgInEKF, CstarConvergesFromLargeError) {
   const Eigen::Vector3d g(0.0, 0.0, -9.81);
   const Eigen::Vector3d accel_static = -g;
   const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
   const Eigen::Vector3d truth_pos = Eigen::Vector3d::Zero();
 
-  // Large position error + sizeable attitude covariance: the regime where the
-  // first-order coupling hurts.
   auto X0 = TwoFrameGroup::FromState(
       Rot3::Identity(), Eigen::Vector3d::Zero(), Eigen::Vector3d(1.0, -0.8, 0.0),
       Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
   Cov15 P0 = Cov15::Identity() * 0.05;
-  P0.block<3, 3>(6, 6) = Cov3::Identity() * 2.0;  // position
+  P0.block<3, 3>(6, 6) = Cov3::Identity() * 2.0;
   TfgInEKF ekf(X0, P0);
 
   Cov15 Qc = Cov15::Identity() * 1e-6;
   Cov3 R_pos = Cov3::Identity() * (0.05 * 0.05);
   const double dt = 0.01;
+  for (int k = 0; k < 500; ++k) {
+    ekf.propagate(omega, accel_static, Qc, dt);
+    if (k % 10 == 0) ekf.update_position(truth_pos, R_pos, /*use_cstar=*/true);
+  }
+  EXPECT((ekf.position() - truth_pos).norm() < 0.01);
+  EXPECT(minEig(ekf.covariance()) > 0.0);
+}
 
+// ---------------------------------------------------------------------------
+// F1: the predict step must build nav<->bias cross-covariance, and a position
+// update must therefore move the bias estimate. Before the fix the adjoint-only
+// propagation left these blocks identically zero and biases were unobservable.
+// ---------------------------------------------------------------------------
+
+TEST(TfgInEKF, PredictBuildsNavBiasCrossCovariance) {
+  auto X0 = TwoFrameGroup::FromState(
+      Rot3::Rz(0.2), Eigen::Vector3d(0.3, -0.1, 0.0),
+      Eigen::Vector3d(1.0, 0.5, -0.2), Eigen::Vector3d(0.01, -0.02, 0.0),
+      Eigen::Vector3d(0.0, 0.03, -0.01));
+  TfgInEKF ekf(X0, Cov15::Identity() * 0.1);  // diagonal: zero cross-cov
+
+  ekf.propagate(Eigen::Vector3d(0.05, -0.02, 0.1),
+                Eigen::Vector3d(0.0, 0.0, 9.81), Cov15::Identity() * 1e-6, 0.01);
+
+  // Position(6..8) vs gyro-bias(9..11) and velocity(3..5) vs accel-bias(12..14)
+  // cross-blocks are now populated by the lift Jacobian coupling.
+  const Cov15 P = ekf.covariance();
+  const double pos_bg = P.block<3, 3>(6, 9).norm();
+  const double vel_ba = P.block<3, 3>(3, 12).norm();
+  EXPECT(pos_bg > 1e-9);
+  EXPECT(vel_ba > 1e-9);
+}
+
+TEST(TfgInEKF, PositionUpdateMovesBiasEstimate) {
+  auto X0 = TwoFrameGroup::FromState(
+      Rot3::Rz(0.2), Eigen::Vector3d(0.3, -0.1, 0.0),
+      Eigen::Vector3d(1.0, 0.5, -0.2), Eigen::Vector3d::Zero(),
+      Eigen::Vector3d::Zero());
+  Cov15 P0 = Cov15::Identity() * 0.1;
+  P0.block<3, 3>(6, 6) = Cov3::Identity() * 2.0;  // loose position
+  TfgInEKF ekf(X0, P0);
+
+  // One propagate to couple bias into the nav covariance, then a position fix.
+  ekf.propagate(Eigen::Vector3d(0.05, -0.02, 0.1),
+                Eigen::Vector3d(0.0, 0.0, 9.81), Cov15::Identity() * 1e-5, 0.01);
+  const Eigen::Vector3d bg_before = ekf.bias_gyro();
+  const Eigen::Vector3d ba_before = ekf.bias_accel();
+
+  ekf.update_position(Eigen::Vector3d(0.0, 0.0, 0.0), Cov3::Identity() * 1e-3);
+
+  // Gain rows for the bias are no longer identically zero, so the estimate moves.
+  EXPECT((ekf.bias_gyro() - bg_before).norm() + (ekf.bias_accel() - ba_before).norm() > 1e-6);
+}
+
+// ---------------------------------------------------------------------------
+// F2: the equivariant residual / C* update must be invariant to the choice of
+// world origin. Running an identical static scenario shifted by a large offset
+// must give the same position-error trajectory. (The old 1/2 (y_hat+p_hat)^
+// coupling carried the absolute position p_hat and broke this.)
+// ---------------------------------------------------------------------------
+
+static double runStaticErrShifted(const Eigen::Vector3d& offset, bool use_cstar) {
+  const Eigen::Vector3d g(0.0, 0.0, -9.81);
+  const Eigen::Vector3d accel_static = -g;
+  const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
+  const Eigen::Vector3d truth_pos = offset;
+
+  auto X0 = TwoFrameGroup::FromState(
+      Rot3::Identity(), Eigen::Vector3d::Zero(),
+      Eigen::Vector3d(1.0, -0.8, 0.0) + offset,  // wrong position, shifted
+      Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
+  Cov15 P0 = Cov15::Identity() * 0.05;
+  P0.block<3, 3>(6, 6) = Cov3::Identity() * 2.0;
+  TfgInEKF ekf(X0, P0);
+
+  Cov15 Qc = Cov15::Identity() * 1e-6;
+  Cov3 R_pos = Cov3::Identity() * (0.05 * 0.05);
+  const double dt = 0.01;
   for (int k = 0; k < 500; ++k) {
     ekf.propagate(omega, accel_static, Qc, dt);
     if (k % 10 == 0) ekf.update_position(truth_pos, R_pos, use_cstar);
@@ -210,10 +288,34 @@ static double runStaticFinalPosError(bool use_cstar) {
   return (ekf.position() - truth_pos).norm();
 }
 
-TEST(TfgInEKF, CstarImprovesConvergenceOverC0) {
-  const double err_c0 = runStaticFinalPosError(/*use_cstar=*/false);
-  const double err_cstar = runStaticFinalPosError(/*use_cstar=*/true);
-  EXPECT(err_cstar < err_c0);
+TEST(TfgInEKF, CstarTranslationInvariance) {
+  const double err0 = runStaticErrShifted(Eigen::Vector3d::Zero(), true);
+  const double errS =
+      runStaticErrShifted(Eigen::Vector3d(500.0, -300.0, 100.0), true);
+  EXPECT_DOUBLES_EQUAL(err0, errS, 1e-6);
+}
+
+// ---------------------------------------------------------------------------
+// F4: the lifted process noise must couple gyro white noise into the bias
+// rows (through b_w^/b_a^ in the input matrix B).
+// ---------------------------------------------------------------------------
+
+TEST(TfgInEKF, InputNoiseCouplesIntoBiasRows) {
+  auto X = TwoFrameGroup::FromState(
+      Rot3::Rz(0.3), Eigen::Vector3d(0.2, 0.0, -0.1),
+      Eigen::Vector3d(0.5, -0.5, 0.1), Eigen::Vector3d(0.02, -0.01, 0.0),
+      Eigen::Vector3d(0.0, 0.03, -0.02));
+  tfg::ImuNoise noise;
+  noise.gyro = 1e-2;  // gyro noise only
+  const Cov15 Qd = tfg::inputNoiseCov(X, noise, 0.01);
+
+  const double gw = Qd.block<3, 3>(9, 9).norm();    // gyro-bias rows driven
+  const double ga = Qd.block<3, 3>(12, 12).norm();  // accel-bias rows driven
+  const double th_gw = Qd.block<3, 3>(0, 9).norm(); // theta<->gyro-bias corr
+  EXPECT(gw > 1e-9);
+  EXPECT(ga > 1e-9);
+  EXPECT(th_gw > 1e-9);
+  EXPECT(assert_equal((Matrix)Qd, (Matrix)Qd.transpose(), 1e-15));  // symmetric
 }
 
 /* ************************************************************************* */

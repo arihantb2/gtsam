@@ -90,19 +90,21 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     else if (a == "--seed" && i + 1 < argc) o.seed = static_cast<unsigned>(std::stoul(next()));
     else if (a == "--pos-rate" && i + 1 < argc) o.pos_rate = std::stod(next());
     else if (a == "--pos-noise" && i + 1 < argc) o.pos_noise_sigma = std::stod(next());
+    else std::cerr << "warning: ignoring unrecognized argument '" << a << "'\n";
   }
   return o;
 }
 
-/// Continuous process-noise PSD, tangent block order [att, vel, pos, bg, ba].
-inline Cov15 defaultQc() {
-  Cov15 Qc = Cov15::Zero();
-  Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();   // attitude
-  Qc.block<3, 3>(3, 3) = 1e-3 * Eigen::Matrix3d::Identity();   // velocity
-  Qc.block<3, 3>(6, 6) = 1e-6 * Eigen::Matrix3d::Identity();   // position
-  Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();   // gyro bias
-  Qc.block<3, 3>(12, 12) = 1e-5 * Eigen::Matrix3d::Identity(); // accel bias
-  return Qc;
+/// Default continuous-time IMU noise floor (PSDs). Mapped into the lifted
+/// tangent by TfgInEKF via the input matrix B (so gyro noise also drives the
+/// bias-generator rows). Used when the run does not specify a larger sigma.
+inline tfg::ImuNoise defaultImuNoise() {
+  tfg::ImuNoise n;
+  n.gyro = 1e-4;       // gyro white-noise PSD     (rad^2/s)
+  n.accel = 1e-3;      // accel white-noise PSD    (m^2/s^3)
+  n.gyro_rw = 1e-6;    // gyro  bias random-walk   (rad^2/s^3)
+  n.accel_rw = 1e-5;   // accel bias random-walk   (m^2/s^5)
+  return n;
 }
 
 inline const char* csvHeader() {
@@ -159,9 +161,9 @@ struct RunSummary {
 inline RunSummary runScenario(const gtsam::Scenario& scenario,
                               const RunOptions& opts,
                               const std::string& scenario_name) {
-  constexpr double kGravity = 9.81;
-  auto params = gtsam::PreintegrationParams::MakeSharedU(kGravity);
+  auto params = gtsam::PreintegrationParams::MakeSharedU(tfg::kGravity);
   gtsam::ScenarioRunner runner(scenario, params, opts.dt);
+  const int log_decim = std::max(1, opts.log_decim);  // guard div-by-zero
 
   // Reproducible noise: discrete stddev = density / sqrt(dt).
   std::mt19937 rng(opts.seed);
@@ -186,17 +188,19 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   const Cov15 P0 = opts.init_sigma * opts.init_sigma * Cov15::Identity();
   TfgInEKF filter(X0, P0);
 
-  // Match Qc to the simulated IMU error model so the covariance is meaningful.
-  const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
-  Cov15 Qc = defaultQc();
+  // Match the IMU noise model to the simulated error model so the covariance is
+  // meaningful. PSDs default to a small floor and are raised to the simulated
+  // sigma^2 where specified; TfgInEKF maps these through the input matrix B,
+  // capturing the gyro->bias coupling that a diagonal Qc would miss.
+  tfg::ImuNoise noise = defaultImuNoise();
   if (opts.gyro_noise_sigma > 0.0)
-    Qc.block<3, 3>(0, 0) = opts.gyro_noise_sigma * opts.gyro_noise_sigma * I3;
+    noise.gyro = opts.gyro_noise_sigma * opts.gyro_noise_sigma;
   if (opts.accel_noise_sigma > 0.0)
-    Qc.block<3, 3>(3, 3) = opts.accel_noise_sigma * opts.accel_noise_sigma * I3;
+    noise.accel = opts.accel_noise_sigma * opts.accel_noise_sigma;
   if (opts.gyro_bias_rw > 0.0)
-    Qc.block<3, 3>(9, 9) = opts.gyro_bias_rw * opts.gyro_bias_rw * I3;
+    noise.gyro_rw = opts.gyro_bias_rw * opts.gyro_bias_rw;
   if (opts.accel_bias_rw > 0.0)
-    Qc.block<3, 3>(12, 12) = opts.accel_bias_rw * opts.accel_bias_rw * I3;
+    noise.accel_rw = opts.accel_bias_rw * opts.accel_bias_rw;
 
   std::ofstream csv(opts.output_path);
   if (!csv) throw std::runtime_error("Cannot open output file: " + opts.output_path);
@@ -223,7 +227,7 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
     const Eigen::Vector3d est_p = filter.position();
     const Eigen::Vector3d est_v = filter.velocity();
 
-    if (k % static_cast<size_t>(opts.log_decim) == 0 || k == num_steps)
+    if (k % static_cast<size_t>(log_decim) == 0 || k == num_steps)
       writeCsvRow(csv, t, gt, filter, gyro_b, accel_b);
 
     const double pos_err = (Eigen::Vector3d(gt.position()) - est_p).norm();
@@ -241,7 +245,7 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
         runner.actualAngularVelocity(t) + gyro_b + sampleNoise(gyro_sd);
     const gtsam::Vector3 accel =
         runner.actualSpecificForce(t) + accel_b + sampleNoise(accel_sd);
-    filter.propagate(omega, accel, Qc, opts.dt);
+    filter.propagate(omega, accel, noise, opts.dt);
 
     // Random-walk the true bias (no-op when rate is zero).
     if (gyro_rw_step > 0.0)

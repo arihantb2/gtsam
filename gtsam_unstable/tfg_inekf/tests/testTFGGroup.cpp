@@ -6,6 +6,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
+#include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/tfg_inekf/Group.h>
 
 using namespace tfg;
@@ -160,6 +161,34 @@ TEST(TwoFrameGroup, AdjointConjugationIdentity) {
   auto lhs = TwoFrameGroup::Expmap(traits<TwoFrameGroup>::AdjointMap(X) * xi);
   auto rhs = X * TwoFrameGroup::Expmap(xi) * X.inverse();
   EXPECT(traits<TwoFrameGroup>::Equals(lhs, rhs, kTolL));
+}
+
+// ---------------------------------------------------------------------------
+// Expmap / Logmap chart Jacobians (right chart) vs numerical derivative
+// ---------------------------------------------------------------------------
+
+TEST(TwoFrameGroup, ExpmapJacobian) {
+  Vec15 xi;
+  xi << 0.2, -0.3, 0.1, 0.3, -0.5, 0.2, -0.1, 0.4, -0.2, 0.05, 0.1, -0.05,
+      -0.2, 0.3, 0.0;
+  Eigen::Matrix<double, 15, 15> H;
+  traits<TwoFrameGroup>::Expmap(xi, H);
+  auto num = numericalDerivative11<TwoFrameGroup, Vec15>(
+      [](const Vec15& x) { return traits<TwoFrameGroup>::Expmap(x); }, xi);
+  EXPECT(meq(H, num, 1e-6));
+}
+
+TEST(TwoFrameGroup, LogmapJacobian) {
+  Vec15 xi;
+  xi << 0.2, -0.3, 0.1, 0.3, -0.5, 0.2, -0.1, 0.4, -0.2, 0.05, 0.1, -0.05,
+      -0.2, 0.3, 0.0;
+  auto X = TwoFrameGroup::Expmap(xi);
+  Eigen::Matrix<double, 15, 15> H;
+  traits<TwoFrameGroup>::Logmap(X, H);
+  auto num = numericalDerivative11<Vec15, TwoFrameGroup>(
+      [](const TwoFrameGroup& Y) { return traits<TwoFrameGroup>::Logmap(Y); },
+      X);
+  EXPECT(meq(H, num, 1e-6));
 }
 
 // ---------------------------------------------------------------------------

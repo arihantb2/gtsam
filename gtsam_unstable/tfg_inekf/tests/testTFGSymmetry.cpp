@@ -72,7 +72,11 @@ TEST(phi, ActingOnOriginReturnsX) {
 
 // Right-action axiom (paper p.3):  phi(XY, xi) == phi(Y, phi(X, xi)).
 TEST(phi, RightActionAxiom) {
-  auto X = makeX(), Y = makeXi(), xi = makeXi();
+  auto X = makeX(), xi = makeXi();
+  // A third, distinct element so X, Y, xi are all different.
+  TwoFrameGroup Y(Rot3::Rx(0.5) * Rot3::Ry(0.2), Eigen::Vector3d(-0.1, 0.4, 0.2),
+                  Eigen::Vector3d(0.7, -0.3, 1.1), Eigen::Vector3d(0.0, 0.2, -0.1),
+                  Eigen::Vector3d(0.3, 0.0, -0.2));
   auto lhs = phi(X * Y, xi);
   auto rhs = phi(Y, phi(X, xi));
   EXPECT(traits<TwoFrameGroup>::Equals(lhs, rhs, kTolL));
@@ -255,6 +259,35 @@ TEST(lift, BiasRandomWalkPropagation) {
   auto X1 = X * increment(X, u, dt);
   EXPECT(veq(X1.bias_omega(), bw + u.tau_omega * dt, 1e-7));
   EXPECT(veq(X1.bias_accel(), ba + u.tau_accel * dt, 1e-7));
+}
+
+// ---------------------------------------------------------------------------
+// liftJacobian: matches the finite difference of lift in the right chart
+// ---------------------------------------------------------------------------
+
+// Df = d lift(X * Expmap(eps), u) / d eps must equal the central difference of
+// the lift, at a generic state with non-zero biases (the regime that exercises
+// every coupling block).
+TEST(lift, JacobianMatchesFiniteDifference) {
+  Rot3 R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  Eigen::Vector3d v(0.3, 0.1, -0.4), p(1.0, -2.0, 0.5);
+  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0);
+  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba);
+  ImuInput u = makeInput();
+
+  const Eigen::Matrix<double, 15, 15> Df = liftJacobian(X, u);
+
+  const double h = 1e-6;
+  Eigen::Matrix<double, 15, 15> Df_num;
+  for (int j = 0; j < 15; ++j) {
+    Vec15 ep = Vec15::Zero(), em = Vec15::Zero();
+    ep(j) = h;
+    em(j) = -h;
+    const Tangent lp = lift(traits<TwoFrameGroup>::Retract(X, ep), u);
+    const Tangent lm = lift(traits<TwoFrameGroup>::Retract(X, em), u);
+    Df_num.col(j) = (lp - lm) / (2 * h);
+  }
+  EXPECT(assert_equal((Matrix)Df, (Matrix)Df_num, 1e-6));
 }
 
 // ---------------------------------------------------------------------------

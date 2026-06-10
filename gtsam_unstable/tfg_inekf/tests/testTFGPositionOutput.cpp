@@ -86,27 +86,26 @@ TEST(PositionOutput, JacobianStructureC0) {
   EXPECT(meq(C.block<3, 6>(0, 9), Eigen::Matrix<double, 3, 6>::Zero())); // bias
 }
 
-// C* differs from C0 only in the d_theta block: 1/2 (y_hat + p_hat)^ (Eq. B.35).
+// C* differs from C0 only in the d_theta block: 1/2 y_hat^ (this chart).
 TEST(PositionOutput, JacobianStructureCstar) {
   auto xi = makeState();
   Eigen::Vector3d pi(2.0, -1.0, 1.5);
   auto C = PositionOutput::jacobian(xi, pi, PositionOutput::Variant::Cstar);
 
   const Eigen::Vector3d y_hat = PositionOutput::predict(xi, pi);
-  EXPECT(meq(C.block<3, 3>(0, 0), skewSymmetric(0.5 * (y_hat + xi.p))));
+  EXPECT(meq(C.block<3, 3>(0, 0), skewSymmetric(0.5 * y_hat)));
   EXPECT(meq(C.block<3, 3>(0, 3), Eigen::Matrix3d::Zero()));
   EXPECT(meq(C.block<3, 3>(0, 6), -Eigen::Matrix3d::Identity()));
   EXPECT(meq(C.block<3, 6>(0, 9), Eigen::Matrix<double, 3, 6>::Zero()));
 }
 
-// When prediction and back-transported measurement agree (y_hat == p_hat),
-// C* reduces to C0.
+// When the residual vanishes (y_hat == 0, i.e. pi == p), C* reduces to C0
+// (both d_theta blocks are zero).
 TEST(PositionOutput, CstarReducesToC0WhenCentred) {
-  // Choose pi so that y_hat = R^T(pi - p) == p. With R = I: pi = 2 p.
-  TwoFrameGroup xi(Rot3::Identity(), Eigen::Vector3d::Zero(),
+  TwoFrameGroup xi(Rot3::Rz(0.3), Eigen::Vector3d::Zero(),
                    Eigen::Vector3d(0.4, -0.2, 0.1), Eigen::Vector3d::Zero(),
                    Eigen::Vector3d::Zero());
-  Eigen::Vector3d pi = 2.0 * xi.p;
+  Eigen::Vector3d pi = xi.p;  // y_hat = R^T(pi - p) = 0
   auto C0 = PositionOutput::jacobian(xi, pi, PositionOutput::Variant::C0);
   auto Cs = PositionOutput::jacobian(xi, pi, PositionOutput::Variant::Cstar);
   EXPECT(meq(C0, Cs, kTolL));
@@ -132,17 +131,6 @@ TEST(PositionOutput, JacobianMatchesFiniteDifference) {
         (2 * h);
   }
   EXPECT(meq(C, C_num, 1e-6));
-}
-
-// ---------------------------------------------------------------------------
-// innovation:  z - h(xi_hat) = -h(xi_hat)
-// ---------------------------------------------------------------------------
-
-TEST(PositionOutput, Innovation) {
-  auto xi = makeState();
-  Eigen::Vector3d pi(2.0, -1.0, 1.5);
-  EXPECT(veq(PositionOutput::innovation(xi, pi),
-             -PositionOutput::predict(xi, pi)));
 }
 
 /* ************************************************************************* */

@@ -34,6 +34,21 @@ struct ImuInput {
     Eigen::Vector3d tau_accel = Eigen::Vector3d::Zero(); ///< accel bias driver
 };
 
+/// Continuous-time IMU noise PSDs (variances), used to build the lifted process
+/// noise via the input matrix B (see inputNoiseCov). Each entry is the per-axis
+/// PSD; isotropic per channel.
+struct ImuNoise {
+    double gyro = 0.0;      ///< gyroscope white-noise PSD      (rad^2/s)
+    double accel = 0.0;     ///< accelerometer white-noise PSD  (m^2/s^3)
+    double gyro_rw = 0.0;   ///< gyro  bias random-walk PSD      (rad^2/s^3)
+    double accel_rw = 0.0;  ///< accel bias random-walk PSD      (m^2/s^5)
+};
+
+/// Gravity magnitude (m/s^2). Single source of truth shared by gravity() and
+/// the example IMU simulators, so the filter model and the data generator
+/// cannot drift apart.
+inline constexpr double kGravity = 9.81;
+
 /// Gravity in the global frame {G} (Eq. 3b), default -z.
 Eigen::Vector3d gravity();
 
@@ -59,6 +74,22 @@ TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi);
 //  (block order of Group.h::Tangent), the per-step generator for InvariantEKF.
 // ----------------------------------------------------------------------------
 Tangent lift(const TwoFrameGroup& X, const ImuInput& u);
+
+/// Jacobian Df = d lift(X * Expmap(eps), u) / d eps, evaluated at eps = 0, in
+/// the right-retract chart (tangent block order of Group.h::Tangent). Captures
+/// the state-dependence of the lift on the biases; this is the coupling that
+/// turns the plain Ad-only covariance propagation into the TFG-IEKF error
+/// dynamics (Fornasier Table 2 / Eq. B.34). Returns a 15x15 matrix.
+Eigen::Matrix<double, 15, 15> liftJacobian(const TwoFrameGroup& X,
+                                           const ImuInput& u);
+
+/// Discrete process-noise covariance Qd = B(X) diag(sigma^2) B(X)^T * dt, where
+/// B maps the IMU input/bias-driver noise (omega, accel, tau_w, tau_a) into the
+/// lifted tangent. Non-trivial because gyro noise enters the bias-generator
+/// rows through the lift (Eq. 18): B[theta,n_w]=I, B[v,n_a]=I, B[g_w,n_w]=b_w^,
+/// B[g_w,tau_w]=-I, B[g_a,n_w]=b_a^, B[g_a,tau_a]=-I. Returns a 15x15 matrix.
+Eigen::Matrix<double, 15, 15> inputNoiseCov(const TwoFrameGroup& X,
+                                            const ImuNoise& noise, double dt);
 
 /// Convenience: group increment  U = Expmap(lift(X,u) * dt)  for
 /// InvariantEKF::predict(U, Q). Keeps the EKF call site symmetry-agnostic.

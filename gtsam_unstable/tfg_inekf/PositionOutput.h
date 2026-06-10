@@ -31,8 +31,8 @@ struct PositionOutput {
 
     /// Output Jacobian variant.
     enum class Variant {
-      C0,     ///< first-order Jacobian of the equivariant residual (Eq. B.35 w/o averaging)
-      Cstar,  ///< midpoint-symmetrised, cubic linearisation error (Eq. B.35)
+      C0,     ///< true first-order Jacobian of the equivariant residual
+      Cstar,  ///< midpoint-symmetrised (1/2 y_hat^), cubic linearisation error
     };
 
     /**
@@ -55,17 +55,19 @@ struct PositionOutput {
      * Output Jacobian C in R^{3x15} for the right-retract chart
      * xi(eps) = xi_hat * Expmap(eps). Block order matches Group.h::Tangent.
      *
-     * By output equivariance h(xi(eps)) = rho_{Exp(eps)}(y_hat) exactly, with
-     * y_hat = h(xi_hat) = R_hat^T (pi - p_hat). Differentiating at eps = 0:
+     * The noise-free residual in this chart is exactly y_hat = J_l(eps_theta)
+     * eps_p, with y_hat = h(xi_hat) = R_hat^T (pi - p_hat). Expanding to second
+     * order at eps = 0:
      *
-     *   C0    = [ y_hat^             0_3  -I_3  0_{3x6} ]   (true 1st-order)
-     *   Cstar = [ 1/2 (y_hat+p_hat)^ 0_3  -I_3  0_{3x6} ]  (Eq. B.35)
+     *   C0    = [ y_hat^      0_3  -I_3  0_{3x6} ]   (true 1st-order)
+     *   Cstar = [ 1/2 y_hat^  0_3  -I_3  0_{3x6} ]   (midpoint-symmetrised)
      *
-     * Cstar averages the skew of the predicted output y_hat with that of the
-     * back-transported measurement rho_{X_hat^-1}(0) = p_hat, centring the
-     * attitude coupling between estimate and measurement. This yields cubic
-     * (O(||e||^3)) rather than quadratic linearisation error and improves the
-     * update when the innovation is large (Fornasier Sec. 7.1, Eq. B.35).
+     * Cstar halves the attitude coupling, absorbing the O(eps^2) term of the
+     * left-Jacobian expansion; this yields cubic (O(||e||^3)) rather than
+     * quadratic linearisation error and improves the update when the innovation
+     * is large (Fornasier Sec. 7.1, Eq. B.35). The paper writes C* with the
+     * 1/2 (pi + p_hat)^ block in its global-frame EqF chart; transformed into
+     * this body chart it equals 1/2 y_hat^.
      *
      * @param xi_hat  current state estimate
      * @param pi      raw global position fix
@@ -74,14 +76,6 @@ struct PositionOutput {
     static Eigen::Matrix<double, 3, 15> jacobian(
         const TwoFrameGroup& xi_hat, const Eigen::Vector3d& pi,
         Variant variant = Variant::Cstar);
-
-    /**
-     * Innovation for the EKF update. The body-frame residual model has
-     * noise-free target z = 0, so the innovation is  z - h(xi_hat) = -y_hat.
-     * (Sign convention to be matched against InEKF::update_position.)
-     */
-    static Eigen::Vector3d innovation(const TwoFrameGroup& xi_hat,
-                                      const Eigen::Vector3d& pi);
 };
 
 } // namespace tfg
