@@ -58,6 +58,29 @@ public:
         const Covariance3& R_vb = 1e-4 * Covariance3::Identity());
 
     /**
+     * Enable/disable the EqF covariance reset after each update.
+     *
+     * Paper Sec. 2.2 lists the EqF as Predict / Update / Reset. The reset
+     * re-centres the covariance after the state correction so the (fixed) origin
+     * chart stays a good linearisation point as the estimate moves away from
+     * xi_ref — essential for consistency far from the origin (Sec. 7.2 reports
+     * ANEES ~ 1 with the reset). Enabled by default; disable for a pure
+     * Predict/Update filter (e.g. to compare against the no-reset behaviour).
+     */
+    void set_reset_step(bool enable) { reset_step_ = enable; }
+
+    /**
+     * Reset transport matrix J(delta_xi, delta_x): the linearisation of the
+     * post-update error re-centring eps+ = vartheta(phi(Exp(-delta_x),
+     * vartheta^{-1}(eps))) at eps = delta_xi. The reset conjugates the
+     * covariance as P <- J P J^T. Exposed for testing; J -> I as the
+     * correction -> 0.
+     */
+    Eigen::Matrix<double, 18, 18> resetMatrix(
+        const Eigen::Matrix<double, 18, 1>& delta_xi,
+        const Eigen::Matrix<double, 18, 1>& delta_x) const;
+
+    /**
      * IMU propagation step.
      *
      * Constructs TGInput from raw IMU measurements, forms Lift and InputOrbit
@@ -149,10 +172,23 @@ private:
      */
     Eigen::Matrix<double, 18, 18> originChartTransport() const;
 
+    /**
+     * Run a vector measurement update, then (if enabled) the covariance reset.
+     * Captures the manifold correction delta_xi via the base filter's custom
+     * innovation-lift hook so the reset transport can be formed from it.
+     */
+    void updateWithReset(const Eigen::VectorXd& prediction,
+                         const Eigen::MatrixXd& H, const Eigen::VectorXd& z,
+                         const Eigen::MatrixXd& R);
+
     /// Auto-anchor b_v = 0 inside propagate() (off by default).
     bool anchor_virtual_bias_ = false;
     /// Pseudo-measurement noise used by the auto-anchor.
     Covariance3 virtual_bias_R_ = 1e-4 * Covariance3::Identity();
+    /// Apply the EqF covariance reset after each update (on by default).
+    bool reset_step_ = true;
+    /// Innovation lift pinv(Dphi0) cached from xi_ref (base keeps it private).
+    Eigen::Matrix<double, 18, 18> innovation_lift_;
 };
 
 } // namespace tgeqf

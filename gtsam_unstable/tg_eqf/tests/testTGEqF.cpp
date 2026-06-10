@@ -11,6 +11,8 @@ using namespace gtsam;
 
 static constexpr double kTol = 1e-6;
 
+using Vector18 = Eigen::Matrix<double, 18, 1>;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -439,6 +441,99 @@ TEST(TGEqF, PositionUpdateMovesEstimateInGlobalFrameAtRotatedState) {
   EXPECT(dp.y() > 0.4);
   EXPECT(std::abs(dp.x()) < 0.1);
   EXPECT(std::abs(dp.z()) < 0.1);
+}
+
+// ---------------------------------------------------------------------------
+// F4: covariance reset step
+// ---------------------------------------------------------------------------
+
+// resetMatrix is the first-order approximation (chart factors ~ I) of the exact
+// error re-centring map  eps -> Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref,
+// eps)))  at eps = delta_xi. For a small correction the chart factors vanish
+// (error O(|delta|^2)), so it matches the exact finite difference tightly.
+static Eigen::Matrix<double, 18, 18> resetMatrixFD(const TGState& xi_ref,
+                                                   const Vector18& delta_xi,
+                                                   const Vector18& delta_x) {
+  const TGGroupElement Xd = TGGroupElement::Expmap(-delta_x);
+  auto recentre = [&](const Vector18& e) {
+    return traits<TGState>::Local(
+        xi_ref, phi(Xd, traits<TGState>::Retract(xi_ref, e)));
+  };
+  const Vector18 f0 = recentre(delta_xi);
+  const double h = 1e-7;
+  Eigen::Matrix<double, 18, 18> J;
+  for (int j = 0; j < 18; ++j) {
+    Vector18 e = Vector18::Zero();
+    e(j) = h;
+    J.col(j) = (recentre(delta_xi + e) - f0) / h;
+  }
+  return J;
+}
+
+TEST(TGEqF, ResetMatrixMatchesFiniteDifferenceForSmallCorrection) {
+  const TGState xi_ref = TGState::identity();
+  TGEqF filter(xi_ref, defaultSigma());
+
+  // Small correction so the omitted chart factors (O(|delta|^2)) are negligible.
+  Vector18 delta_xi;
+  delta_xi << 5e-4, -4e-4, 3e-4, 1e-3, -8e-4, 6e-4, 7e-4, -5e-4, 4e-4,
+      1e-4, -2e-4, 15e-5, -3e-4, 2e-4, -1e-4, 0.0, 1e-4, -1e-4;
+  // delta_x = pinv(Dphi0) delta_xi; at identity Dphi0 = diag(I9,-I9).
+  Vector18 delta_x = delta_xi;
+  delta_x.tail<9>() = -delta_xi.tail<9>();
+
+  const Eigen::Matrix<double, 18, 18> J = filter.resetMatrix(delta_xi, delta_x);
+  const Eigen::Matrix<double, 18, 18> J_fd =
+      resetMatrixFD(xi_ref, delta_xi, delta_x);
+  EXPECT(assert_equal((Matrix)J_fd, (Matrix)J, 1e-5));
+}
+
+TEST(TGEqF, ResetMatrixTendsToIdentityAsCorrectionVanishes) {
+  TGEqF filter(TGState::identity(), defaultSigma());
+  const Eigen::Matrix<double, 18, 18> J =
+      filter.resetMatrix(Vector18::Zero(), Vector18::Zero());
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
+                      (Matrix)J, 1e-12));
+}
+
+// A tiny-innovation update leaves the covariance essentially Joseph-only:
+// reset is a near-no-op (J ~ I) when the correction is small.
+TEST(TGEqF, ResetIsNoopForTinyInnovation) {
+  TGEqF with_reset(TGState::identity(), defaultSigma());
+  TGEqF no_reset(TGState::identity(), defaultSigma());
+  no_reset.set_reset_step(false);
+
+  const Eigen::Vector3d z_dvl(1e-4, -1e-4, 5e-5);
+  const TGEqF::Covariance3 R = 1e-3 * TGEqF::Covariance3::Identity();
+  with_reset.update_dvl(z_dvl, R);
+  no_reset.update_dvl(z_dvl, R);
+
+  EXPECT(assert_equal(no_reset.errorCovariance(),
+                      with_reset.errorCovariance(), 1e-6));
+}
+
+// A sizeable update at a rotated state: the reset conjugates the post-update
+// covariance by J and keeps it symmetric positive-definite.
+TEST(TGEqF, ResetConjugatesCovarianceAndStaysSpd) {
+  const TGState xi_ref = TGState::identity();
+  const TGGroupElement X0 = rotatedX0();
+  TGEqF with_reset(xi_ref, defaultSigma(), X0);
+  TGEqF no_reset(xi_ref, defaultSigma(), X0);
+  no_reset.set_reset_step(false);
+
+  const Eigen::Vector3d pi = with_reset.position() + Eigen::Vector3d(0.5, 0.3, -0.2);
+  const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
+  with_reset.update_position(pi, R, true);
+  no_reset.update_position(pi, R, true);
+
+  const Eigen::Matrix<double, 18, 18> P = with_reset.errorCovariance();
+  // Symmetric.
+  EXPECT(assert_equal((Matrix)P, (Matrix)P.transpose(), 1e-12));
+  // Positive-definite (Cholesky succeeds).
+  Eigen::LLT<Eigen::Matrix<double, 18, 18>> llt(P);
+  EXPECT(llt.info() == Eigen::Success);
+  // The reset actually changed something vs the no-reset twin.
+  EXPECT((P - no_reset.errorCovariance()).norm() > 1e-9);
 }
 
 /* ************************************************************************* */

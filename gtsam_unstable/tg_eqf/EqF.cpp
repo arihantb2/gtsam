@@ -4,13 +4,67 @@ namespace tgeqf {
 
 TGEqF::TGEqF(const TGState& xi_ref, const Covariance18& Sigma0,
              const TGGroupElement& X0)
-    : Base(xi_ref, Sigma0, X0) {}
+    : Base(xi_ref, Sigma0, X0) {
+  // Recompute the innovation lift pinv(Dphi0) the base keeps private (Dphi0 is
+  // d phi(X, xi_ref)/dX at identity). xi_ref is fixed for this filter's
+  // lifetime, so caching once is sound (do not use resetReferenceAndGroup).
+  Eigen::Matrix<double, 18, 18> Dphi0;
+  const TGSymmetry::Orbit orbit(xi_ref);
+  orbit(TGGroupElement::Identity(), &Dphi0);
+  innovation_lift_ = Dphi0.completeOrthogonalDecomposition().pseudoInverse();
+}
 
 Eigen::Matrix<double, 18, 18> TGEqF::originChartTransport() const {
   Eigen::Matrix<double, 18, 18> Dphi_g;
   const TGSymmetry::Diffeomorphism phi_g(groupEstimate());
   phi_g(referenceState(), &Dphi_g);
   return Dphi_g;
+}
+
+Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
+    const Eigen::Matrix<double, 18, 1>& delta_xi,
+    const Eigen::Matrix<double, 18, 1>& delta_x) const {
+  // Exact Jacobian of the error re-centring map
+  //   f(eps) = Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref, eps)))
+  // at eps = delta_xi (the post-update mean in the old chart). Differentiating
+  // the analytic diffeomorphism alone drops the SO(3) Retract/Local chart
+  // factors, which are first order in the rotation correction, so finite-
+  // difference the full composition instead. J -> I as the correction -> 0.
+  const TGGroupElement Xd = TGGroupElement::Expmap(-delta_x);
+  const TGState& xi_ref = referenceState();
+  auto recentre = [&](const Eigen::Matrix<double, 18, 1>& eps) {
+    return gtsam::traits<TGState>::Local(
+        xi_ref, phi(Xd, gtsam::traits<TGState>::Retract(xi_ref, eps)));
+  };
+  const Eigen::Matrix<double, 18, 1> f0 = recentre(delta_xi);
+  constexpr double h = 1e-7;
+  Eigen::Matrix<double, 18, 18> J;
+  for (int j = 0; j < 18; ++j) {
+    Eigen::Matrix<double, 18, 1> e = Eigen::Matrix<double, 18, 1>::Zero();
+    e(j) = h;
+    J.col(j) = (recentre(delta_xi + e) - f0) / h;
+  }
+  return J;
+}
+
+void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
+                            const Eigen::MatrixXd& H, const Eigen::VectorXd& z,
+                            const Eigen::MatrixXd& R) {
+  Eigen::Matrix<double, 18, 1> delta_xi = Eigen::Matrix<double, 18, 1>::Zero();
+  // Capture the manifold correction through the base's custom innovation-lift
+  // hook (it receives delta_xi and must return delta_x = pinv(Dphi0)*delta_xi).
+  Base::updateWithVector(
+      prediction, H, z, R,
+      [&](const Eigen::Matrix<double, 18, 1>& dxi) {
+        delta_xi = dxi;
+        return Eigen::Matrix<double, 18, 1>(innovation_lift_ * dxi);
+      });
+
+  if (reset_step_) {
+    const Eigen::Matrix<double, 18, 1> delta_x = innovation_lift_ * delta_xi;
+    const Eigen::Matrix<double, 18, 18> J = resetMatrix(delta_xi, delta_x);
+    this->P_ = J * this->P_ * J.transpose();
+  }
 }
 
 void TGEqF::propagate(const Eigen::Vector3d& w_meas,
@@ -50,7 +104,7 @@ void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl,
   // residual R^T v is body-frame, so R_dvl needs no extra transport.
   const Eigen::Matrix<double, 3, 18> H =
       DVLMeasurement::jacobian(xi_hat) * originChartTransport();
-  Base::updateWithVector(prediction, H, z_dvl, R_dvl);
+  updateWithReset(prediction, H, z_dvl, R_dvl);
 }
 
 void TGEqF::update_position(const Eigen::Vector3d& pi,
@@ -72,7 +126,7 @@ void TGEqF::update_position(const Eigen::Vector3d& pi,
 
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
   const Covariance3 R_eff = R0.transpose() * R_pos * R0;
-  Base::updateWithVector(prediction, H, z, R_eff);
+  updateWithReset(prediction, H, z, R_eff);
 }
 
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
@@ -85,7 +139,7 @@ void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
 
   // Constraint target b_v = 0.
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
-  Base::updateWithVector(prediction, H, z, R_vb);
+  updateWithReset(prediction, H, z, R_vb);
 }
 
 gtsam::Rot3 TGEqF::attitude() const { return state().R; }
