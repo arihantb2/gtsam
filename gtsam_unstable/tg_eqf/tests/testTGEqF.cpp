@@ -336,6 +336,91 @@ TEST(TGEqF, PositionOutputEquivarianceHoldsAfterUpdate) {
   EXPECT(veq(lhs, rhs, 1e-7));
 }
 
+// ---------------------------------------------------------------------------
+// F1: origin-chart measurement Jacobians away from the reference
+//
+// Build the filter at a state rotated/translated far from xi_ref = identity
+// (Rz(90 deg), v=(2,0,0), p=(5,-3,1)) and check that the Jacobian the filter
+// actually consumes is the origin-chart one (H_est * Dphi_g), not the
+// chart-at-estimate H_est.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Group element X0 with phi(X0, identity) = (Rz(90), (2,0,0), (5,-3,1), 0).
+TGGroupElement rotatedX0() {
+  TGGroupElement X;
+  X.R = Rot3::Rz(M_PI / 2);
+  X.v = Eigen::Vector3d(2.0, 0.0, 0.0);
+  X.p = Eigen::Vector3d(5.0, -3.0, 1.0);
+  X.a = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
+         Eigen::Vector3d::Zero()};
+  return X;
+}
+
+Eigen::Matrix<double, 18, 18> diffeoJacobian(const TGGroupElement& X,
+                                             const TGState& xi) {
+  Eigen::Matrix<double, 18, 18> J;
+  const TGSymmetry::Diffeomorphism phi_X(X);
+  phi_X(xi, &J);
+  return J;
+}
+
+}  // namespace
+
+// The DVL Jacobian the filter consumes is the FD of the origin-chart map
+// eps -> h(phi(X0, Retract(xi_ref, eps))). The composed H_est * Dphi_g must
+// equal it, and (for this configuration) its rotation block must vanish.
+TEST(TGEqF, DvlOriginChartJacobianMatchesFiniteDifference) {
+  const TGState xi_ref = TGState::identity();
+  const TGGroupElement X0 = rotatedX0();
+  const TGState xi_hat = phi(X0, xi_ref);
+
+  // Finite-difference the origin-chart measurement map.
+  const Eigen::Vector3d f0 = DVLMeasurement::predict(xi_hat);
+  const double h = 1e-6;
+  Eigen::Matrix<double, 3, 18> H_fd;
+  for (int j = 0; j < 18; ++j) {
+    Eigen::Matrix<double, 18, 1> e = Eigen::Matrix<double, 18, 1>::Zero();
+    e(j) = h;
+    const TGState xi_eps = phi(X0, traits<TGState>::Retract(xi_ref, e));
+    H_fd.col(j) = (DVLMeasurement::predict(xi_eps) - f0) / h;
+  }
+
+  const Eigen::Matrix<double, 3, 18> H_origin =
+      DVLMeasurement::jacobian(xi_hat) * diffeoJacobian(X0, xi_ref);
+
+  EXPECT(assert_equal((Matrix)H_fd, (Matrix)H_origin, 1e-5));
+
+  // The chart-at-estimate Jacobian has a spurious skew(R^T v) rotation block;
+  // the origin-chart one does not (cf. CODE_REVIEW Appendix A).
+  EXPECT(assert_equal((Matrix)Eigen::Matrix3d::Zero(),
+                      (Matrix)H_origin.block<3, 3>(0, 0), 1e-5));
+}
+
+// A DVL update at a rotated state must move the velocity estimate in the
+// correct *global* direction. A +0.1 m/s global-y offset should raise the
+// global-y velocity, not leak into x/z (which the un-transported Jacobian did).
+TEST(TGEqF, DvlUpdateMovesVelocityInGlobalFrameAtRotatedState) {
+  const TGState xi_ref = TGState::identity();
+  const TGGroupElement X0 = rotatedX0();
+  TGEqF filter(xi_ref, defaultSigma(), X0);
+
+  const Eigen::Vector3d v_before = filter.velocity();
+  const Eigen::Vector3d delta_global(0.0, 0.1, 0.0);
+  // Measured body-frame velocity = R^T (v + delta_global).
+  const Eigen::Vector3d z_dvl =
+      filter.attitude().unrotate(v_before + delta_global);
+
+  filter.update_dvl(z_dvl, 1e-4 * TGEqF::Covariance3::Identity());
+
+  const Eigen::Vector3d dv = filter.velocity() - v_before;
+  // Tight R + loose Sigma0 -> near-unit gain, so dv ~ delta_global.
+  EXPECT(dv.y() > 0.08);
+  EXPECT(std::abs(dv.x()) < 0.02);
+  EXPECT(std::abs(dv.z()) < 0.02);
+}
+
 /* ************************************************************************* */
 int main() {
   TestResult tr;

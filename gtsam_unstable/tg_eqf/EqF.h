@@ -33,10 +33,14 @@ public:
      *
      * @param xi_ref   Fixed origin state (choose identity for simplicity).
      * @param Sigma0   Initial covariance on the 18-dim tangent space at xi_ref.
+     * @param X0       Initial group estimate (default identity). The recovered
+     *                 manifold state is phi(X0, xi_ref); pass a non-identity X0
+     *                 to start the filter at a state away from the origin.
      */
     explicit TGEqF(
         const TGState& xi_ref,
-        const Covariance18& Sigma0);
+        const Covariance18& Sigma0,
+        const TGGroupElement& X0 = TGGroupElement::Identity());
 
     /**
      * Enable/disable automatic virtual-bias anchoring inside propagate().
@@ -133,6 +137,18 @@ public:
     Eigen::Vector3d bias_vel()  const;
 
 private:
+    /**
+     * 18x18 differential of phi_g at the origin: Dphi_g = d phi(g, xi)/dxi
+     * evaluated at (groupEstimate(), referenceState()).
+     *
+     * Output Jacobians are derived in the chart at the current estimate, but
+     * the filter's covariance / innovation lift live in the fixed origin chart.
+     * Composing a measurement Jacobian H_est with this transport (chain rule)
+     * gives the origin-chart H_origin = H_est * Dphi_g the filter consumes
+     * (CODE_REVIEW F1). At g = identity this is the 18x18 identity.
+     */
+    Eigen::Matrix<double, 18, 18> originChartTransport() const;
+
     /// Auto-anchor b_v = 0 inside propagate() (off by default).
     bool anchor_virtual_bias_ = false;
     /// Pseudo-measurement noise used by the auto-anchor.

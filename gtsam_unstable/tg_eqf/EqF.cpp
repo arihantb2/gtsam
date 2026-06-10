@@ -2,8 +2,16 @@
 
 namespace tgeqf {
 
-TGEqF::TGEqF(const TGState& xi_ref, const Covariance18& Sigma0)
-    : Base(xi_ref, Sigma0) {}
+TGEqF::TGEqF(const TGState& xi_ref, const Covariance18& Sigma0,
+             const TGGroupElement& X0)
+    : Base(xi_ref, Sigma0, X0) {}
+
+Eigen::Matrix<double, 18, 18> TGEqF::originChartTransport() const {
+  Eigen::Matrix<double, 18, 18> Dphi_g;
+  const TGSymmetry::Diffeomorphism phi_g(groupEstimate());
+  phi_g(referenceState(), &Dphi_g);
+  return Dphi_g;
+}
 
 void TGEqF::propagate(const Eigen::Vector3d& w_meas,
                       const Eigen::Vector3d& a_meas,
@@ -37,7 +45,11 @@ void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl,
                        const Covariance3& R_dvl) {
   const TGState xi_hat = state();
   const Eigen::Vector3d prediction = DVLMeasurement::predict(xi_hat);
-  const Eigen::Matrix<double, 3, 18> H = DVLMeasurement::jacobian(xi_hat);
+  // Compose the chart-at-estimate Jacobian with the origin-chart transport so
+  // the filter consumes H in its own (origin) chart (CODE_REVIEW F1). The DVL
+  // residual R^T v is body-frame, so R_dvl needs no extra transport.
+  const Eigen::Matrix<double, 3, 18> H =
+      DVLMeasurement::jacobian(xi_hat) * originChartTransport();
   Base::updateWithVector(prediction, H, z_dvl, R_dvl);
 }
 
@@ -58,8 +70,10 @@ void TGEqF::update_position(const Eigen::Vector3d& pi,
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
   const TGState xi_hat = state();
   const Eigen::Vector3d prediction = VirtualBiasMeasurement::predict(xi_hat);
+  // [0...I3] * Dphi_g reproduces Eq. B.20's R_hat,p_hat-dependent bias
+  // transport automatically (it is the b_v row of Ad^-1) — CODE_REVIEW F1.
   const Eigen::Matrix<double, 3, 18> H =
-      VirtualBiasMeasurement::jacobian_C0(xi_hat);
+      VirtualBiasMeasurement::jacobian_C0(xi_hat) * originChartTransport();
 
   // Constraint target b_v = 0.
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
