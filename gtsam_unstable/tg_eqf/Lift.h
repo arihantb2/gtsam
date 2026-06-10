@@ -18,7 +18,7 @@ namespace tgeqf {
 struct TGInput {
     Eigen::Vector3d w;     // measured angular velocity
     Eigen::Vector3d a;     // measured linear acceleration
-    Eigen::Vector3d v;     // virtual velocity input (set to b_v estimate)
+    Eigen::Vector3d v;     // virtual velocity input nu (filter feeds 0; App. B.4.3)
     Eigen::Vector3d tau_w; // bias rate for b_w
     Eigen::Vector3d tau_a; // bias rate for b_a
     Eigen::Vector3d tau_v; // bias rate for b_v (virtual; set to zero)

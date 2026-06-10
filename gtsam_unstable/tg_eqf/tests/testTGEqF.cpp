@@ -85,6 +85,7 @@ TEST(TGEqF, AccessorsMatchInitialState) {
 
 TEST(TGEqF, PropagateAdvancesGroupAndCovariance) {
   TGEqF filter(TGState::identity(), defaultSigma());
+  filter.set_virtual_bias_anchor(false);  // pure predict: no anchor shrink
 
   const Eigen::Vector3d omega(0.05, -0.02, 0.01);
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
@@ -101,9 +102,14 @@ TEST(TGEqF, PropagateAdvancesGroupAndCovariance) {
   EXPECT(filter.errorCovariance().trace() > P_before.trace());
 }
 
-TEST(TGEqF, PropagateUsesVirtualVelocityBiasInput) {
-  const TGState xi_ref = TGState::identity();
+// The filter feeds the virtual input nu = 0 (paper App. B.4.3), independent of
+// the b_v estimate. With a non-zero reference b_v, propagate (anchor disabled
+// for a clean predict) must equal a manual lift built with u.v = 0.
+TEST(TGEqF, PropagateUsesZeroVirtualInput) {
+  TGState xi_ref = TGState::identity();
+  xi_ref.b_v = Eigen::Vector3d(0.1, -0.05, 0.08);  // non-zero virtual bias
   TGEqF filter(xi_ref, defaultSigma());
+  filter.set_virtual_bias_anchor(false);
 
   const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
@@ -114,7 +120,9 @@ TEST(TGEqF, PropagateUsesVirtualVelocityBiasInput) {
   const TGGroupElement g_imu = filter.groupEstimate();
 
   TGEqF filter2(xi_ref, defaultSigma());
-  const TGInput u = makeImuInput(omega, accel, g_vec, filter2.bias_vel());
+  filter2.set_virtual_bias_anchor(false);
+  // u.v = 0 (zero virtual input), regardless of b_v.
+  const TGInput u = makeImuInput(omega, accel, g_vec, Eigen::Vector3d::Zero());
   const Lift lift(u);
   const InputOrbit psi_u(u);
   filter2.template predict<1>(lift, psi_u, defaultQc(), dt);
@@ -129,6 +137,7 @@ TEST(TGEqF, PropagateIntegratesPosition) {
   TGState xi0 = TGState::identity();
   xi0.v = Eigen::Vector3d(1.0, -0.5, 0.2);  // non-rest start
   TGEqF filter(xi0, defaultSigma());
+  filter.set_virtual_bias_anchor(false);  // pure predict
 
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
   const Eigen::Vector3d accel = -g_vec;  // specific force of a level body at rest
@@ -259,23 +268,23 @@ TEST(TGEqF, VirtualBiasUpdateDrivesBiasToZero) {
   EXPECT(err_after < 0.5 * err_before);
 }
 
-TEST(TGEqF, AutoAnchorOffByDefaultLeavesVirtualBias) {
+TEST(TGEqF, AnchorCanBeDisabledLeavingVirtualBias) {
   TGState xi_ref = TGState::identity();
   xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
   TGEqF filter(xi_ref, defaultSigma());
+  filter.set_virtual_bias_anchor(false);  // explicitly disable the default
 
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
   filter.propagate(Eigen::Vector3d::Zero(), -g_vec, g_vec, defaultQc(), 0.01);
 
-  // No anchoring requested: bdot = 0, so b_v is unchanged by propagation.
+  // No anchoring: bdot = 0 and nu = 0, so b_v is unchanged by propagation.
   EXPECT(veq(xi_ref.b_v, filter.bias_vel(), 1e-9));
 }
 
-TEST(TGEqF, AutoAnchorDrivesVirtualBiasToZeroInPropagate) {
+TEST(TGEqF, AnchorOnByDefaultDrivesVirtualBiasToZeroInPropagate) {
   TGState xi_ref = TGState::identity();
   xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
-  TGEqF filter(xi_ref, defaultSigma());
-  filter.set_virtual_bias_anchor(true, 1e-4 * TGEqF::Covariance3::Identity());
+  TGEqF filter(xi_ref, defaultSigma());  // anchor on by default
 
   const double before = filter.bias_vel().norm();
   const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);

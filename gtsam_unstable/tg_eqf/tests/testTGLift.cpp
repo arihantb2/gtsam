@@ -123,10 +123,12 @@ TEST(Lift, AtIdentityStateLambda2IsMinusTau) {
   EXPECT(assert_equal((Vector)(-tau_vec), (Vector)Lambda.tail<9>(), kTolL));
 }
 
-// Regression: the lift must encode the position kinematics dp = v. With the
-// virtual velocity input set to the bias estimate (v_tilde = b_v, the filter's
-// operating point), the position-rate slot of Lambda_1 must equal the body
-// velocity R^T v. A constant-N lift drops this term and freezes position.
+// Regression: the lift must encode the position kinematics dp = v. The
+// position-rate slot of Lambda_1 is R^T(nu - b_v) + R^T v; this checks the lift
+// identity with nu = b_v (slot == R^T v). The filter itself feeds nu = 0 (paper
+// App. B.4.3) and pins b_v ~ 0 with the default anchor, so at its operating
+// point the slot is also ~ R^T v. A constant-N lift drops this and freezes
+// position.
 TEST(Lift, PositionRateEncodesBodyVelocity) {
   TGState xi = makeXi();
   TGInput u = makeU();
@@ -135,6 +137,19 @@ TEST(Lift, PositionRateEncodesBodyVelocity) {
   const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
   const Eigen::Vector3d body_v = xi.R.unrotate(xi.v);
   EXPECT(veq(body_v, Lambda.segment<3>(6), kTolL));  // v slot == R^T v
+}
+
+// The position-rate slot is R^T v + (nu - b_v): the virtual input enters the
+// v-slot of W directly and the bias via B. With nu = 0 (the filter's choice)
+// it is R^T v - b_v, equal to R^T v only when b_v = 0 (kept by the anchor).
+TEST(Lift, PositionRateWithZeroVirtualInput) {
+  TGState xi = makeXi();
+  TGInput u = makeU();
+  u.v = Eigen::Vector3d::Zero();  // nu = 0
+
+  const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
+  const Eigen::Vector3d expected = xi.R.unrotate(xi.v) - xi.b_v;
+  EXPECT(veq(expected, Lambda.segment<3>(6), kTolL));
 }
 
 // ---------------------------------------------------------------------------

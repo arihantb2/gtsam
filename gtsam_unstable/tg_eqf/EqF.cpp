@@ -71,13 +71,15 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
                       const Eigen::Vector3d& a_meas,
                       const Eigen::Vector3d& g_vec,
                       const Covariance18& Qc, double dt) {
-  const TGState xi_hat = state();
-
   TGInput u;
   u.w = w_meas;
   u.a = a_meas;
   u.g_vec = g_vec;
-  u.v = xi_hat.b_v;
+  // Paper App. B.4.3: "for a practical implementation ... the virtual input nu
+  // is set to zero". The b_v = 0 anchor keeps the residual R(nu - b_v) in pdot
+  // negligible. (Feeding nu = b_v makes the input state-dependent, stepping
+  // outside the exogenous-input setting of Thm 9; CODE_REVIEW F6.)
+  u.v = Eigen::Vector3d::Zero();
   u.tau_w = Eigen::Vector3d::Zero();
   u.tau_a = Eigen::Vector3d::Zero();
   u.tau_v = Eigen::Vector3d::Zero();

@@ -47,8 +47,9 @@ public:
      *
      * When enabled, every propagate() call applies the b_v = 0 pseudo-measurement
      * (see update_virtual_bias) right after the predict, so the unobservable
-     * virtual bias stays pinned without the caller doing it manually. Disabled by
-     * default to keep propagate() a pure predict step.
+     * virtual bias stays pinned without the caller doing it manually. Enabled by
+     * default, matching the paper (which always imposes the Eq. B.20 anchor);
+     * disable for a pure predict step.
      *
      * @param enable  Turn auto-anchoring on/off
      * @param R_vb    Pseudo-measurement noise to use (small => tighter anchor)
@@ -83,9 +84,10 @@ public:
     /**
      * IMU propagation step.
      *
-     * Constructs TGInput from raw IMU measurements, forms Lift and InputOrbit
-     * functors, and calls Base::predict. If auto-anchoring is enabled
-     * (set_virtual_bias_anchor), also applies the b_v = 0 constraint afterward.
+     * Constructs TGInput from raw IMU measurements (virtual input nu = 0 per
+     * paper App. B.4.3), forms Lift and InputOrbit functors, and calls
+     * Base::predict. If auto-anchoring is enabled (set_virtual_bias_anchor, on
+     * by default), also applies the b_v = 0 constraint afterward.
      *
      * @param w_meas       Raw gyroscope measurement in body frame (rad/s)
      * @param a_meas       Raw accelerometer measurement in body frame (m/s^2)
@@ -181,8 +183,9 @@ private:
                          const Eigen::MatrixXd& H, const Eigen::VectorXd& z,
                          const Eigen::MatrixXd& R);
 
-    /// Auto-anchor b_v = 0 inside propagate() (off by default).
-    bool anchor_virtual_bias_ = false;
+    /// Auto-anchor b_v = 0 inside propagate() (on by default, matching the
+    /// paper which always imposes the Eq. B.20 anchor; CODE_REVIEW F6).
+    bool anchor_virtual_bias_ = true;
     /// Pseudo-measurement noise used by the auto-anchor.
     Covariance3 virtual_bias_R_ = 1e-4 * Covariance3::Identity();
     /// Apply the EqF covariance reset after each update (on by default).

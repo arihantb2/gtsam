@@ -93,7 +93,7 @@ Defined in [`TGEqFScenarioExample.h`](TGEqFScenarioExample.h).
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| Filter | `TGEqF` | IMU propagation only; no `update_position` / `update_dvl` |
+| Filter | `TGEqF` | IMU propagation (virtual input ν = 0, b_v anchor on by default); optional GNSS position aiding via `--pos-rate` |
 | Reference state `xi_ref` | `scenario.navState(0)` | EqF chart origin = true initial state (IMU-only cannot observe it) |
 | Initial covariance `Sigma0` | `0.01 * I_18` | Same scale as `testTGEqF.cpp` |
 | Gravity | `9.81 m/s²`, Z-up ENU | `PreintegrationParams::MakeSharedU(9.81)` → `n_gravity = (0, 0, -9.81)` |
