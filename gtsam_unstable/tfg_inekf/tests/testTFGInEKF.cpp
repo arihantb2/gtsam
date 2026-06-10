@@ -6,6 +6,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
+#include <gtsam/navigation/Scenario.h>
 #include <gtsam_unstable/tfg_inekf/InEKF.h>
 
 using namespace tfg;
@@ -316,6 +317,139 @@ TEST(TfgInEKF, InputNoiseCouplesIntoBiasRows) {
   EXPECT(ga > 1e-9);
   EXPECT(th_gw > 1e-9);
   EXPECT(assert_equal((Matrix)Qd, (Matrix)Qd.transpose(), 1e-15));  // symmetric
+}
+
+// ---------------------------------------------------------------------------
+// 30 s regression: biased IMU, with and without position aiding.
+//
+// Ground truth is a coordinated turn (gtsam::ConstantTwistScenario: constant
+// yaw rate + forward body velocity => circle). The turning motion excites the
+// centripetal specific force, which makes yaw and the IMU biases observable
+// from position fixes. IMU samples are synthesized from the closed-form
+// trajectory and corrupted by CONSTANT biases only (no random noise), so the
+// run is fully deterministic and thresholds are stable regression bounds.
+// ---------------------------------------------------------------------------
+
+struct RegressionResult {
+  Eigen::Vector3d pos_err;        // final position error (m)
+  Eigen::Vector3d vel_err;        // final velocity error (m/s)
+  Eigen::Vector3d att_err;        // final attitude error, Log(gt^-1 est) (rad)
+  Eigen::Vector3d bg_err, ba_err; // final bias estimate errors
+  Eigen::Vector3d bg_est, ba_est; // final bias estimates
+  double pos_cov_trace = 0.0;     // trace of final position covariance block
+  double bg_cov_trace = 0.0;      // trace of final gyro-bias covariance block
+  double ba_cov_trace = 0.0;      // trace of final accel-bias covariance block
+  double min_eig = 0.0;           // min eigenvalue of final covariance
+};
+
+static RegressionResult runBiasedImu30s(bool with_position_updates) {
+  // Coordinated turn: 0.3 rad/s yaw, 2 m/s forward => circle of radius ~6.7 m.
+  const gtsam::ConstantTwistScenario scenario(Eigen::Vector3d(0, 0, 0.3),
+                                              Eigen::Vector3d(2.0, 0, 0));
+  // Constant true biases, unknown to the filter (it starts at zero).
+  const Eigen::Vector3d true_bg(0.01, -0.005, 0.02);  // rad/s
+  const Eigen::Vector3d true_ba(0.05, -0.03, 0.02);   // m/s^2
+
+  const double dt = 0.01, duration = 30.0;  // 100 Hz IMU, 30 s
+  const int num_steps = static_cast<int>(duration / dt);
+  const int gnss_decim = 10;  // 10 Hz position fixes
+  const Eigen::Vector3d g = gravity();
+
+  // Init at the true initial state with zero bias estimate.
+  const gtsam::NavState gt0 = scenario.navState(0.0);
+  auto X0 = TwoFrameGroup::FromState(gt0.attitude(), gt0.velocity(),
+                                     gt0.position(), Eigen::Vector3d::Zero(),
+                                     Eigen::Vector3d::Zero());
+  Cov15 P0 = Cov15::Zero();
+  P0.block<3, 3>(0, 0) = Cov3::Identity() * 1e-4;    // attitude (confident)
+  P0.block<3, 3>(3, 3) = Cov3::Identity() * 1e-2;    // velocity
+  P0.block<3, 3>(6, 6) = Cov3::Identity() * 1e-2;    // position
+  P0.block<3, 3>(9, 9) = Cov3::Identity() * 1e-3;    // gyro bias
+  P0.block<3, 3>(12, 12) = Cov3::Identity() * 1e-2;  // accel bias
+  TfgInEKF ekf(X0, P0);
+
+  tfg::ImuNoise noise;
+  noise.gyro = 1e-6;      // (0.001 rad/s/sqrt(Hz))^2
+  noise.accel = 1e-4;     // (0.01 m/s^2/sqrt(Hz))^2
+  noise.gyro_rw = 1e-9;
+  noise.accel_rw = 1e-8;
+  const Cov3 R_pos = Cov3::Identity() * (0.05 * 0.05);
+
+  double t = 0.0;
+  for (int k = 0; k < num_steps; ++k) {
+    // Ideal IMU at time t (specific force f = R^T (a_n - g)) plus the biases.
+    const gtsam::NavState gt = scenario.navState(t);
+    const Eigen::Vector3d omega_meas = scenario.omega_b(t) + true_bg;
+    const Eigen::Vector3d accel_meas =
+        gt.attitude().unrotate(scenario.acceleration_n(t) - g) + true_ba;
+    ekf.propagate(omega_meas, accel_meas, noise, dt);
+    t += dt;
+    if (with_position_updates && (k + 1) % gnss_decim == 0)
+      ekf.update_position(scenario.navState(t).position(), R_pos);
+  }
+
+  const gtsam::NavState gt_end = scenario.navState(duration);
+  RegressionResult r;
+  r.pos_err = Eigen::Vector3d(gt_end.position()) - ekf.position();
+  r.vel_err = Eigen::Vector3d(gt_end.velocity()) - ekf.velocity();
+  r.att_err = gtsam::Rot3::Logmap(gt_end.attitude().between(ekf.attitude()));
+  r.bg_est = ekf.bias_gyro();
+  r.ba_est = ekf.bias_accel();
+  r.bg_err = r.bg_est - true_bg;
+  r.ba_err = r.ba_est - true_ba;
+  const Cov15 P = ekf.covariance();
+  r.pos_cov_trace = P.block<3, 3>(6, 6).trace();
+  r.bg_cov_trace = P.block<3, 3>(9, 9).trace();
+  r.ba_cov_trace = P.block<3, 3>(12, 12).trace();
+  r.min_eig = minEig(P);
+  return r;
+}
+
+TEST(TfgInEKF, Regression30sBiasedImuWithPositionUpdates) {
+  const RegressionResult r = runBiasedImu30s(/*with_position_updates=*/true);
+
+  // Navigation errors stay small under aiding despite the uncompensated-at-
+  // start biases (5 cm GNSS-grade bound on position). Measured (Release,
+  // x86-64): pos 3.1e-4 m, vel 6.3e-4 m/s, att 4.3e-3 rad.
+  EXPECT(r.pos_err.norm() < 0.05);
+  EXPECT(r.vel_err.norm() < 0.05);
+  EXPECT(r.att_err.norm() < 0.02);  // ~1.1 deg
+
+  // Gyro bias is recovered almost fully (truth |bg| = 0.023; measured error
+  // 8.8e-4). The accel bias splits by observability: the z component (paired
+  // with gravity) recovers to ~1e-3, while the horizontal components remain
+  // entangled with the few-mrad tilt (g * tilt ~ 0.02 m/s^2) -- the filter's
+  // own sigma_ba ~ 0.06 covers this, i.e. it is consistent, not divergent.
+  // Truth |ba| = 0.062; measured total error 0.030.
+  EXPECT(r.bg_err.norm() < 0.005);
+  EXPECT(r.ba_err.norm() < 0.045);                    // > 25% recovery overall
+  EXPECT(std::abs(r.ba_err.z()) < 0.005);             // observable axis: tight
+  const double sigma_ba = std::sqrt(r.ba_cov_trace / 3.0);
+  EXPECT(r.ba_err.norm() < 3.0 * sigma_ba);           // filter consistency
+
+  // Covariance stays SPD; the gyro-bias block converges well below its prior.
+  EXPECT(r.min_eig > 0.0);
+  EXPECT(r.bg_cov_trace < 0.1 * 3e-3);
+}
+
+TEST(TfgInEKF, Regression30sAidedVsImuOnly) {
+  const RegressionResult aided = runBiasedImu30s(/*with_position_updates=*/true);
+  const RegressionResult imu_only =
+      runBiasedImu30s(/*with_position_updates=*/false);
+
+  // Dead reckoning with a biased IMU drifts far (measured: 152 m after 30 s);
+  // aiding contains the error to sub-cm.
+  EXPECT(imu_only.pos_err.norm() > 10.0);
+  EXPECT(aided.pos_err.norm() < 0.01 * imu_only.pos_err.norm());
+
+  // Without aiding the biases are unobservable: the estimate never moves from
+  // its zero initialisation (propagate keeps the physical bias constant).
+  EXPECT(imu_only.bg_est.norm() < 1e-6);
+  EXPECT(imu_only.ba_est.norm() < 1e-6);
+
+  // The filter knows it: position covariance grows instead of shrinking.
+  EXPECT(imu_only.pos_cov_trace > 10.0 * aided.pos_cov_trace);
+  EXPECT(imu_only.min_eig > 0.0);
 }
 
 /* ************************************************************************* */
