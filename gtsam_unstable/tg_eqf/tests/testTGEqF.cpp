@@ -421,6 +421,26 @@ TEST(TGEqF, DvlUpdateMovesVelocityInGlobalFrameAtRotatedState) {
   EXPECT(std::abs(dv.z()) < 0.02);
 }
 
+// A position update at a rotated state must move the estimate in the correct
+// *global* direction. A +0.5 m global-y measurement offset should move the
+// position estimate +0.5 m in y, not leak into x/z (the un-transported,
+// half-coupled code moved it mostly +x; cf. CODE_REVIEW Appendix A, F3).
+TEST(TGEqF, PositionUpdateMovesEstimateInGlobalFrameAtRotatedState) {
+  const TGState xi_ref = TGState::identity();
+  const TGGroupElement X0 = rotatedX0();
+  TGEqF filter(xi_ref, defaultSigma(), X0);
+
+  const Eigen::Vector3d p_before = filter.position();
+  const Eigen::Vector3d pi = p_before + Eigen::Vector3d(0.0, 0.5, 0.0);
+
+  filter.update_position(pi, 1e-4 * TGEqF::Covariance3::Identity(), true);
+
+  const Eigen::Vector3d dp = filter.position() - p_before;
+  EXPECT(dp.y() > 0.4);
+  EXPECT(std::abs(dp.x()) < 0.1);
+  EXPECT(std::abs(dp.z()) < 0.1);
+}
+
 /* ************************************************************************* */
 int main() {
   TestResult tr;

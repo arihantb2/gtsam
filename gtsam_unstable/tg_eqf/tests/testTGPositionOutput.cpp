@@ -158,51 +158,76 @@ TEST(PositionOutput, InnovationZeroWhenPiEqualsP) {
 // Jacobians
 // ---------------------------------------------------------------------------
 
+// Origin-chart finite difference of  eps -> R0^T(pi - p(phi(g, Retract(xi_ref,
+// eps)))) — the exact innovation Jacobian the filter consumes (CODE_REVIEW F3).
+static Eigen::Matrix<double, 3, 18> numericalOriginJacobian(
+    const TGState& xi_ref, const TGGroupElement& g, const Eigen::Vector3d& pi,
+    double h = 1e-6) {
+  auto m = [&](const TGState& xr) {
+    return xi_ref.R.unrotate(pi - phi(g, xr).p);
+  };
+  Eigen::Matrix<double, 3, 18> J;
+  const Eigen::Vector3d f0 = m(xi_ref);
+  for (int j = 0; j < 18; ++j) {
+    Eigen::Matrix<double, 18, 1> e = Eigen::Matrix<double, 18, 1>::Zero();
+    e(j) = h;
+    J.col(j) = (m(traits<TGState>::Retract(xi_ref, e)) - f0) / h;
+  }
+  return J;
+}
+
 TEST(PositionOutput, JacobianC0AtIdentity) {
   const TGState xi_ref = TGState::identity();
+  const Eigen::Vector3d pi(2.5, -1.0, 1.2);
+  // Origin chart at identity: C0 = [skew(pi) | 0 | -I | 0].
   Eigen::Matrix<double, 3, 18> expected =
       Eigen::Matrix<double, 3, 18>::Zero();
+  expected.block<3, 3>(0, 0) = gtsam::skewSymmetric(pi);
   expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, PositionMeasurement::jacobian_C0(xi_ref)));
+  EXPECT(meq(expected, PositionMeasurement::jacobian_C0(xi_ref, pi)));
 }
 
-TEST(PositionOutput, JacobianC0PositionBlockMatchesNumerical) {
+TEST(PositionOutput, JacobianC0MatchesNumericalAtIdentity) {
+  // At the identity origin with g = identity the origin and estimate charts
+  // coincide, so C0 equals the full chart finite difference of predict.
   const TGState xi_ref = TGState::identity();
   const Eigen::Vector3d pi(2.5, -1.0, 1.2);
-  const Eigen::Matrix<double, 3, 18> H_num =
-      numericalJacobian(xi_ref, pi);
+  const Eigen::Matrix<double, 3, 18> H_num = numericalJacobian(xi_ref, pi);
   const Eigen::Matrix<double, 3, 18> H_anal =
-      PositionMeasurement::jacobian_C0(xi_ref);
-
-  // C0 is first-order at the fixed origin: rotation block is zero by design.
-  EXPECT(meq(H_anal.block<3, 3>(0, 0),
-             Eigen::Matrix3d::Zero(), kTol));
-  EXPECT(meq(H_anal.block<3, 3>(0, 6), H_num.block<3, 3>(0, 6), 1e-5));
-}
-
-TEST(PositionOutput, JacobianCstarMatchesDocumentedFormula) {
-  const TGState xi = makeXi();
-  const Eigen::Vector3d pi(2.5, -1.0, 1.2);
-  const Eigen::Vector3d y = PositionMeasurement::predict(xi, pi);
-
-  Eigen::Matrix<double, 3, 18> expected =
-      Eigen::Matrix<double, 3, 18>::Zero();
-  expected.block<3, 3>(0, 0) =
-      0.5 * gtsam::skewSymmetric(y + xi.p);
-  expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
-
-  EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi, pi)));
+      PositionMeasurement::jacobian_C0(xi_ref, pi);
+  EXPECT(meq(H_anal, H_num, 1e-5));
 }
 
 TEST(PositionOutput, JacobianCstarAtIdentityWithPi) {
-  const TGState xi = TGState::identity();
+  const TGState xi_ref = TGState::identity();
+  const TGGroupElement g = TGGroupElement::Identity();
   const Eigen::Vector3d pi(2.5, -1.0, 1.2);
+  // g = identity => p_X = 0, y0 = pi: C* = [0.5 skew(pi) | 0 | -I | 0].
   Eigen::Matrix<double, 3, 18> expected =
       Eigen::Matrix<double, 3, 18>::Zero();
-  expected.block<3, 3>(0, 0) =
-      0.5 * gtsam::skewSymmetric(pi);
+  expected.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(pi);
   expected.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi, pi)));
+  EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi_ref, g, pi)));
+}
+
+// At convergence (p_hat = pi) the paper-literal C* equals the exact
+// origin-chart innovation Jacobian — the numerical ground-truth guard that the
+// old "restated formula" lacked (closes design.md §4 gap).
+TEST(PositionOutput, JacobianCstarMatchesOriginFDAtConvergence) {
+  const TGState xi_ref = makeXi();
+  const Eigen::Vector3d pi(2.5, -1.0, 1.2);
+
+  // Group whose acted position equals pi (convergence): p_hat = R0*g.p + p0.
+  TGGroupElement g = TGGroupElement::Identity();
+  g.p = xi_ref.R.unrotate(pi - xi_ref.p);  // = y0
+  // sanity: phi(g, xi_ref).p == pi
+  EXPECT(veq(pi, phi(g, xi_ref).p, 1e-9));
+
+  const Eigen::Matrix<double, 3, 18> H_anal =
+      PositionMeasurement::jacobian_Cstar(xi_ref, g, pi);
+  const Eigen::Matrix<double, 3, 18> H_num =
+      numericalOriginJacobian(xi_ref, g, pi);
+  EXPECT(meq(H_anal, H_num, 1e-5));
 }
 
 /* ************************************************************************* */

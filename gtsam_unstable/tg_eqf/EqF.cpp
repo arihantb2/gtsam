@@ -55,16 +55,24 @@ void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl,
 
 void TGEqF::update_position(const Eigen::Vector3d& pi,
                             const Covariance3& R_pos, bool use_Cstar) {
-  const TGState xi_hat = state();
-  const Eigen::Vector3d prediction =
-      PositionMeasurement::predict(xi_hat, pi);
+  // Paper-literal position pairing (CODE_REVIEW F3, Eq. B.19): C0/C* are built
+  // from the fixed reference state, so they are already in the filter's origin
+  // chart (no Dphi_g composition). The residual is the origin-frame
+  //   prediction = R0^T (pi - p_hat) = y0 - p_X,   target z = 0,
+  // which gtsam pairs as delta_xi = -K (prediction - z); with the -R0^T
+  // position block this moves p_hat toward pi (verified at the origin and at a
+  // rotated state). Express R_pos in the same R0-rotated frame.
+  const TGState xi_ref = referenceState();
+  const Eigen::Matrix3d R0 = xi_ref.R.matrix();
+  const Eigen::Vector3d prediction = xi_ref.R.unrotate(pi - state().p);
   const Eigen::Matrix<double, 3, 18> H =
-      use_Cstar ? PositionMeasurement::jacobian_Cstar(xi_hat, pi)
-                : PositionMeasurement::jacobian_C0(referenceState());
+      use_Cstar
+          ? PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi)
+          : PositionMeasurement::jacobian_C0(xi_ref, pi);
 
-  // Equivariant position target is zero: h'(xi) = 0 when pi == p.
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
-  Base::updateWithVector(prediction, H, z, R_pos);
+  const Covariance3 R_eff = R0.transpose() * R_pos * R0;
+  Base::updateWithVector(prediction, H, z, R_eff);
 }
 
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {

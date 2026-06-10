@@ -43,47 +43,50 @@ struct PositionMeasurement {
         const Eigen::Vector3d& pi);
 
     /**
-     * Standard output Jacobian C0 in R^{3x18} (first-order, at origin xi_ref).
+     * Origin-chart output Jacobian C0 in R^{3x18} (first-order).
      *
-     * C0 = d(h')/d(epsilon) |_{epsilon=0, xi=xi_ref}
+     * C0 = [ y0^  0_{3x3}  -R0^T  0_{3x9} ],   y0 = R0^T (pi - p0)
+     *      [ delta_R | delta_v | delta_p | delta_b ]
      *
-     * At identity origin (R=I, p=0):
-     *   d(h')/d(delta_R) = 0   (pi^∧ term vanishes at origin)
-     *   d(h')/d(delta_p) = -I
-     *   d(h')/d(delta_v) = 0
+     * This is the limit of C* (below) as the estimate reaches the origin; it
+     * is built entirely from the fixed reference state xi_ref, so it is already
+     * in the origin chart the filter consumes (no Dphi_g composition). At the
+     * identity origin it reduces to [pi^ | 0 | -I | 0].
      *
-     * C0 = [0_{3x3}  0_{3x3}  -I_3  0_{3x9}]  in R^{3x18}
-     *      [delta_R | delta_v | delta_p | delta_b]
+     * Reference: Fornasier et al., arXiv:2309.03765, Sec. 2.2 / Eq. B.19.
      *
-     * Reference: Fornasier [5] Sec. 7.1, Fornasier 2023 (2309.03765)
-     *
-     * @param xi_ref    Fixed origin state
+     * @param xi_ref    Fixed origin (reference) state
+     * @param pi        Raw global position measurement
      * @return          Jacobian C0 in R^{3x18}
      */
     static Eigen::Matrix<double, 3, 18> jacobian_C0(
-        const TGState& xi_ref);
+        const TGState& xi_ref,
+        const Eigen::Vector3d& pi);
 
     /**
-     * Equivariant output approximation C* (third-order linearisation error).
+     * Paper-literal equivariant Jacobian C* (Eq. B.19), origin chart.
      *
-     * C* = [0.5*(y + p_hat)^  0_{3x3}  -I_3  0_{3x9}]  in R^{3x18}
-     *      [delta_R           | delta_v | delta_p | delta_b]
+     * C* = [ 0.5 (y0 + p_X)^  0_{3x3}  -R0^T  0_{3x9} ]  in R^{3x18}
+     *      [ delta_R          | delta_v | delta_p | delta_b ]
      *
-     * where y     = h'(xi_hat) = R_hat^T(pi - p_hat)  (predicted measurement)
-     *       p_hat = current position estimate
-     *       (y + p_hat)^ = skew-symmetric matrix of (y + p_hat)
+     * where y0  = R0^T (pi - p0)   (origin output ẙ),
+     *       p_X = g.p              (back-transported measurement = R0^T(p_hat - p0)).
      *
-     * Reduces linearisation error from O(||e||^2) to O(||e||^3).
-     * Use in preference to jacobian_C0.
+     * Averages D_E rho_E at the origin output and at the back-transported
+     * measurement (both global-frame), giving the O(||e||^3) output
+     * linearisation. At the identity origin this is [0.5(pi + p_hat)^ | 0 | -I
+     * | 0]; preferred over jacobian_C0.
      *
-     * Reference: Fornasier [5] Lemma 15, Fornasier 2023 (2309.03765) Sec. 7.1
+     * Reference: Fornasier et al., arXiv:2309.03765, Lemma 15 / Sec. 2.2 / Eq. B.19.
      *
-     * @param xi_hat    Current filter state estimate
+     * @param xi_ref    Fixed origin (reference) state
+     * @param g         Current group estimate (groupEstimate())
      * @param pi        Raw global position measurement
      * @return          C* in R^{3x18}
      */
     static Eigen::Matrix<double, 3, 18> jacobian_Cstar(
-        const TGState& xi_hat,
+        const TGState& xi_ref,
+        const TGGroupElement& g,
         const Eigen::Vector3d& pi);
 
     /**
