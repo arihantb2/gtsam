@@ -41,6 +41,8 @@ struct RunOptions {
   int log_decim = 1;               // log every Nth step (1 = every step)
   double pos_rate = 0.0;           // GNSS position update rate in Hz (0 = disabled)
   double pos_noise_sigma = 0.1;    // Position measurement noise stddev (m)
+  double dvl_rate = 0.0;           // DVL body-velocity update rate in Hz (0 = disabled)
+  double dvl_noise_sigma = 0.02;   // DVL measurement noise stddev (m/s)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -96,6 +98,10 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.pos_rate = std::stod(argv[++i]);
     } else if (arg == "--pos-noise" && i + 1 < argc) {
       opts.pos_noise_sigma = std::stod(argv[++i]);
+    } else if (arg == "--dvl-rate" && i + 1 < argc) {
+      opts.dvl_rate = std::stod(argv[++i]);
+    } else if (arg == "--dvl-noise" && i + 1 < argc) {
+      opts.dvl_noise_sigma = std::stod(argv[++i]);
     }
   }
   return opts;
@@ -275,12 +281,17 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   }
   const gtsam::Vector3& g_vec = params->n_gravity;
 
-  // A zero position-noise sigma makes R_pos singular and the Kalman gain
+  // A zero measurement-noise sigma makes R singular and the Kalman gain
   // ill-posed; reject it up front rather than producing NaNs mid-run.
   if (opts.pos_rate > 0.0 && opts.pos_noise_sigma <= 0.0) {
     throw std::runtime_error(
         "pos_noise_sigma must be > 0 when position updates are enabled "
         "(pos_rate > 0)");
+  }
+  if (opts.dvl_rate > 0.0 && opts.dvl_noise_sigma <= 0.0) {
+    throw std::runtime_error(
+        "dvl_noise_sigma must be > 0 when DVL updates are enabled "
+        "(dvl_rate > 0)");
   }
 
   std::ofstream csv(opts.output_path);
@@ -299,6 +310,7 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
       static_cast<size_t>(std::llround(opts.duration / opts.dt));
 
   double next_pos_time = (opts.pos_rate > 0.0) ? (1.0 / opts.pos_rate) : -1.0;
+  double next_dvl_time = (opts.dvl_rate > 0.0) ? (1.0 / opts.dvl_rate) : -1.0;
 
   for (size_t k = 0; k <= num_steps; ++k) {
     const gtsam::NavState gt = scenario.navState(t);
@@ -310,6 +322,17 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
           opts.pos_noise_sigma * opts.pos_noise_sigma * TGEqF::Covariance3::Identity();
       filter.update_position(pos_meas, R_pos, true);
       next_pos_time += 1.0 / opts.pos_rate;
+    }
+
+    if (opts.dvl_rate > 0.0 && t >= next_dvl_time - 1e-5) {
+      // DVL measures body-frame velocity h = R^T v; build it from the true
+      // global velocity and attitude, then add body-frame noise.
+      const Eigen::Vector3d body_vel = gt.attitude().unrotate(gt.velocity());
+      const Eigen::Vector3d dvl_meas = body_vel + sampleNoise(opts.dvl_noise_sigma);
+      const TGEqF::Covariance3 R_dvl =
+          opts.dvl_noise_sigma * opts.dvl_noise_sigma * TGEqF::Covariance3::Identity();
+      filter.update_dvl(dvl_meas, R_dvl);
+      next_dvl_time += 1.0 / opts.dvl_rate;
     }
 
     // Estimate comes straight from the filter; the lift already integrates
