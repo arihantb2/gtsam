@@ -33,6 +33,8 @@ python3 ../gtsam_unstable/tg_eqf/scripts/plot_trajectory.py tg_eqf_circle.csv --
 | `--init-sigma <σ>` | `0.1` | Initial state stddev: `Sigma0 = σ²·I₁₈` |
 | `--log-decim <n>` | `1` | Log every Nth step (bounds CSV size for sweeps) |
 | `--seed <n>` | `42` | RNG seed for IMU noise (vary for Monte Carlo) |
+| `--pos-rate <Hz>` | `0` | GNSS-like position update rate (0 = IMU-only) |
+| `--pos-noise <σ>` | `0.1` | Position measurement stddev (m); must be > 0 when `--pos-rate` > 0 |
 
 When IMU noise/RW is set, the filter `Qc` is matched to it (gyro noise → attitude
 block, accel noise → velocity block, bias-RW rates → bias blocks) so the

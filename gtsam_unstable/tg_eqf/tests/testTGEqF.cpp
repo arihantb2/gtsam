@@ -179,10 +179,11 @@ TEST(TGEqF, PositionUpdateShrinksPositionCovariance) {
   const Eigen::Vector3d pi(1.0, 0.5, -0.2);
   const TGEqF::Covariance3 R_pos = 0.01 * TGEqF::Covariance3::Identity();
 
-  // Position lives in tangent columns 6..8 ([R,v,p] order); check that block.
-  const double trace_before = filter.covariance().block<3, 3>(6, 6).trace();
+  // Position lives in origin-chart tangent columns 6..8 ([R,v,p] order). Use
+  // errorCovariance() (origin chart); covariance() transports as J^T P J (F8).
+  const double trace_before = filter.errorCovariance().block<3, 3>(6, 6).trace();
   filter.update_position(pi, R_pos, true);
-  const double trace_after = filter.covariance().block<3, 3>(6, 6).trace();
+  const double trace_after = filter.errorCovariance().block<3, 3>(6, 6).trace();
 
   EXPECT(trace_after < trace_before);
 }
@@ -226,10 +227,10 @@ TEST(TGEqF, DvlUpdateShrinksVelocityCovariance) {
   const Eigen::Vector3d z_dvl(0.5, -0.2, 0.3);
   const TGEqF::Covariance3 R_dvl = 0.01 * TGEqF::Covariance3::Identity();
 
-  // Velocity lives in tangent columns 3..5 ([R,v,p,...] order).
-  const double trace_before = filter.covariance().block<3, 3>(3, 3).trace();
+  // Velocity lives in origin-chart tangent columns 3..5 ([R,v,p,...] order).
+  const double trace_before = filter.errorCovariance().block<3, 3>(3, 3).trace();
   filter.update_dvl(z_dvl, R_dvl);
-  const double trace_after = filter.covariance().block<3, 3>(3, 3).trace();
+  const double trace_after = filter.errorCovariance().block<3, 3>(3, 3).trace();
 
   EXPECT(trace_after < trace_before);
 }
@@ -284,10 +285,10 @@ TEST(TGEqF, AutoAnchorDrivesVirtualBiasToZeroInPropagate) {
 TEST(TGEqF, VirtualBiasUpdateShrinksVirtualBiasCovariance) {
   TGEqF filter(TGState::identity(), defaultSigma());
 
-  // b_v lives in tangent columns 15..17 ([R,v,p,b_w,b_a,b_v] order).
-  const double trace_before = filter.covariance().block<3, 3>(15, 15).trace();
+  // b_v lives in origin-chart tangent columns 15..17 ([R,v,p,b_w,b_a,b_v]).
+  const double trace_before = filter.errorCovariance().block<3, 3>(15, 15).trace();
   filter.update_virtual_bias(0.01 * TGEqF::Covariance3::Identity());
-  const double trace_after = filter.covariance().block<3, 3>(15, 15).trace();
+  const double trace_after = filter.errorCovariance().block<3, 3>(15, 15).trace();
 
   EXPECT(trace_after < trace_before);
 }
@@ -303,7 +304,9 @@ TEST(TGEqF, EndToEndPropagateAndUpdates) {
   const Eigen::Vector3d omega(0.02, 0.0, 0.01);
   const double dt = 0.05;
 
-  filter.propagate(omega, g_vec, g_vec, defaultQc(), dt);
+  // A roughly level body at rest reads specific force = -g (not +g): the
+  // accelerometer measures the reaction to gravity, not free-fall.
+  filter.propagate(omega, -g_vec, g_vec, defaultQc(), dt);
 
   const Eigen::Vector3d pi = filter.position() + Eigen::Vector3d(0.5, 0.0, 0.0);
   const Eigen::Vector3d z_dvl =

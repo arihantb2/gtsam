@@ -275,6 +275,14 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
   }
   const gtsam::Vector3& g_vec = params->n_gravity;
 
+  // A zero position-noise sigma makes R_pos singular and the Kalman gain
+  // ill-posed; reject it up front rather than producing NaNs mid-run.
+  if (opts.pos_rate > 0.0 && opts.pos_noise_sigma <= 0.0) {
+    throw std::runtime_error(
+        "pos_noise_sigma must be > 0 when position updates are enabled "
+        "(pos_rate > 0)");
+  }
+
   std::ofstream csv(opts.output_path);
   if (!csv) {
     throw std::runtime_error("Cannot open output file: " + opts.output_path);
