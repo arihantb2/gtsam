@@ -37,8 +37,10 @@ SCENARIOS = {
     "straight_line": ("TGEqFStraightLineExample", "tg_eqf_straight_line"),
 }
 
-# Display label and physical unit per state group.
-GROUPS = ["att", "pos", "vel", "bg", "bv", "ba"]
+# Display label and physical unit per state group. Order matches the CSV's raw
+# tangent order [att, vel, pos, bg, ba, bv]; eps/P columns are selected by name
+# (eps_and_cov), so this list only sets display order.
+GROUPS = ["att", "vel", "pos", "bg", "ba", "bv"]
 GROUP_LABEL = {
     "att": ("Attitude", "rad"),
     "pos": ("Position", "m"),

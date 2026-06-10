@@ -25,11 +25,13 @@ static TGEqF::Covariance18 defaultSigma() {
 }
 
 static TGEqF::Covariance18 defaultQc() {
+  // Tangent order [att(0:3), vel(3:6), pos(6:9), b_w(9:12), b_a(12:15),
+  // b_v(15:18)]: accel noise drives velocity, accel bias RW drives b_a.
   TGEqF::Covariance18 Qc = TGEqF::Covariance18::Zero();
-  Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(6, 6) = 1e-3 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(15, 15) = 1e-5 * Eigen::Matrix3d::Identity();
+  Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();    // attitude
+  Qc.block<3, 3>(3, 3) = 1e-3 * Eigen::Matrix3d::Identity();    // velocity
+  Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();    // gyro bias
+  Qc.block<3, 3>(12, 12) = 1e-5 * Eigen::Matrix3d::Identity();  // accel bias
   return Qc;
 }
 

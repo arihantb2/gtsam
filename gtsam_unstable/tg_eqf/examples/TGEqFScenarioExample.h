@@ -106,11 +106,14 @@ inline TGEqF::Covariance18 defaultSigma() {
 }
 
 inline TGEqF::Covariance18 defaultQc() {
+  // Tangent order [att(0:3), vel(3:6), pos(6:9), b_w(9:12), b_a(12:15),
+  // b_v(15:18)]: gyro white noise drives attitude, accel white noise drives
+  // velocity, the bias random-walks drive their own bias blocks.
   TGEqF::Covariance18 Qc = TGEqF::Covariance18::Zero();
-  Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(6, 6) = 1e-3 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();
-  Qc.block<3, 3>(15, 15) = 1e-5 * Eigen::Matrix3d::Identity();
+  Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();    // attitude
+  Qc.block<3, 3>(3, 3) = 1e-3 * Eigen::Matrix3d::Identity();    // velocity
+  Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();    // gyro bias
+  Qc.block<3, 3>(12, 12) = 1e-5 * Eigen::Matrix3d::Identity();  // accel bias
   return Qc;
 }
 
@@ -123,16 +126,18 @@ inline const char* csvHeader() {
          "est_bgx,est_bgy,est_bgz,est_bvx,est_bvy,est_bvz,"
          "est_bax,est_bay,est_baz,"
          "true_bgx,true_bgy,true_bgz,true_bax,true_bay,true_baz,"
-         "eps_att_x,eps_att_y,eps_att_z,eps_pos_x,eps_pos_y,eps_pos_z,"
-         "eps_vel_x,eps_vel_y,eps_vel_z,eps_bg_x,eps_bg_y,eps_bg_z,"
-         "eps_bv_x,eps_bv_y,eps_bv_z,eps_ba_x,eps_ba_y,eps_ba_z,"
+         // eps / P columns follow the raw TGState tangent order
+         // [att, vel, pos, bg, ba, bv] (velocity at index 3, position at 6).
+         "eps_att_x,eps_att_y,eps_att_z,eps_vel_x,eps_vel_y,eps_vel_z,"
+         "eps_pos_x,eps_pos_y,eps_pos_z,eps_bg_x,eps_bg_y,eps_bg_z,"
+         "eps_ba_x,eps_ba_y,eps_ba_z,eps_bv_x,eps_bv_y,eps_bv_z,"
          // upper-triangle of each 3x3 covariance block (origin frame):
          "P_att_00,P_att_01,P_att_02,P_att_11,P_att_12,P_att_22,"
-         "P_pos_00,P_pos_01,P_pos_02,P_pos_11,P_pos_12,P_pos_22,"
          "P_vel_00,P_vel_01,P_vel_02,P_vel_11,P_vel_12,P_vel_22,"
+         "P_pos_00,P_pos_01,P_pos_02,P_pos_11,P_pos_12,P_pos_22,"
          "P_bg_00,P_bg_01,P_bg_02,P_bg_11,P_bg_12,P_bg_22,"
-         "P_bv_00,P_bv_01,P_bv_02,P_bv_11,P_bv_12,P_bv_22,"
-         "P_ba_00,P_ba_01,P_ba_02,P_ba_11,P_ba_12,P_ba_22\n";
+         "P_ba_00,P_ba_01,P_ba_02,P_ba_11,P_ba_12,P_ba_22,"
+         "P_bv_00,P_bv_01,P_bv_02,P_bv_11,P_bv_12,P_bv_22\n";
 }
 
 /// Build the true TGState from ground-truth nav and the true IMU biases.
@@ -152,7 +157,7 @@ inline TGState trueState(const gtsam::NavState& gt,
 /// Write one trajectory row: ground truth, filter estimate, attitude error,
 /// estimated/true biases, the EqF origin-frame error eps, and the upper triangle
 /// of each 3x3 covariance block (origin frame), in TGState tangent order
-/// [att, pos, vel, bg, bv, ba].
+/// [att, vel, pos, bg, ba, bv] (velocity at index 3, position at 6).
 ///
 /// eps is the equivariant error in the fixed reference chart:
 ///   eps = Local(xi_ref, phi(g^{-1}, xi_true)),
@@ -260,13 +265,13 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
     Qc.block<3, 3>(0, 0) = opts.gyro_noise_sigma * opts.gyro_noise_sigma * I3;
   }
   if (opts.accel_noise_sigma > 0.0) {
-    Qc.block<3, 3>(6, 6) = opts.accel_noise_sigma * opts.accel_noise_sigma * I3;
+    Qc.block<3, 3>(3, 3) = opts.accel_noise_sigma * opts.accel_noise_sigma * I3;
   }
   if (opts.gyro_bias_rw > 0.0) {
     Qc.block<3, 3>(9, 9) = opts.gyro_bias_rw * opts.gyro_bias_rw * I3;
   }
   if (opts.accel_bias_rw > 0.0) {
-    Qc.block<3, 3>(15, 15) = opts.accel_bias_rw * opts.accel_bias_rw * I3;
+    Qc.block<3, 3>(12, 12) = opts.accel_bias_rw * opts.accel_bias_rw * I3;
   }
   const gtsam::Vector3& g_vec = params->n_gravity;
 

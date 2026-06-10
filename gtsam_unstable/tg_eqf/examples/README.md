@@ -106,15 +106,17 @@ Defined in [`TGEqFScenarioExample.h`](TGEqFScenarioExample.h).
 | Tangent block | Index | Variance scale |
 |---------------|-------|----------------|
 | Attitude | 0–2 | `1e-4 * I_3` |
-| Position | 3–5 | (zero) |
-| Velocity | 6–8 | `1e-3 * I_3` |
+| Velocity | 3–5 | `1e-3 * I_3` |
+| Position | 6–8 | (zero) |
 | `b_omega` | 9–11 | `1e-6 * I_3` |
-| `b_v` | 12–14 | (zero) |
-| `b_a` | 15–17 | `1e-5 * I_3` |
+| `b_a` | 12–14 | `1e-5 * I_3` |
+| `b_v` | 15–17 | (zero) |
 
-Matches `defaultQc()` in `testTGEqF.cpp`. The `b_omega` (9–11) and `b_a` (15–17)
-blocks are overridden to `rate²·I_3` when `--gyro-bias-rw` / `--accel-bias-rw`
-are set, matching the simulated bias random walk.
+Matches `defaultQc()` in `testTGEqF.cpp` (tangent order `[att, vel, pos, b_w,
+b_a, b_v]`). The attitude (0–2) / velocity (3–5) blocks are overridden to
+`sigma²·I_3` when `--gyro-noise` / `--accel-noise` are set, and `b_omega` (9–11)
+/ `b_a` (12–14) to `rate²·I_3` when `--gyro-bias-rw` / `--accel-bias-rw` are set,
+matching the simulated IMU noise and bias random walk.
 
 ### Logged estimate trajectory
 
