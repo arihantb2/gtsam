@@ -12,7 +12,7 @@ namespace tgeqf {
  * Lie algebra element of SE_2(3): se_2(3)
  * Represented as a 5x5 matrix or as a 9-vector [w; a; v_]
  *
- * Reference: proposal Eq. (7b)
+ * Reference: Fornasier et al., arXiv:2309.03765, Sec. 5.4
  */
 struct se2_3 {
     // Bias block: [w; a; v]
@@ -38,8 +38,10 @@ struct se2_3 {
  *
  * X = [A, a] where A in SE_2(3), a in se_2(3)
  *
- * Group product: XY = [A_X A_Y, a_X + Ad_{A_X}[a_Y]]    Eq. (12)
- * Inverse:       X^{-1} = [A^{-1}, Ad_{A^{-1}}[-a]]     Eq. (11)
+ * Group product: XY = [A_X A_Y, a_X + Ad_{A_X}[a_Y]]
+ * Inverse:       X^{-1} = [A^{-1}, Ad_{A^{-1}}[-a]]
+ *
+ * Reference: Fornasier et al., arXiv:2309.03765, Sec. 5.4
  */
 struct TGGroupElement {
     // Navigation block: A = [R, v, p] in SE_2(3)
@@ -150,7 +152,8 @@ struct traits<const tgeqf::TGGroupElement> : traits<tgeqf::TGGroupElement> {};
 // Helper functions
 // ============================================================
 
-namespace {
+namespace tgeqf {
+namespace detail {
 
 // SE_2(3) = ExtendedPose3<2>. Tangent vector is [omega; eta; alpha] in R^9.
 using Se23 = gtsam::ExtendedPose3<2>;
@@ -183,11 +186,31 @@ inline Eigen::Matrix<double, 9, 9> Ad_SE23(const tgeqf::TGGroupElement& X) {
   return A;
 }
 
+// Inverse adjoint Ad_{A^{-1}} of an SE_2(3) element acting on se_2(3):
+// xi = (w, a, v) -> (R^T w, R^T(a - v x w), R^T(v - p x w))
+//
+//   Ad_{A^{-1}} = [  R^T         0    0   ]
+//                 [ -R^T [v]^x   R^T  0   ]
+//                 [ -R^T [p]^x   0    R^T ]
+inline Eigen::Matrix<double, 9, 9> Ad_SE23_inv(const tgeqf::TGGroupElement& X) {
+  const Eigen::Matrix3d Rt  = X.R.transpose();
+  const Eigen::Matrix3d RtV = -Rt * gtsam::skewSymmetric(X.v);
+  const Eigen::Matrix3d RtP = -Rt * gtsam::skewSymmetric(X.p);
+
+  Eigen::Matrix<double, 9, 9> A = Eigen::Matrix<double, 9, 9>::Zero();
+  A.block<3, 3>(0, 0) = Rt;
+  A.block<3, 3>(3, 0) = RtV;
+  A.block<3, 3>(3, 3) = Rt;
+  A.block<3, 3>(6, 0) = RtP;
+  A.block<3, 3>(6, 6) = Rt;
+  return A;
+}
+
 // algebra adjoint map of a se_2(3) element:
 // a = [w; a; v] in se_2(3)
 // ad_a(xi) = [a, xi] = (a_w x xi_w,
-//                       a_w x xi_v + a_v x xi_w,
-//                       a_w x xi_a + a_a x xi_w)
+//                       a_w x xi_a + a_a x xi_w,
+//                       a_w x xi_v + a_v x xi_w)
 //
 //   ad_a = [ w^×    0     0   ]
 //          [ a^×    w^×   0   ]
@@ -206,5 +229,6 @@ inline Eigen::Matrix<double, 9, 9> ad_se23(const tgeqf::se2_3& a) {
   return M;
 }
 
-}  // namespace
+}  // namespace detail
+}  // namespace tgeqf
 

@@ -14,7 +14,7 @@ namespace tgeqf {
  *
  * dim(M) = 9 (SE_2(3)) + 9 (biases) = 18
  *
- * Reference: Fornasier et al. [1], Section 3 / proposal Section 6.3
+ * Reference: Fornasier et al., arXiv:2309.03765, Sec. 3 (Eq. 4 state order)
  */
 struct TGState {
     // Navigation states

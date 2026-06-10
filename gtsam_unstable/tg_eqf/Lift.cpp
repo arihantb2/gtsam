@@ -75,13 +75,15 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
   const se2_3 b = {xi.b_w, xi.b_a, xi.b_v};
   const se2_3 tau = {u.tau_w, u.tau_a, u.tau_v};
   const Eigen::Matrix<double, 9, 1> Lambda2 =
-      ad_se23(b) * Lambda1.vector() - tau.vector();
+      detail::ad_se23(b) * Lambda1.vector() - tau.vector();
 
   Eigen::Matrix<double, 18, 1> result;
   result.head<9>() = Lambda1.vector();
   result.tail<9>() = Lambda2;
 
   if (D_lift) {
+    // Recomputed every predict: u_origin changes per step and the bias rows
+    // depend on Lambda_1(xi, u), so this FD is not cacheable across steps.
     static constexpr double h = 1e-7;
     for (int j = 0; j < 18; ++j) {
       Eigen::Matrix<double, 18, 1> e =
@@ -97,7 +99,7 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
       const se2_3 Lambda1p = se2_3::vee(L1p_mat);
       const se2_3 bp = {xi_p.b_w, xi_p.b_a, xi_p.b_v};
       const Eigen::Matrix<double, 9, 1> Lambda2p =
-          ad_se23(bp) * Lambda1p.vector() - tau.vector();
+          detail::ad_se23(bp) * Lambda1p.vector() - tau.vector();
 
       Eigen::Matrix<double, 18, 1> result_p;
       result_p.head<9>() = Lambda1p.vector();

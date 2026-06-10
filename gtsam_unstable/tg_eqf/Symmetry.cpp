@@ -2,49 +2,6 @@
 
 #include <gtsam/geometry/Rot3.h>
 
-namespace {
-
-// 9x9 matrix representation of Ad_{A_X^{-1}} acting on se_2(3):
-//   xi -> (R^T omega, R^T(eta - p x omega), R^T(alpha - v x omega))
-//
-//   Ad_{A^{-1}} = [  R^T         0    0  ]
-//                 [ -R^T [p]^x   R^T  0  ]
-//                 [ -R^T [v]^x   0    R^T ]
-Eigen::Matrix<double, 9, 9> Ad9inv(const tgeqf::TGGroupElement& X) {
-  const Eigen::Matrix3d Rt  = X.R.transpose();
-  const Eigen::Matrix3d RtV = -Rt * gtsam::skewSymmetric(X.v);
-  const Eigen::Matrix3d RtP = -Rt * gtsam::skewSymmetric(X.p);
-
-  Eigen::Matrix<double, 9, 9> A = Eigen::Matrix<double, 9, 9>::Zero();
-  A.block<3, 3>(0, 0) = Rt;
-  A.block<3, 3>(3, 0) = RtV;
-  A.block<3, 3>(3, 3) = Rt;
-  A.block<3, 3>(6, 0) = RtP;
-  A.block<3, 3>(6, 6) = Rt;
-  return A;
-}
-
-// 9x9 adjoint (Lie bracket) matrix of a se_2(3) element:
-//
-// ad_a = [ w^x    0     0   ]
-//        [ a^x    w^x   0   ]
-//        [ v^x    0     w^x ]
-Eigen::Matrix<double, 9, 9> ad9(const tgeqf::se2_3& a) {
-  const Eigen::Matrix3d Gw = gtsam::skewSymmetric(a.w);
-  const Eigen::Matrix3d Ga = gtsam::skewSymmetric(a.a);
-  const Eigen::Matrix3d Gv = gtsam::skewSymmetric(a.v);
-
-  Eigen::Matrix<double, 9, 9> M = Eigen::Matrix<double, 9, 9>::Zero();
-  M.block<3, 3>(0, 0) = Gw;
-  M.block<3, 3>(3, 0) = Ga;
-  M.block<3, 3>(3, 3) = Gw;
-  M.block<3, 3>(6, 0) = Gv;
-  M.block<3, 3>(6, 6) = Gw;
-  return M;
-}
-
-}  // namespace
-
 namespace tgeqf {
 
 // ---------------------------------------------------------------------------
@@ -57,7 +14,7 @@ namespace tgeqf {
 //   b_xi - a_X is the component-wise difference in se_2(3)
 //   Ad_{A_X^{-1}} is the adjoint of A_X inverse acting on se_2(3)
 //
-// Reference: Fornasier 2023 Lemma 4.1 / proposal Eq. (13)
+// Reference: Fornasier et al., arXiv:2309.03765, Lemma 7 (Eq. 19)
 // ---------------------------------------------------------------------------
 TGState phi(const TGGroupElement& X, const TGState& xi) {
   TGState result;
@@ -92,7 +49,7 @@ TGSymmetry::Orbit::Orbit(const TGState& xi_ref) : xi_ref(xi_ref) {}
 //   [  I_3          |  0_3       |  0_3       |  0_{3x9}  ]   delta_R_out
 //   [  0_3          |  R_out     |  0_3       |  0_{3x9}  ]   delta_v_out
 //   [  0_3          |  0_3       |  R_out     |  0_{3x9}  ]   delta_p_out
-//   [  ad9(b_out)   |  0_{9x3}   |  0_{9x3}   |  -I_9     ]   delta_b_out
+//   [  ad_se23(b_out) |  0_{9x3} |  0_{9x3}   |  -I_9     ]   delta_b_out
 //
 // where R_out = (xi_ref.R * X.R_X).matrix(), and b_out = Ad_{A_X^{-1}}(b_xi - a_X).
 TGState TGSymmetry::Orbit::operator()(const TGGroupElement& X,
@@ -111,7 +68,7 @@ TGState TGSymmetry::Orbit::operator()(const TGGroupElement& X,
 
     // Bias blocks
     const se2_3 b_out = {result.b_w, result.b_a, result.b_v};
-    H->block<9, 9>(9, 0) = ad9(b_out);   // delta_b_out / delta_tau
+    H->block<9, 9>(9, 0) = detail::ad_se23(b_out);  // delta_b_out / delta_tau
     H->block<9, 9>(9, 9) = -Eigen::Matrix<double, 9, 9>::Identity();  // / delta_sigma
   }
 
@@ -131,7 +88,7 @@ TGSymmetry::Diffeomorphism::Diffeomorphism(const TGGroupElement& X) : X(X) {}
 //   [  R_X^T            |  0_3  |  0_3  |  0_{3x9}     ]   delta_R_out
 //   [  -R_xi [v_X]^x    |  I_3  |  0_3  |  0_{3x9}     ]   delta_v_out
 //   [  -R_xi [p_X]^x    |  0_3  |  I_3  |  0_{3x9}     ]   delta_p_out
-//   [  0_{9x3}          |  0    |  0    |  Ad9inv(X)   ]   delta_b_out
+//   [  0_{9x3}          |  0    |  0    |  Ad_SE23_inv(X) ]   delta_b_out
 TGState TGSymmetry::Diffeomorphism::operator()(const TGState& xi,
                                                Eigen::Matrix<double, 18, 18>* H) const {
   const TGState result = phi(X, xi);
@@ -156,7 +113,7 @@ TGState TGSymmetry::Diffeomorphism::operator()(const TGState& xi,
     H->block<3, 3>(6, 6) = Eigen::Matrix3d::Identity();
 
     // Bias row: delta_b_out = Ad_{C_X^{-1}} * delta_b
-    H->block<9, 9>(9, 9) = Ad9inv(X);
+    H->block<9, 9>(9, 9) = detail::Ad_SE23_inv(X);
   }
 
   return result;

@@ -31,8 +31,7 @@ public:
     /**
      * Construct the filter.
      *
-     * @param xi_ref   Fixed origin state (choose identity for simplicity;
-     *                 must have gravity direction fixed if using depth).
+     * @param xi_ref   Fixed origin state (choose identity for simplicity).
      * @param Sigma0   Initial covariance on the 18-dim tangent space at xi_ref.
      */
     explicit TGEqF(
@@ -64,7 +63,13 @@ public:
      * @param w_meas       Raw gyroscope measurement in body frame (rad/s)
      * @param a_meas       Raw accelerometer measurement in body frame (m/s^2)
      * @param g_vec        Gravity vector in global frame (m/s^2)
-     * @param Qc           Continuous-time process noise on the 18-dim manifold
+     * @param Qc           Continuous-time process noise on the 18-dim manifold.
+     *                     Known approximation: Qc is injected directly in
+     *                     origin-chart state coordinates (P += Qc*dt); there is
+     *                     no input matrix B_t = Dphi0 * D_u(Lambda) mapping IMU
+     *                     noise through the lift (which would also couple IMU
+     *                     noise into the bias rows via Lambda_2). Acceptable for
+     *                     small biases; see docs/design.md "Known approximations".
      * @param dt           Time step (s)
      */
     void propagate(

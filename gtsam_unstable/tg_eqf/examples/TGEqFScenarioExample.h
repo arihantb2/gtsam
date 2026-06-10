@@ -156,8 +156,9 @@ inline TGState trueState(const gtsam::NavState& gt,
 ///
 /// eps is the equivariant error in the fixed reference chart:
 ///   eps = Local(xi_ref, phi(g^{-1}, xi_true)),
-/// which the filter's errorCovariance() P is the covariance of — so per group g
-/// the proper NEES is eps_g^T P_g^{-1} eps_g ~ chi^2_3.
+/// which the filter's errorCovariance() P is the covariance of — so per 3-DoF
+/// state block b the block-marginal NEES is eps_b^T P_b^{-1} eps_b ~ chi^2_3
+/// (the full-state NEES uses the full 18x18 P).
 inline void writeCsvRow(std::ostream& out, double t, const gtsam::NavState& gt,
                         const TGEqF& filter, const TGState& xi_ref,
                         const Eigen::Vector3d& true_bg,

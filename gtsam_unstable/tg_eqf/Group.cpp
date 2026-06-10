@@ -72,7 +72,7 @@ TGGroupElement TGGroupElement::inverse() const {
   return Xinv;
 }
 
-// Ad_{A_X}[xi] = (R xi_w, R xi_v + p x (R xi_w), R xi_a + v x (R xi_w))
+// Ad_{A_X}[xi] = (R xi_w, R xi_a + v x (R xi_w), R xi_v + p x (R xi_w))
 se2_3 TGGroupElement::Ad_A(const se2_3& xi) const {
   const Eigen::Vector3d Rw = R.rotate(xi.w);
   const Eigen::Vector3d Ra = R.rotate(xi.a);
@@ -82,7 +82,7 @@ se2_3 TGGroupElement::Ad_A(const se2_3& xi) const {
           Rv + p.cross(Rw)};
 }
 
-// Ad_{A_X^{-1}}[xi] = (R^T xi_w, R^T(xi_v - p x xi_w), R^T(xi_a - v x xi_w))
+// Ad_{A_X^{-1}}[xi] = (R^T xi_w, R^T(xi_a - v x xi_w), R^T(xi_v - p x xi_w))
 se2_3 TGGroupElement::Ad_A_inv(const se2_3& xi) const {
   return {R.unrotate(xi.w),
           R.unrotate(xi.a - v.cross(xi.w)),
@@ -93,7 +93,7 @@ se2_3 TGGroupElement::Ad_A_inv(const se2_3& xi) const {
 //   SE_2(3) part: exact via ExtendedPose3<2>::Expmap(tau)
 //   se_2(3) part: first-order Ξ ≈ I, so a = sigma
 TGGroupElement TGGroupElement::Expmap(const Eigen::Matrix<double, 18, 1>& v) {
-  const Se23 A = Se23::Expmap(v.head<9>());
+  const detail::Se23 A = detail::Se23::Expmap(v.head<9>());
   TGGroupElement X;
   X.A_from_matrix(A.matrix());
   X.a   = se2_3::from_vector(v.tail<9>());
@@ -105,7 +105,7 @@ TGGroupElement TGGroupElement::Expmap(const Eigen::Matrix<double, 18, 1>& v) {
 //   sigma = a.vector()  (consistent with first-order Expmap)
 Eigen::Matrix<double, 18, 1> TGGroupElement::Logmap() const {
   Eigen::Matrix<double, 18, 1> v;
-  v.head<9>() = Se23::Logmap(toSe23(*this));
+  v.head<9>() = detail::Se23::Logmap(detail::toSe23(*this));
   v.tail<9>() = a.vector();
   return v;
 }
@@ -182,8 +182,8 @@ T::TangentVector T::Logmap(const G& X, ChartJacobian) { return X.Logmap(); }
 //
 // where Ad_A and ad_a are the 9x9 matrices derived above.
 Eigen::Matrix<double, 18, 18> T::AdjointMap(const G& X) {
-  const Eigen::Matrix<double, 9, 9> AdA  = Ad_SE23(X);
-  const Eigen::Matrix<double, 9, 9> ada = ad_se23(X.a);
+  const Eigen::Matrix<double, 9, 9> AdA  = tgeqf::detail::Ad_SE23(X);
+  const Eigen::Matrix<double, 9, 9> ada = tgeqf::detail::ad_se23(X.a);
 
   Eigen::Matrix<double, 18, 18> Adj = Eigen::Matrix<double, 18, 18>::Zero();
   Adj.block<9, 9>(0, 0) = AdA;

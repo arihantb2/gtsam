@@ -12,7 +12,8 @@ namespace tgeqf {
  * tau   = [tau_w, tau_a, tau_v] in R^9   (bias rate inputs)
  * g_vec = [0, 0, g]             in R^3   (gravity vector in global frame)
  *
- * Reference: proposal Eq. (9), Section 6.3
+ * Reference: Fornasier et al., arXiv:2309.03765, Sec. 5.4 (extended input
+ * space with virtual velocity input and bias-rate inputs)
  */
 struct TGInput {
     Eigen::Vector3d w;     // measured angular velocity
@@ -43,7 +44,7 @@ struct TGInput {
  *
  * Satisfies equivariance: Lambda(phi(X,xi), psi(X,u)) = Ad_{X^{-1}} Lambda(xi,u)
  *
- * Reference: Fornasier et al. [1] Theorem 9 (Eq. 21-22), proposal Section 6.5 (TODO)
+ * Reference: Fornasier et al., arXiv:2309.03765, Theorem 9 (Eq. 21-22)
  *
  * GTSAM concept requirement:
  *   Lift(u)(xi, D_lift) -> TangentG (R^18, the Lie algebra g)

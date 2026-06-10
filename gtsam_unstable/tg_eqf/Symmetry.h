@@ -10,7 +10,7 @@ namespace tgeqf {
  * Encodes the right group action phi : G x M -> M
  *   phi(X, xi) = [T A_T, Ad_{A_T^{-1}}[b - a^vee], ...]
  *
- * Reference: proposal Eq. (13), Fornasier et al. [1] Lemma 4.1
+ * Reference: Fornasier et al., arXiv:2309.03765, Lemma 7 (Eq. 19)
  *
  * This struct satisfies the GTSAM EquivariantFilter Symmetry concept:
  *   - Group typedef
@@ -68,7 +68,7 @@ struct TGSymmetry {
  *
  * phi(X, xi) = [T A, Ad_{A^{-1}}(b - a^vee)]
  *
- * Reference: proposal Eq. (13)
+ * Reference: Fornasier et al., arXiv:2309.03765, Lemma 7 (Eq. 19)
  */
 TGState phi(const TGGroupElement& X, const TGState& xi);
 

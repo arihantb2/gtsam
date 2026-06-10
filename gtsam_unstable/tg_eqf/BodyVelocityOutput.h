@@ -15,10 +15,11 @@ namespace tgeqf {
  * This output is equivariant under phi without reformulation:
  *   h_d(phi(X, xi)) = psi_d(X, h_d(xi))
  *
- * Output group action (proposal Eq. 15, unbiased case):
+ * Output group action (unbiased case):
  *   psi_d(X, y_d) = R_X^T y_d + R_X^T v_X
  *
- * Reference: proposal Eq. (14), (15) (unbiased case)
+ * Reference: Fornasier et al., arXiv:2309.03765, Sec. 7 (body-frame velocity
+ * output, natively equivariant)
  */
 struct DVLMeasurement {
 
