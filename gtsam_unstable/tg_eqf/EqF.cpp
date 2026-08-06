@@ -9,9 +9,41 @@
 
 namespace tgeqf {
 
+namespace {
+
+/**
+ * Transport an initial covariance given in the tangent chart at the initial
+ * estimate phi(X0, xi_ref) back to the EqF origin chart at xi_ref.
+ *
+ * The filter's Riccati state is the covariance of the origin-chart error
+ * eps = Local(xi_ref, phi(X^-1, xi)). A perturbation of the estimate is
+ * delta = J * eps with J = d phi(X0, .)/dxi |_{xi_ref}, so the origin-chart
+ * covariance is J^-1 Sigma0 J^-T. This is the exact inverse of the transport
+ * EquivariantFilter::covariance() applies in the forward direction, and it
+ * reduces to the identity when X0 is the identity.
+ */
+Eigen::Matrix<double, 18, 18> toOriginChart(
+    const State& xi_ref, const Eigen::Matrix<double, 18, 18>& Sigma0,
+    const TGElement& X0) {
+  Eigen::Matrix<double, 18, 18> J;
+  const TGSymmetry::Diffeomorphism phi_X0(X0);
+  phi_X0(xi_ref, &J);
+
+  // J is block triangular with invertible diagonal blocks (R_X^T, I, I,
+  // Ad_SE23_inv(X)), so the solve is always well posed. Sigma0 is symmetric,
+  // hence (J^-1 Sigma0)^T = Sigma0 J^-T and a second solve completes the
+  // congruence.
+  const Eigen::PartialPivLU<Eigen::Matrix<double, 18, 18>> lu = J.partialPivLu();
+  const Eigen::Matrix<double, 18, 18> half = lu.solve(Sigma0).transpose();
+  const Eigen::Matrix<double, 18, 18> Sigma_eps = lu.solve(half);
+  return 0.5 * (Sigma_eps + Sigma_eps.transpose());
+}
+
+}  // namespace
+
 TGEqF::TGEqF(const State& xi_ref, const Covariance18& Sigma0,
              const TGElement& X0)
-    : Base(xi_ref, Sigma0, X0) {
+    : Base(xi_ref, toOriginChart(xi_ref, Sigma0, X0), X0) {
   computeOriginCaches();
 }
 

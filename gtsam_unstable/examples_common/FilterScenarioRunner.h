@@ -16,7 +16,8 @@
  *   using Covariance = Eigen::Matrix<double, kDim, kDim>;
  *
  *   std::string csvHeader() const;
- *   Filter makeFilter(const gtsam::NavState& gt0, const Covariance& P0) const;
+ *   Filter makeFilter(const InitialEstimate& initial,
+ *                     const Covariance& P0) const;
  *   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& bg,
  *                       const Eigen::Vector3d& ba) const;
  *   void propagate(Filter&, const ImuMeasurement&, double dt) const;
@@ -64,23 +65,18 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
   auto params = gtsam::PreintegrationParams::MakeSharedU(kGravity);
   std::mt19937 rng(opts.seed);
 
-  // Ground truth starts away from the state the filter is initialized at, drawn
-  // from the init-*-sigma options, so P0 describes an error that actually
-  // occurs. true_scenario is what the IMU is driven through and what `gt`
-  // refers to below; the filter starts at the nominal scenario's initial state
-  // with zero bias.
-  const InitialPerturbation init_pert = sampleInitialPerturbation(rng, opts);
-  const PerturbedScenario true_scenario(scenario, init_pert.dR, init_pert.dv,
-                                        init_pert.dp);
-  const gtsam::ScenarioRunner runner(true_scenario, params, opts.dt);
+  // Ground truth is the clean scenario: `scenario` is what the IMU is driven
+  // through and what `gt` refers to below. The filter instead starts away from
+  // it, at a belief drawn from the init-*-sigma options, so P0 describes an
+  // error that actually occurs. The true biases stay at their configured
+  // initial values and random-walk from there; the filter knows none of this.
+  const gtsam::ScenarioRunner runner(scenario, params, opts.dt);
+  const InitialEstimate initial =
+      sampleInitialEstimate(rng, opts, scenario.navState(0.0));
+  ImuSimulator sim(opts, rng, opts.gyro_bias, opts.accel_bias);
 
-  // The IMU the filter sees: true biases (perturbed off the filter's zero
-  // belief) plus white noise. The filter knows neither.
-  ImuSimulator sim(opts, rng, opts.gyro_bias + init_pert.dbg,
-                   opts.accel_bias + init_pert.dba);
-
-  auto filter = adapter.makeFilter(scenario.navState(0.0),
-                                   initialCovariance<Adapter::kDim>(opts));
+  auto filter =
+      adapter.makeFilter(initial, initialCovariance<Adapter::kDim>(opts));
 
   PeriodicTrigger pos_updates(opts.pos_rate, opts.aiding_start_time);
   PeriodicTrigger dvl_updates(opts.dvl_rate, opts.aiding_start_time);
@@ -93,7 +89,7 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
   // The filter state is at time t throughout the loop body, matching gt: update
   // and log first, propagate to t + dt last.
   for (size_t k = 0; k <= num_steps; ++k) {
-    const gtsam::NavState gt = true_scenario.navState(t);
+    const gtsam::NavState gt = scenario.navState(t);
     const ImuMeasurement imu = sim.sample(runner, t);
 
     if (pos_updates.due(t)) {

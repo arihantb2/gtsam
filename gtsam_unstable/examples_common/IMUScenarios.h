@@ -28,7 +28,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -84,7 +83,7 @@ inline constexpr double kRampDuration = 2.0;  // s, shared spin-up duration
 /// and for `t >= T` it reduces to `S(t) = t - T/2` with `S'=1, S''=0` (exact
 /// cruise, C2-continuous stitch at `t=T`). Built from the quintic smootherstep
 /// `f(x) = 6x^5 - 15x^4 + 10x^3` (`S' = f(t/T)`, `S = integral of f`, `S'' =
-/// f'/T`).
+/// f'/T`). https://iquilezles.org/articles/smoothsteps/ 
 struct RampProfile {
   double S;
   double Sdot;
@@ -537,77 +536,6 @@ inline TypicalNavigationScenario typicalNavigation() {
       {9.0, gtsam::Vector3::Zero(), gtsam::Vector3(kNavCruiseSpeed, 0, 0)},
   };
   return TypicalNavigationScenario(kRampDuration, kNavCruiseSpeed, legs);
-}
-
-// --- Initial-state perturbation ----------------------------------------------
-// Every factory above starts at rest (R=I, p=0, v=0; see note above), so the
-// filters can be initialized at that same identity/zero state. To make the
-// init-*-sigma options mean something, the physical ground truth needs an
-// actual initial error relative to that identity/zero filter belief, drawn
-// from those sigmas -- otherwise P0 describes an error that never occurs.
-
-/// Wraps a base Scenario with a fixed initial offset (dR, dv, dp), applied as
-/// a left action on the extended pose (R, v, p): R'(t) = dR*R(t),
-/// v'(t) = dv + dR*v(t), p'(t) = dp + dR*p(t). Exact for scenarios that start
-/// at rest, since then the offset *is* the initial state. omega_b is
-/// unaffected (body angular rate is invariant to a nav-frame reorientation);
-/// acceleration_n is dR*a(t) (the derivative of v', since dv is constant) so
-/// that gravity-relative specific force is computed correctly for the
-/// perturbed attitude when this scenario drives a ScenarioRunner.
-class PerturbedScenario : public gtsam::Scenario {
- public:
-  PerturbedScenario(const gtsam::Scenario& base, const gtsam::Rot3& dR,
-                    const gtsam::Vector3& dv, const gtsam::Vector3& dp)
-      : base_(base), dR_(dR), dv_(dv), dp_(dp) {}
-
-  gtsam::Pose3 pose(double t) const override {
-    return gtsam::Pose3(dR_ * base_.rotation(t),
-                        dp_ + dR_ * base_.pose(t).translation());
-  }
-  gtsam::Vector3 omega_b(double t) const override { return base_.omega_b(t); }
-  gtsam::Vector3 velocity_n(double t) const override {
-    return dv_ + dR_ * base_.velocity_n(t);
-  }
-  gtsam::Vector3 acceleration_n(double t) const override {
-    return dR_ * base_.acceleration_n(t);
-  }
-
- private:
-  const gtsam::Scenario& base_;
-  const gtsam::Rot3 dR_;
-  const gtsam::Vector3 dv_, dp_;
-};
-
-/// Sampled initial ground-truth offset and true initial bias, matching the
-/// block-diagonal P0 built from the same sigmas (init_att/vel/pos/bias_sigma).
-struct InitialPerturbation {
-  gtsam::Rot3 dR;
-  gtsam::Vector3 dv = gtsam::Vector3::Zero();
-  gtsam::Vector3 dp = gtsam::Vector3::Zero();
-  gtsam::Vector3 dbg =
-      gtsam::Vector3::Zero();  ///< true initial gyro bias offset
-  gtsam::Vector3 dba =
-      gtsam::Vector3::Zero();  ///< true initial accel bias offset
-};
-
-/// Draw one InitialPerturbation ~ N(0, P0) from opts' init-*-sigma fields,
-/// consuming `rng`. Templated (like imuNoiseFromOptions) so it works with each
-/// filter's own RunOptions struct without a shared base type.
-template <typename RunOptions, typename Rng>
-inline InitialPerturbation sampleInitialPerturbation(Rng& rng,
-                                                     const RunOptions& opts) {
-  std::normal_distribution<double> normal(0.0, 1.0);
-  auto draw3 = [&](double sigma) {
-    return gtsam::Vector3(sigma * normal(rng), sigma * normal(rng),
-                          sigma * normal(rng));
-  };
-  InitialPerturbation pert;
-  pert.dR = gtsam::Rot3::Expmap(draw3(opts.init_att_sigma));
-  pert.dv = draw3(opts.init_vel_sigma);
-  pert.dp = draw3(opts.init_pos_sigma);
-  pert.dbg = draw3(opts.init_bias_sigma);
-  pert.dba = draw3(opts.init_bias_sigma);
-  return pert;
 }
 
 }  // namespace imu_scenarios

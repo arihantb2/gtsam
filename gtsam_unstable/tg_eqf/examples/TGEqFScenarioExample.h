@@ -24,8 +24,8 @@
 namespace tgeqf::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
-// The bias sigma covers bg, ba and bv; bv has no physical truth and is not
-// perturbed (see State::b_v).
+// The bias sigma covers bg, ba and bv; bv has no physical truth, so the initial
+// estimate leaves it at zero (see State::b_v).
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -52,14 +52,20 @@ class ScenarioAdapter {
         {"R", "v", "p", "bg", "ba", "bv"});
   }
 
-  /// Fix the origin xi0 at the scenario's nominal initial state with zero bias
-  /// and start the observer at the identity, so the estimate starts at xi0.
-  Filter makeFilter(const gtsam::NavState& gt0, const Covariance& P0) const {
-    State xi0 = State::identity();
-    xi0.R = gt0.attitude();
-    xi0.v = gt0.velocity();
-    xi0.p = gt0.position();
-    return Filter(xi0, P0, TGElement::Identity());
+  /// Pin the origin xi0 at the manifold identity, so the error dynamics are
+  /// always linearized about the same point, and carry the perturbed initial
+  /// belief in the group element: phi(X0, xi0) is that belief.
+  Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
+                    const Covariance& P0) const {
+    State xi_hat0;
+    xi_hat0.R = initial.nav.attitude();
+    xi_hat0.v = initial.nav.velocity();
+    xi_hat0.p = initial.nav.position();
+    xi_hat0.b_w = initial.bias_gyro;
+    xi_hat0.b_a = initial.bias_accel;
+    // b_v stays zero: the virtual bias has no physical truth to perturb.
+    const State xi0 = State::identity();
+    return Filter(xi0, P0, phiInverse(xi0, xi_hat0));
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,

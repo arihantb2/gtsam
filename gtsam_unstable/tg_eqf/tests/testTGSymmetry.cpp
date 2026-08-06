@@ -157,6 +157,52 @@ TEST(Phi, InverseActionUndoes) {
 }
 
 // ---------------------------------------------------------------------------
+// phiInverse
+// ---------------------------------------------------------------------------
+
+// A second non-trivial state, unrelated to makeXi().
+static State makeXiEst() {
+  State xi;
+  xi.R = Rot3::Ry(-0.2) * Rot3::Rz(0.5);
+  xi.v = Eigen::Vector3d(-0.7, 0.4, 1.2);
+  xi.p = Eigen::Vector3d(2.0, -1.5, 0.6);
+  xi.b_w = Eigen::Vector3d(-0.03, 0.01, 0.02);
+  xi.b_a = Eigen::Vector3d(0.2, -0.15, 0.07);
+  xi.b_v = Eigen::Vector3d(0.05, 0.0, -0.02);
+  return xi;
+}
+
+// The returned element takes xi_ref to xi_est under the action.
+TEST(PhiInverse, TakesRefToEst) {
+  const State xi_ref = makeXi();
+  const State xi_est = makeXiEst();
+  EXPECT(seq(phi(phiInverse(xi_ref, xi_est), xi_ref), xi_est, kTolL));
+}
+
+// It is the exact inverse of the orbit map, so it recovers the element phi
+// was called with.
+TEST(PhiInverse, RecoversGroupElement) {
+  const TGElement X = makeX();
+  const State xi = makeXi();
+  EXPECT(gtsam::traits<TGElement>::Equals(phiInverse(xi, phi(X, xi)), X, kTolL));
+}
+
+// From the identity origin the navigation part is copied straight across and
+// the fiber part is -Ad_A(b_est).
+TEST(PhiInverse, FromIdentityOrigin) {
+  const State xi_est = makeXiEst();
+  const TGElement X = phiInverse(State::identity(), xi_est);
+
+  EXPECT(X.R.equals(xi_est.R, kTol));
+  EXPECT(veq(X.v, xi_est.v));
+  EXPECT(veq(X.p, xi_est.p));
+  const se2_3 expected = X.Ad_A({xi_est.b_w, xi_est.b_a, xi_est.b_v});
+  EXPECT(veq(X.a.w, -expected.w));
+  EXPECT(veq(X.a.a, -expected.a));
+  EXPECT(veq(X.a.v, -expected.v));
+}
+
+// ---------------------------------------------------------------------------
 // Orbit functor
 // ---------------------------------------------------------------------------
 

@@ -25,7 +25,12 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /**
    * @param xi_ref  Fixed origin state (typically identity).
-   * @param Sigma0  Initial covariance at xi_ref.
+   * @param Sigma0  Initial covariance of the initial estimate phi(X0, xi_ref),
+   *                expressed in the tangent chart at that estimate. It is
+   *                transported internally to the origin chart at xi_ref, so
+   *                covariance() returns Sigma0 unchanged right after
+   *                construction. The transport is the identity when X0 is the
+   *                identity.
    * @param X0      Initial group estimate; state is phi(X0, xi_ref).
    */
   explicit TGEqF(const State& xi_ref, const Covariance18& Sigma0,

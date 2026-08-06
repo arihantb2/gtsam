@@ -42,8 +42,9 @@ struct RunOptions {
   double accel_bias_rw = 0.0;  // accel bias random-walk rate (m/s^2/sqrt(s))
 
   // Per-group initial stddevs, forming the block-diagonal P0 and (via
-  // sampleInitialPerturbation) the matching true initial-state offset, so
-  // eps(0) ~ N(0, P0) holds. All bias blocks share one value.
+  // sampleInitialEstimate) the matching offset of the filter's initial belief
+  // from the truth, so eps(0) ~ N(0, P0) holds. All bias blocks share one
+  // value.
   double init_att_sigma = 0.1;   // initial attitude stddev (rad)
   double init_vel_sigma = 0.1;   // initial velocity stddev (m/s)
   double init_pos_sigma = 0.1;   // initial position stddev (m)
@@ -161,7 +162,7 @@ inline void validateRunOptions(const RunOptions& opts) {
 }
 
 /// Block-diagonal P0 = diag(sigma^2), matching the offset
-/// sampleInitialPerturbation() draws: attitude, velocity, position, then every
+/// sampleInitialEstimate() draws: attitude, velocity, position, then every
 /// remaining 3-block is a bias block (bg, ba and, for TG-EqF, bv).
 template <int Dim>
 inline Eigen::Matrix<double, Dim, Dim> initialCovariance(
@@ -174,6 +175,38 @@ inline Eigen::Matrix<double, Dim, Dim> initialCovariance(
   sd.template segment<3>(6).setConstant(opts.init_pos_sigma);
   sd.tail(Dim - 9).setConstant(opts.init_bias_sigma);
   return sd.array().square().matrix().asDiagonal();
+}
+
+/// The belief a filter is initialized with: the ground truth at t = 0 offset by
+/// a draw from the same sigmas that build P0, so eps(0) ~ N(0, P0) holds. The
+/// filter never sees the truth itself.
+struct InitialEstimate {
+  gtsam::NavState nav;
+  Eigen::Vector3d bias_gyro = Eigen::Vector3d::Zero();
+  Eigen::Vector3d bias_accel = Eigen::Vector3d::Zero();
+};
+
+/// Draw one InitialEstimate around the clean initial truth, consuming `rng`.
+/// Attitude gets a world-frame rotation offset; velocity, position and the two
+/// biases get additive offsets, the biases around their true initial values.
+template <typename Rng>
+inline InitialEstimate sampleInitialEstimate(Rng& rng, const RunOptions& opts,
+                                             const gtsam::NavState& truth) {
+  std::normal_distribution<double> normal(0.0, 1.0);
+  auto draw3 = [&](double sigma) {
+    return Eigen::Vector3d(sigma * normal(rng), sigma * normal(rng),
+                           sigma * normal(rng));
+  };
+  const gtsam::Rot3 dR = gtsam::Rot3::Expmap(draw3(opts.init_att_sigma));
+  const Eigen::Vector3d dv = draw3(opts.init_vel_sigma);
+  const Eigen::Vector3d dp = draw3(opts.init_pos_sigma);
+
+  InitialEstimate initial;
+  initial.nav = gtsam::NavState(dR * truth.attitude(), truth.position() + dp,
+                                truth.velocity() + dv);
+  initial.bias_gyro = opts.gyro_bias + draw3(opts.init_bias_sigma);
+  initial.bias_accel = opts.accel_bias + draw3(opts.init_bias_sigma);
+  return initial;
 }
 
 /// Fires at a fixed rate, first at `start_time + 1/rate`. A non-positive rate

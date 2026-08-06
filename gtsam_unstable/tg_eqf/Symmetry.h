@@ -34,4 +34,9 @@ struct TGSymmetry {
 /// Standalone right group action phi(X, xi).
 State phi(const TGElement& X, const State& xi);
 
+/// The unique group element taking xi_ref to xi_est, i.e. the X with
+/// phi(X, xi_ref) == xi_est. Use it to initialize an EqF whose origin is fixed
+/// at xi_ref but whose estimate should start at xi_est.
+TGElement phiInverse(const State& xi_ref, const State& xi_est);
+
 }  // namespace tgeqf

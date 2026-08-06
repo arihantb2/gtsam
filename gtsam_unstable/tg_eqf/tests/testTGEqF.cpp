@@ -451,7 +451,13 @@ TEST(TGEqF, DvlOriginChartJacobianMatchesFiniteDifference) {
 TEST(TGEqF, DvlUpdateMovesVelocityInGlobalFrameAtRotatedState) {
   const State xi_ref = State::identity();
   const TGElement X0 = rotatedX0();
-  TGEqF filter(xi_ref, defaultSigma(), X0);
+  // Sigma0 is the prior at the estimate, where the 2 m/s speed makes attitude
+  // twice as sensitive as velocity to a body-velocity measurement. An isotropic
+  // prior would therefore attribute most of the innovation to yaw, so pin the
+  // attitude tightly to isolate the velocity correction under test.
+  TGEqF::Covariance18 Sigma0 = defaultSigma();
+  Sigma0.block<3, 3>(0, 0) = 1e-8 * Eigen::Matrix3d::Identity();
+  TGEqF filter(xi_ref, Sigma0, X0);
 
   const Eigen::Vector3d v_before = filter.velocity();
   const Eigen::Vector3d delta_global(0.0, 0.1, 0.0);
@@ -489,27 +495,46 @@ TEST(TGEqF, PositionUpdateMovesEstimateInGlobalFrameAtRotatedState) {
 }
 
 // ---------------------------------------------------------------------------
-// covariance() must transport the origin-chart errorCovariance() to the
-// state tangent space as J P J^T (J = d phi(g,.)/dxi), not J^T P J. At
-// rotatedX0() with an anisotropic P, J is far from a matrix that satisfies
-// J P J^T == J^T P J, so the two directions disagree by O(1), not just
-// numerical noise.
+// The constructor takes Sigma0 in the tangent chart at the initial estimate and
+// transports it to the origin chart as J^-1 Sigma0 J^-T (J = d phi(g,.)/dxi),
+// the exact inverse of the J P J^T transport covariance() applies forward. At
+// rotatedX0() with an anisotropic Sigma0, J is far from a matrix for which the
+// transpose-swapped congruence agrees, so a wrong direction shows up as an O(1)
+// discrepancy rather than numerical noise.
 // ---------------------------------------------------------------------------
 
-TEST(TGEqF, CovarianceIsDiffeomorphismTransportOfErrorCovariance) {
+TEST(TGEqF, ConstructorTransportsCovarianceToOriginChart) {
   const State xi_ref = State::identity();
   const TGElement X0 = rotatedX0();
-  TGEqF::Covariance18 P = TGEqF::Covariance18::Zero();
-  for (int i = 0; i < 18; ++i) P(i, i) = 1e-4 * (1.0 + i);  // anisotropic
-  TGEqF filter(xi_ref, P, X0);
+  TGEqF::Covariance18 Sigma0 = TGEqF::Covariance18::Zero();
+  for (int i = 0; i < 18; ++i) Sigma0(i, i) = 1e-4 * (1.0 + i);  // anisotropic
+  TGEqF filter(xi_ref, Sigma0, X0);
 
-  const Eigen::Matrix<double, 18, 18> J = diffeoJacobian(X0, xi_ref);
-  const Eigen::Matrix<double, 18, 18> P_expected = J * P * J.transpose();
-  EXPECT(assert_equal((Matrix)P_expected, (Matrix)filter.covariance(), 1e-9));
+  // Round trip: covariance() undoes exactly what the constructor applied.
+  EXPECT(assert_equal((Matrix)Sigma0, (Matrix)filter.covariance(), 1e-9));
 
-  // Guard against a future edit silently making J or P degenerate again.
-  const Eigen::Matrix<double, 18, 18> P_wrong_direction = J.transpose() * P * J;
+  const Eigen::Matrix<double, 18, 18> J_inv =
+      diffeoJacobian(X0, xi_ref).inverse();
+  const Eigen::Matrix<double, 18, 18> P_expected =
+      J_inv * Sigma0 * J_inv.transpose();
+  EXPECT(
+      assert_equal((Matrix)P_expected, (Matrix)filter.errorCovariance(), 1e-9));
+
+  // Guard the transport direction against a future transpose slip.
+  const Eigen::Matrix<double, 18, 18> P_wrong_direction =
+      J_inv.transpose() * Sigma0 * J_inv;
   EXPECT((P_wrong_direction - P_expected).norm() > 1e-3);
+}
+
+// With X0 = identity the transport is the identity, so Sigma0 must land in the
+// origin chart untouched.
+TEST(TGEqF, ConstructorTransportIsIdentityAtIdentityGroupElement) {
+  const State xi_ref = State::identity();
+  const TGEqF::Covariance18 Sigma0 = defaultSigma();
+  TGEqF filter(xi_ref, Sigma0, TGElement::Identity());
+
+  EXPECT(assert_equal(Sigma0, filter.errorCovariance(), 1e-12));
+  EXPECT(assert_equal((Matrix)Sigma0, (Matrix)filter.covariance(), 1e-12));
 }
 
 // ---------------------------------------------------------------------------

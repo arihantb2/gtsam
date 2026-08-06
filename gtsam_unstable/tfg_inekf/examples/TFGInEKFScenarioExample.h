@@ -44,11 +44,12 @@ class ScenarioAdapter {
                                               {"R", "v", "p", "bg", "ba"});
   }
 
-  /// Start at the scenario's nominal initial state with zero bias.
-  Filter makeFilter(const gtsam::NavState& gt0, const Covariance& P0) const {
+  /// Start at the perturbed initial belief, biases included.
+  Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
+                    const Covariance& P0) const {
     const TwoFrameGroup X0 = TwoFrameGroup::FromState(
-        gt0.attitude(), gt0.velocity(), gt0.position(), Eigen::Vector3d::Zero(),
-        Eigen::Vector3d::Zero());
+        initial.nav.attitude(), initial.nav.velocity(), initial.nav.position(),
+        initial.bias_gyro, initial.bias_accel);
     return Filter(X0, P0);
   }
 
