@@ -41,14 +41,16 @@ struct RunOptions {
   double gyro_bias_rw = 0.0;   // gyro bias random-walk rate (rad/s/sqrt(s))
   double accel_bias_rw = 0.0;  // accel bias random-walk rate (m/s^2/sqrt(s))
 
-  // Per-group initial stddevs, forming the block-diagonal P0 and (via
-  // sampleInitialEstimate) the matching offset of the filter's initial belief
-  // from the truth, so eps(0) ~ N(0, P0) holds. All bias blocks share one
-  // value.
+  // Per-group initial stddevs for the physical state, forming the
+  // block-diagonal P0 and (via sampleInitialEstimate) the matching offset of
+  // the filter's initial belief from the truth, so eps(0) ~ N(0, P0) holds.
+  // The gyro and accel bias blocks share one value. States a filter estimates
+  // without a physical counterpart (the TG-EqF virtual bias) are not covered
+  // here: the filter initializes those itself.
   double init_att_sigma = 0.1;   // initial attitude stddev (rad)
   double init_vel_sigma = 0.1;   // initial velocity stddev (m/s)
   double init_pos_sigma = 0.1;   // initial position stddev (m)
-  double init_bias_sigma = 0.1;  // initial bias stddev (all bias blocks)
+  double init_bias_sigma = 0.1;  // initial gyro/accel bias stddev
 
   unsigned seed = 42;  // RNG seed for noise (vary it for Monte Carlo)
 
@@ -161,19 +163,21 @@ inline void validateRunOptions(const RunOptions& opts) {
   }
 }
 
-/// Block-diagonal P0 = diag(sigma^2), matching the offset
-/// sampleInitialEstimate() draws: attitude, velocity, position, then every
-/// remaining 3-block is a bias block (bg, ba and, for TG-EqF, bv).
-template <int Dim>
-inline Eigen::Matrix<double, Dim, Dim> initialCovariance(
-    const RunOptions& opts) {
-  static_assert(Dim >= 9 && Dim % 3 == 0,
-                "state dimension must be R, v, p plus whole bias blocks");
-  Eigen::Matrix<double, Dim, 1> sd;
-  sd.template segment<3>(0).setConstant(opts.init_att_sigma);
-  sd.template segment<3>(3).setConstant(opts.init_vel_sigma);
-  sd.template segment<3>(6).setConstant(opts.init_pos_sigma);
-  sd.tail(Dim - 9).setConstant(opts.init_bias_sigma);
+/// Covariance of the physical state every filter shares, ordered
+/// [attitude, velocity, position, gyro bias, accel bias].
+using PhysicalStateCovariance = Eigen::Matrix<double, 15, 15>;
+
+/// Block-diagonal P0 = diag(sigma^2) over the physical state, matching the
+/// offset sampleInitialEstimate() draws. A filter that also estimates states
+/// with no physical counterpart (the TG-EqF virtual bias) extends this itself;
+/// none of the init-*-sigma options describe those.
+inline PhysicalStateCovariance initialCovariance(const RunOptions& opts) {
+  Eigen::Matrix<double, 15, 1> sd;
+  sd.segment<3>(0).setConstant(opts.init_att_sigma);
+  sd.segment<3>(3).setConstant(opts.init_vel_sigma);
+  sd.segment<3>(6).setConstant(opts.init_pos_sigma);
+  sd.segment<3>(9).setConstant(opts.init_bias_sigma);
+  sd.segment<3>(12).setConstant(opts.init_bias_sigma);
   return sd.array().square().matrix().asDiagonal();
 }
 

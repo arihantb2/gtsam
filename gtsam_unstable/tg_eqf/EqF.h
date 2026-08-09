@@ -21,7 +21,19 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
   using Base = gtsam::EquivariantFilter<State, TGSymmetry>;
   using Covariance18 = Eigen::Matrix<double, 18, 18>;
+  using Covariance15 = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
+
+  /// Initial stddev of the virtual bias b_v. The virtual bias has no physical
+  /// counterpart to perturb: it starts at zero, held there by the b_v = 0
+  /// anchor, so its initial uncertainty matches that anchor rather than any
+  /// user-set bias sigma.
+  static constexpr double kVirtualBiasInitialSigma = 1e-6;
+
+  /// Full initial covariance built from the physical-state one, ordered
+  /// [R, v, p, b_w, b_a]. The physical block is used as given; the virtual-bias
+  /// block is kVirtualBiasInitialSigma^2 * I and uncorrelated with the rest.
+  static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
 
   /**
    * @param xi_ref  Fixed origin state (typically identity).

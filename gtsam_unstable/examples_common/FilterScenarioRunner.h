@@ -13,11 +13,10 @@
  *   static constexpr int kDim;   // tangent dimension (15, 18, ...)
  *   using Filter;                // the filter type
  *   using TrueState;             // state type holding ground truth + biases
- *   using Covariance = Eigen::Matrix<double, kDim, kDim>;
  *
  *   std::string csvHeader() const;
  *   Filter makeFilter(const InitialEstimate& initial,
- *                     const Covariance& P0) const;
+ *                     const PhysicalStateCovariance& P0) const;
  *   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& bg,
  *                       const Eigen::Vector3d& ba) const;
  *   void propagate(Filter&, const ImuMeasurement&, double dt) const;
@@ -27,7 +26,9 @@
  *                    const Filter&) const;
  * @endcode
  * The adapter is constructed from RunOptions, so anything it needs per run
- * (process noise, gravity) is set up once before the loop starts.
+ * (process noise, gravity) is set up once before the loop starts. P0 covers
+ * only the 15 physical states; a filter with extra estimate-only states
+ * (kDim > 15) fills those blocks in itself.
  */
 #pragma once
 
@@ -75,8 +76,7 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
       sampleInitialEstimate(rng, opts, scenario.navState(0.0));
   ImuSimulator sim(opts, rng, opts.gyro_bias, opts.accel_bias);
 
-  auto filter =
-      adapter.makeFilter(initial, initialCovariance<Adapter::kDim>(opts));
+  auto filter = adapter.makeFilter(initial, initialCovariance(opts));
 
   PeriodicTrigger pos_updates(opts.pos_rate, opts.aiding_start_time);
   PeriodicTrigger dvl_updates(opts.dvl_rate, opts.aiding_start_time);

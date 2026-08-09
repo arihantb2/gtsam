@@ -41,6 +41,16 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
 
 }  // namespace
 
+TGEqF::Covariance18 TGEqF::initialCovariance(
+    const Covariance15& Sigma_physical) {
+  Covariance18 Sigma0 = Covariance18::Zero();
+  Sigma0.topLeftCorner<15, 15>() = Sigma_physical;
+  Sigma0.bottomRightCorner<3, 3>() =
+      kVirtualBiasInitialSigma * kVirtualBiasInitialSigma *
+      Covariance3::Identity();
+  return Sigma0;
+}
+
 TGEqF::TGEqF(const State& xi_ref, const Covariance18& Sigma0,
              const TGElement& X0)
     : Base(xi_ref, toOriginChart(xi_ref, Sigma0, X0), X0) {

@@ -24,8 +24,9 @@
 namespace tgeqf::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
-// The bias sigma covers bg, ba and bv; bv has no physical truth, so the initial
-// estimate leaves it at zero (see State::b_v).
+// The shared options only describe the physical state: bv has no physical
+// truth, so the initial estimate leaves it at zero (see State::b_v) and its
+// initial covariance comes from the filter itself.
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -36,7 +37,6 @@ class ScenarioAdapter {
   static constexpr int kDim = 18;
   using Filter = TGEqF;
   using TrueState = State;
-  using Covariance = TGEqF::Covariance18;
 
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
@@ -54,9 +54,11 @@ class ScenarioAdapter {
 
   /// Pin the origin xi0 at the manifold identity, so the error dynamics are
   /// always linearized about the same point, and carry the perturbed initial
-  /// belief in the group element: phi(X0, xi0) is that belief.
+  /// belief in the group element: phi(X0, xi0) is that belief. P0 covers the
+  /// physical state only; TGEqF::initialCovariance() adds the virtual-bias
+  /// block.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
-                    const Covariance& P0) const {
+                    const imu_scenarios::PhysicalStateCovariance& P0) const {
     State xi_hat0;
     xi_hat0.R = initial.nav.attitude();
     xi_hat0.v = initial.nav.velocity();
@@ -65,7 +67,7 @@ class ScenarioAdapter {
     xi_hat0.b_a = initial.bias_accel;
     // b_v stays zero: the virtual bias has no physical truth to perturb.
     const State xi0 = State::identity();
-    return Filter(xi0, P0, phiInverse(xi0, xi_hat0));
+    return Filter(xi0, Filter::initialCovariance(P0), phiInverse(xi0, xi_hat0));
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,

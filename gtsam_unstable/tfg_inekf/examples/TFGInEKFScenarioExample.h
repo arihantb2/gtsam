@@ -32,7 +32,6 @@ class ScenarioAdapter {
   static constexpr int kDim = TwoFrameGroup::dim;
   using Filter = TfgInEKF;
   using TrueState = TwoFrameGroup;
-  using Covariance = Eigen::Matrix<double, kDim, kDim>;
 
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
@@ -44,9 +43,10 @@ class ScenarioAdapter {
                                               {"R", "v", "p", "bg", "ba"});
   }
 
-  /// Start at the perturbed initial belief, biases included.
+  /// Start at the perturbed initial belief, biases included. Every TFG state is
+  /// physical, so P0 is used as given.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
-                    const Covariance& P0) const {
+                    const imu_scenarios::PhysicalStateCovariance& P0) const {
     const TwoFrameGroup X0 = TwoFrameGroup::FromState(
         initial.nav.attitude(), initial.nav.velocity(), initial.nav.position(),
         initial.bias_gyro, initial.bias_accel);

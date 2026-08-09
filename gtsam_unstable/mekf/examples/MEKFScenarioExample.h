@@ -33,7 +33,6 @@ class ScenarioAdapter {
   static constexpr int kDim = MekfState::dimension;
   using Filter = MultiplicativeEKF;
   using TrueState = MekfState;
-  using Covariance = Eigen::Matrix<double, kDim, kDim>;
 
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
@@ -45,9 +44,10 @@ class ScenarioAdapter {
                                               {"R", "v", "p", "bg", "ba"});
   }
 
-  /// Start at the perturbed initial belief, biases included.
+  /// Start at the perturbed initial belief, biases included. Every MEKF state
+  /// is physical, so P0 is used as given.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
-                    const Covariance& P0) const {
+                    const imu_scenarios::PhysicalStateCovariance& P0) const {
     const MekfState X0(initial.nav.attitude(), initial.nav.velocity(),
                        initial.nav.position(), initial.bias_gyro,
                        initial.bias_accel);
