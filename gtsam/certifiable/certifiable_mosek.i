@@ -14,16 +14,8 @@ class MosekMonolithicSDP {
   std::string problemStatus() const;
   double solveTimeSeconds() const;
 
-  void recoverLiftedVectors();
-  const std::vector<gtsam::Vector>& getRecoveredLiftedVectors() const;
-  const std::vector<double>& getRecoveredVariableEVRs() const;
-
-  template <T = {gtsam::Rot2}>
-  std::vector<T> getRecoveredPoses() const;
-
-  template <T = {gtsam::Rot2}>
-  std::vector<double> getRecoveredPoseErrorNorms(
-      const std::vector<T>& groundTruth) const;
+  gtsam::Values qcqpValues() const;
+  std::vector<double> variableEVRs() const;
 
   const gtsam::KeyVector& orderedKeys() const;
   const std::map<gtsam::Key, gtsam::DenseIndex>& orderedKeyDims() const;
@@ -42,16 +34,8 @@ class MosekChordalSDP {
   std::string problemStatus() const;
   double solveTimeSeconds() const;
 
-  void recoverLiftedVectors();
-  const std::vector<gtsam::Vector>& getRecoveredLiftedVectors() const;
-  const std::vector<double>& getRecoveredVariableEVRs() const;
-
-  template <T = {gtsam::Rot2}>
-  std::vector<T> getRecoveredPoses() const;
-
-  template <T = {gtsam::Rot2}>
-  std::vector<double> getRecoveredPoseErrorNorms(
-      const std::vector<T>& groundTruth) const;
+  gtsam::Values qcqpValues() const;
+  std::vector<double> variableEVRs() const;
 
   const gtsam::KeyVector& orderedKeys() const;
   const std::map<gtsam::Key, gtsam::DenseIndex>& orderedKeyDims() const;

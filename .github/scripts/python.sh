@@ -26,6 +26,7 @@ fi
 export PYTHON="python${PYTHON_VERSION}"
 NO_BOOST_BUILD=OFF
 SCCACHE=OFF
+BUILD_JOBS=${BUILD_JOBS:-2}
 
 function install_dependencies()
 {
@@ -79,7 +80,8 @@ function build()
   cmake $GITHUB_WORKSPACE \
       -B build -G Ninja \
       -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-      -DGTSAM_BUILD_TESTS=OFF \
+      -DGTSAM_BUILD_TESTS=${GTSAM_BUILD_TESTS:-OFF} \
+      -DGTSAM_SLOW_BUT_CORRECT_BETWEENFACTOR=ON \
       -DGTSAM_BUILD_UNSTABLE=${GTSAM_BUILD_UNSTABLE:-ON} \
       -DGTSAM_USE_QUATERNIONS=OFF \
       -DGTSAM_WITH_TBB=${GTSAM_WITH_TBB:-OFF} \
@@ -102,10 +104,10 @@ function build()
   unset PYTHON_VERSION
   if [ "${NO_BOOST_BUILD}" == "ON" ]; then
     # Build only wrapper targets for the no-Boost verification lane.
-    cmake --build build -j2 --target gtsam_py gtsam_unstable_py
+    cmake --build build -j"${BUILD_JOBS}" --target gtsam_py gtsam_unstable_py
   else
-    # Set to 2 cores so that Actions does not error out during resource provisioning.
-    cmake --build build -j2
+    # Limit parallelism so that Actions does not run out of resources.
+    cmake --build build -j"${BUILD_JOBS}"
     cmake --build build --target python-install
   fi
 }
@@ -113,7 +115,12 @@ function build()
 function test()
 {
   if [ "${NO_BOOST_BUILD}" == "ON" ]; then
-    export PYTHONPATH="$GITHUB_WORKSPACE/build/python:$PYTHONPATH"
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
+      PYTHON_BUILD_DIRECTORY=$(cygpath -w "$GITHUB_WORKSPACE/build/python")
+      export PYTHONPATH="${PYTHON_BUILD_DIRECTORY}${PYTHONPATH:+;$PYTHONPATH}"
+    else
+      export PYTHONPATH="$GITHUB_WORKSPACE/build/python${PYTHONPATH:+:$PYTHONPATH}"
+    fi
   fi
 
   cd $GITHUB_WORKSPACE/python/gtsam/tests

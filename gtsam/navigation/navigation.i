@@ -241,6 +241,36 @@ virtual class ImuFactor2: gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+#include <gtsam/navigation/ImuFactorWithGravity.h>
+template <PIM, GRAVITY>
+virtual class ImuFactorWithGravityT : gtsam::NonlinearFactor {
+  ImuFactorWithGravityT(gtsam::Key pose_i, gtsam::Key vel_i,
+      gtsam::Key pose_j, gtsam::Key vel_j, gtsam::Key bias, gtsam::Key gravity,
+      const PIM& preintegratedMeasurements);
+  ImuFactorWithGravityT(gtsam::Key pose_i, gtsam::Key vel_i,
+      gtsam::Key pose_j, gtsam::Key vel_j, gtsam::Key bias, gtsam::Key gravity,
+      const PIM& preintegratedMeasurements, double gravityMagnitude);
+
+  // Standard Interface
+  PIM preintegratedMeasurements() const;
+  double gravityMagnitude() const;
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose_i, gtsam::Vector vel_i,
+      const gtsam::Pose3& pose_j, gtsam::Vector vel_j,
+      const gtsam::imuBias::ConstantBias& bias_i, const GRAVITY& gravity);
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
+// Gravity direction as an optimized Unit3 with fixed magnitude:
+typedef gtsam::ImuFactorWithGravityT<gtsam::PreintegratedImuMeasurements,
+                                     gtsam::Unit3>
+    ImuFactorWithGravityDirection;
+// Gravity as a free Point3 vector, direction and magnitude both optimized:
+typedef gtsam::ImuFactorWithGravityT<gtsam::PreintegratedImuMeasurements,
+                                     gtsam::Point3>
+    ImuFactorWithGravityVector;
+
 #include <gtsam/navigation/CombinedImuFactor.h>
 virtual class PreintegrationCombinedParams : gtsam::PreintegrationParams {
   PreintegrationCombinedParams(gtsam::Vector n_gravity);
@@ -311,6 +341,38 @@ virtual class CombinedImuFactor: gtsam::NoiseModelFactor {
   // enable serialization functionality
   void serialize() const;
 };
+
+#include <gtsam/navigation/CombinedImuFactorWithGravity.h>
+template <PIM, GRAVITY>
+virtual class CombinedImuFactorWithGravityT : gtsam::NoiseModelFactor {
+  CombinedImuFactorWithGravityT(gtsam::Key pose_i, gtsam::Key vel_i,
+      gtsam::Key pose_j, gtsam::Key vel_j, gtsam::Key bias_i, gtsam::Key bias_j,
+      gtsam::Key gravity, const PIM& preintegratedMeasurements);
+  CombinedImuFactorWithGravityT(gtsam::Key pose_i, gtsam::Key vel_i,
+      gtsam::Key pose_j, gtsam::Key vel_j, gtsam::Key bias_i, gtsam::Key bias_j,
+      gtsam::Key gravity, const PIM& preintegratedMeasurements,
+      double gravityMagnitude);
+
+  // Standard Interface
+  PIM preintegratedMeasurements() const;
+  double gravityMagnitude() const;
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose_i, gtsam::Vector vel_i,
+      const gtsam::Pose3& pose_j, gtsam::Vector vel_j,
+      const gtsam::imuBias::ConstantBias& bias_i,
+      const gtsam::imuBias::ConstantBias& bias_j, const GRAVITY& gravity);
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
+// Gravity direction as an optimized Unit3 with fixed magnitude:
+typedef gtsam::CombinedImuFactorWithGravityT<
+    gtsam::PreintegratedCombinedMeasurements, gtsam::Unit3>
+    CombinedImuFactorWithGravityDirection;
+// Gravity as a free Point3 vector, direction and magnitude both optimized:
+typedef gtsam::CombinedImuFactorWithGravityT<
+    gtsam::PreintegratedCombinedMeasurements, gtsam::Point3>
+    CombinedImuFactorWithGravityVector;
 
 #include <gtsam/navigation/AHRSFactor.h>
 class PreintegratedAhrsMeasurements {
@@ -860,6 +922,64 @@ virtual class DoubleDifferenceCarrierPhaseFactorArm : gtsam::NonlinearFactor {
   void serialize() const;
 };
 
+#include <gtsam/navigation/DopplerFactor.h>
+virtual class DopplerFactor : gtsam::NonlinearFactor {
+  DopplerFactor(gtsam::Key velocityKey, gtsam::Key clockBiasPrevKey,
+                gtsam::Key clockBiasCurrKey, double measuredDoppler,
+                double wavelength, const gtsam::Point3& satellitePosition,
+                const gtsam::Point3& satelliteVelocity,
+                const gtsam::Point3& receiverPosition, double dt,
+                double satelliteClockDrift,
+                const gtsam::noiseModel::Base* model);
+
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
+  gtsam::Vector evaluateError(const gtsam::Vector3& velocity,
+                              const double& clockBiasPrev,
+                              const double& clockBiasCurr) const;
+  double measuredRangeRate() const;
+  const gtsam::Point3& lineOfSight() const;
+  double dt() const;
+  void serialize() const;
+};
+
+virtual class DopplerFactorArm : gtsam::NonlinearFactor {
+  DopplerFactorArm(gtsam::Key poseKey, gtsam::Key velocityKey,
+                   gtsam::Key clockBiasPrevKey, gtsam::Key clockBiasCurrKey,
+                   double measuredDoppler, double wavelength,
+                   const gtsam::Point3& satellitePosition,
+                   const gtsam::Point3& satelliteVelocity,
+                   const gtsam::Point3& receiverPosition,
+                   const gtsam::Point3& leverArm,
+                   const gtsam::Point3& angularVelocity, double dt,
+                   double satelliteClockDrift,
+                   const gtsam::noiseModel::Base* model);
+  DopplerFactorArm(gtsam::Key poseKey, gtsam::Key velocityKey,
+                   gtsam::Key clockBiasPrevKey, gtsam::Key clockBiasCurrKey,
+                   double measuredDoppler, double wavelength,
+                   const gtsam::Point3& satellitePosition,
+                   const gtsam::Point3& satelliteVelocity,
+                   const gtsam::Point3& receiverPosition,
+                   const gtsam::Point3& leverArm, const gtsam::Pose3& ecef_T_nav,
+                   const gtsam::Point3& angularVelocity, double dt,
+                   double satelliteClockDrift,
+                   const gtsam::noiseModel::Base* model);
+
+  void print(string s = "", const gtsam::KeyFormatter& keyFormatter =
+                                gtsam::DefaultKeyFormatter) const;
+  bool equals(const gtsam::NonlinearFactor& expected, double tol) const;
+  gtsam::Vector evaluateError(const gtsam::Pose3& pose,
+                              const gtsam::Vector3& velocity,
+                              const double& clockBiasPrev,
+                              const double& clockBiasCurr) const;
+  double measuredRangeRate() const;
+  const gtsam::Point3& lineOfSight() const;
+  double dt() const;
+  const gtsam::Point3& leverArm() const;
+  void serialize() const;
+};
+
 #include <gtsam/navigation/BarometricFactor.h>
 virtual class BarometricFactor : gtsam::NonlinearFactor {
   BarometricFactor();
@@ -883,7 +1003,7 @@ virtual class BarometricFactor : gtsam::NonlinearFactor {
 
 #include <gtsam/navigation/ConstantVelocityFactor.h>
 class ConstantVelocityFactor : gtsam::NonlinearFactor {
-  ConstantVelocityFactor(size_t i, size_t j, double dt, const gtsam::noiseModel::Base* model);
+  ConstantVelocityFactor(gtsam::Key i, gtsam::Key j, double dt, const gtsam::noiseModel::Base* model);
   gtsam::Vector evaluateError(const gtsam::NavState &x1, const gtsam::NavState &x2) const;
 };
 
