@@ -22,6 +22,7 @@
  *   void propagate(Filter&, const ImuMeasurement&, double dt) const;
  *   void updatePosition(Filter&, const PositionMeasurement&) const;
  *   void updateDvl(Filter&, const DvlMeasurement&) const;
+ *   void updateDepth(Filter&, const DepthMeasurement&) const;
  *   void writeCsvRow(std::ostream&, double t, const TrueState&,
  *                    const Filter&) const;
  * @endcode
@@ -80,6 +81,7 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
 
   PeriodicTrigger pos_updates(opts.pos_rate, opts.aiding_start_time);
   PeriodicTrigger dvl_updates(opts.dvl_rate, opts.aiding_start_time);
+  PeriodicTrigger depth_updates(opts.depth_rate, opts.aiding_start_time);
   RunSummaryAccumulator errors;
 
   const size_t num_steps =
@@ -98,6 +100,9 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
     }
     if (dvl_updates.due(t)) {
       adapter.updateDvl(filter, sim.sampleDvl(gt, opts.dvl_noise_sigma));
+    }
+    if (depth_updates.due(t)) {
+      adapter.updateDepth(filter, sim.sampleDepth(gt, opts.depth_noise_sigma));
     }
 
     // Log every Nth step (and always the final one) to bound MC file sizes.

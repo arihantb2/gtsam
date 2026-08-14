@@ -96,6 +96,11 @@ class ScenarioAdapter {
     filter.update_dvl(z.body_velocity, z.covariance);
   }
 
+  void updateDepth(Filter& filter,
+                   const imu_scenarios::DepthMeasurement& z) const {
+    filter.update_depth(z.depth, z.covariance);
+  }
+
   /// Truth, estimate, tangent error and covariance. The error is
   /// eps = Local(xi_ref, phi(g^{-1}, xi_true)) and the covariance is the
   /// matching errorCovariance(), both in the fixed origin chart.

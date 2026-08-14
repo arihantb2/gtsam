@@ -27,6 +27,11 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
   using Base = gtsam::ManifoldEKF<MekfState>;
   using Covariance = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
+  using Covariance1 = Eigen::Matrix<double, 1, 1>;
+
+  /// Default variance (m^2) given to the pseudo-measured horizontal axes of a
+  /// depth update, large enough that the update leaves x and y untouched.
+  static constexpr double kDefaultHorizontalVariance = 1e3;
 
   MultiplicativeEKF(const MekfState& X0, const Covariance& P0);
 
@@ -43,6 +48,24 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
 
   /// DVL update (h = R^T v, state-dependent H, body-frame R_dvl).
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
+
+  /**
+   * Pressure-sensor depth update from the world-frame z position.
+   *
+   * The depth is stacked onto the estimated horizontal position to form the
+   * pseudo-position p_tilde = [p_x, p_y, z_depth]^T, which is fed through the
+   * position output with the horizontal variance inflated so only the vertical
+   * direction is corrected. The same pseudo-measurement route is used in all
+   * three filters so they share one API; see Sec. V-B of
+   * tg_eqf/docs/EqF_design_for_DVL_Depth_aided_INS.pdf.
+   *
+   * @param z_depth              Measured world-frame z position.
+   * @param R_depth              Variance of z_depth, as a 1x1 matrix.
+   * @param horizontal_variance  Variance assigned to the pseudo-measured x and
+   *                             y axes.
+   */
+  void update_depth(double z_depth, const Covariance1& R_depth,
+                    double horizontal_variance = kDefaultHorizontalVariance);
 
   /// Error state eps = Local(estimate, X_true) in the filter's local chart
   /// (right/body multiplicative attitude, additive vectors), i.e. the chart

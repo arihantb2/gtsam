@@ -211,6 +211,19 @@ void TGEqF::update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos,
   updateWithReset(prediction, H, z, R_eff);
 }
 
+void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
+                         double horizontal_variance, bool use_Cstar) {
+  Eigen::Vector3d pseudo_position = position();
+  pseudo_position.z() = z_depth;
+
+  Covariance3 R_pseudo = Covariance3::Zero();
+  R_pseudo(0, 0) = horizontal_variance;
+  R_pseudo(1, 1) = horizontal_variance;
+  R_pseudo(2, 2) = R_depth(0, 0);
+
+  update_position(pseudo_position, R_pseudo, use_Cstar);
+}
+
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
   const State xi_hat = state();
   const Eigen::Vector3d prediction = VirtualBiasMeasurement::predict(xi_hat);

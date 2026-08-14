@@ -197,6 +197,108 @@ TEST(Mekf, UpdateDvlCorrectsVelocity) {
 }
 
 /* ************************************************************************* */
+namespace depth_update {
+
+using Cov1 = MultiplicativeEKF::Covariance1;
+
+// 1x1 depth noise matrix from a stddev in metres.
+Cov1 depthNoise(double sigma) {
+  Cov1 R;
+  R(0, 0) = sigma * sigma;
+  return R;
+}
+
+MekfState offsetState() {
+  return MekfState(Rot3::Rx(M_PI / 6), Eigen::Vector3d(0.5, -0.2, 0.1),
+                   Eigen::Vector3d(1.0, 2.0, -3.0), Eigen::Vector3d::Zero(),
+                   Eigen::Vector3d::Zero());
+}
+
+// A single depth update pulls the vertical estimate most of the way to the
+// measurement when the depth noise is much tighter than the prior.
+TEST(Mekf, DepthUpdateCorrectsVerticalPosition) {
+  MultiplicativeEKF ekf(MekfState::identity(), Cov15::Identity() * 0.01);
+
+  const double z_depth = -0.8;
+  ekf.update_depth(z_depth, depthNoise(0.01));
+
+  EXPECT(std::abs(ekf.position().z() - z_depth) < 0.1);
+}
+
+// The inflated horizontal variance keeps a depth update off the x and y axes
+// when the prior is uncorrelated.
+TEST(Mekf, DepthUpdateLeavesHorizontalNearlyUnchanged) {
+  MultiplicativeEKF ekf(offsetState(), Cov15::Identity() * 0.01);
+
+  const Eigen::Vector3d before = ekf.position();
+  ekf.update_depth(before.z() - 0.8, depthNoise(0.01));
+  const Eigen::Vector3d delta = ekf.position() - before;
+
+  EXPECT(std::abs(delta.z()) > 0.5);
+  EXPECT(std::abs(delta.x()) < 0.02);
+  EXPECT(std::abs(delta.y()) < 0.02);
+}
+
+// Only the vertical position covariance is informed; the horizontal blocks stay
+// essentially where they were.
+TEST(Mekf, DepthUpdateShrinksVerticalCovariance) {
+  MultiplicativeEKF ekf(MekfState::identity(), Cov15::Identity() * 0.01);
+
+  const Cov15 before = ekf.covariance();
+  ekf.update_depth(-0.8, depthNoise(0.01));
+  const Cov15 after = ekf.covariance();
+
+  const double drop_z = before(8, 8) - after(8, 8);
+  EXPECT(drop_z > 0.0);
+  EXPECT(std::abs(before(6, 6) - after(6, 6)) < 0.1 * drop_z);
+  EXPECT(std::abs(before(7, 7) - after(7, 7)) < 0.1 * drop_z);
+  EXPECT(minEig(after) > 0.0);
+}
+
+// update_depth is exactly the pseudo-position update it documents.
+TEST(Mekf, DepthUpdateMatchesEquivalentPositionUpdate) {
+  MultiplicativeEKF via_depth(offsetState(), Cov15::Identity() * 0.01);
+  MultiplicativeEKF via_position(offsetState(), Cov15::Identity() * 0.01);
+
+  const double z_depth = -2.0;
+  const double sigma_z = 0.02;
+  via_depth.update_depth(z_depth, depthNoise(sigma_z));
+
+  Cov3 R_pseudo = Cov3::Zero();
+  R_pseudo(0, 0) = MultiplicativeEKF::kDefaultHorizontalVariance;
+  R_pseudo(1, 1) = MultiplicativeEKF::kDefaultHorizontalVariance;
+  R_pseudo(2, 2) = sigma_z * sigma_z;
+  Eigen::Vector3d pseudo = via_position.position();
+  pseudo.z() = z_depth;
+  via_position.update_position(pseudo, R_pseudo);
+
+  EXPECT(traits<MekfState>::Equals(via_position.state(), via_depth.state(),
+                                   1e-12));
+  EXPECT(assert_equal((Matrix)via_position.covariance(),
+                      (Matrix)via_depth.covariance(), 1e-12));
+}
+
+// The horizontal-variance argument is live: shrinking it changes the correction
+// a correlated prior produces, so the default is not silently ignored.
+TEST(Mekf, DepthUpdateHorizontalVarianceIsRespected) {
+  // Correlate p_x with p_z; the block [[0.01, 0.008], [0.008, 0.01]] is SPD.
+  Cov15 P0 = Cov15::Identity() * 0.01;
+  P0(6, 8) = P0(8, 6) = 0.008;
+
+  MultiplicativeEKF inflated(MekfState::identity(), P0);
+  MultiplicativeEKF pinned(MekfState::identity(), P0);
+
+  const double z_depth = -0.8;
+  inflated.update_depth(z_depth, depthNoise(0.01));
+  pinned.update_depth(z_depth, depthNoise(0.01), /*horizontal_variance=*/1e-6);
+
+  EXPECT((inflated.position() - pinned.position()).norm() > 1e-3);
+}
+
+}  // namespace depth_update
+/* ************************************************************************* */
+
+/* ************************************************************************* */
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

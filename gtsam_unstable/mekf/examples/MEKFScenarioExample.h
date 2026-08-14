@@ -74,6 +74,11 @@ class ScenarioAdapter {
     filter.update_dvl(z.body_velocity, z.covariance);
   }
 
+  void updateDepth(Filter& filter,
+                   const imu_scenarios::DepthMeasurement& z) const {
+    filter.update_depth(z.depth, z.covariance);
+  }
+
   /// Truth, estimate, tangent error and covariance, all in the MEKF's local
   /// chart (right/body multiplicative attitude, additive vectors).
   void writeCsvRow(std::ostream& out, double t, const TrueState& X_true,

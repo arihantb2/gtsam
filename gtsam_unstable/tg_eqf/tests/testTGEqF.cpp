@@ -786,6 +786,125 @@ TEST(TGEqF, InputNoiseCovMatchesNumericalLiftDifferential) {
 }
 
 /* ************************************************************************* */
+namespace depth_update {
+
+// 1x1 depth noise matrix from a stddev in metres.
+TGEqF::Covariance1 depthNoise(double sigma) {
+  TGEqF::Covariance1 R;
+  R(0, 0) = sigma * sigma;
+  return R;
+}
+
+// The pseudo-position update_depth builds internally: the estimate's horizontal
+// position with the measured depth substituted for z.
+Eigen::Vector3d pseudoPosition(const TGEqF& filter, double z_depth) {
+  Eigen::Vector3d p = filter.position();
+  p.z() = z_depth;
+  return p;
+}
+
+// A single depth update pulls the vertical estimate most of the way to the
+// measurement when the depth noise is much tighter than the prior.
+TEST(TGEqF, DepthUpdateCorrectsVerticalPosition) {
+  TGEqF filter(State::identity(), defaultSigma());
+
+  const double z_depth = -0.8;
+  filter.update_depth(z_depth, depthNoise(0.01));
+
+  EXPECT(std::abs(filter.position().z() - z_depth) < 0.1);
+}
+
+// The inflated horizontal variance keeps a depth update off the x and y axes:
+// with an uncorrelated prior the horizontal motion is orders of magnitude
+// smaller than the vertical correction the update is there to make.
+TEST(TGEqF, DepthUpdateLeavesHorizontalNearlyUnchanged) {
+  TGEqF filter(State::identity(), defaultSigma());
+
+  const Eigen::Vector3d before = filter.position();
+  filter.update_depth(-0.8, depthNoise(0.01));
+  const Eigen::Vector3d delta = filter.position() - before;
+
+  EXPECT(std::abs(delta.z()) > 0.5);
+  EXPECT(std::abs(delta.x()) < 0.02);
+  EXPECT(std::abs(delta.y()) < 0.02);
+}
+
+// Only the vertical position covariance is informed: the horizontal blocks are
+// left essentially where they were.
+TEST(TGEqF, DepthUpdateShrinksVerticalCovariance) {
+  TGEqF filter(State::identity(), defaultSigma());
+
+  // Origin-chart tangent order [att, vel, pos, ...], so position is 6..8.
+  const Eigen::Matrix<double, 18, 18> before = filter.errorCovariance();
+  filter.update_depth(-0.8, depthNoise(0.01));
+  const Eigen::Matrix<double, 18, 18> after = filter.errorCovariance();
+
+  const double drop_z = before(8, 8) - after(8, 8);
+  EXPECT(drop_z > 0.0);
+  EXPECT(std::abs(before(6, 6) - after(6, 6)) < 0.1 * drop_z);
+  EXPECT(std::abs(before(7, 7) - after(7, 7)) < 0.1 * drop_z);
+}
+
+// update_depth is exactly the pseudo-position update it documents: the same
+// state and covariance as calling update_position with [p_x, p_y, z_depth] and
+// the matching anisotropic noise. Guards the delegate against drifting apart.
+TEST(TGEqF, DepthUpdateMatchesEquivalentPositionUpdate) {
+  const TGElement X0 = rotatedX0();
+  TGEqF via_depth(State::identity(), defaultSigma(), X0);
+  TGEqF via_position(State::identity(), defaultSigma(), X0);
+
+  const double z_depth = 0.4;
+  const double sigma_z = 0.02;
+  via_depth.update_depth(z_depth, depthNoise(sigma_z));
+
+  TGEqF::Covariance3 R_pseudo = TGEqF::Covariance3::Zero();
+  R_pseudo(0, 0) = TGEqF::kDefaultHorizontalVariance;
+  R_pseudo(1, 1) = TGEqF::kDefaultHorizontalVariance;
+  R_pseudo(2, 2) = sigma_z * sigma_z;
+  via_position.update_position(pseudoPosition(via_position, z_depth), R_pseudo,
+                               /*use_Cstar=*/true);
+
+  EXPECT(traits<State>::Equals(via_position.state(), via_depth.state(), 1e-12));
+  EXPECT(assert_equal((Matrix)via_position.errorCovariance(),
+                      (Matrix)via_depth.errorCovariance(), 1e-12));
+}
+
+// At a rotated state with a large vertical offset the update still moves the
+// estimate toward the measured depth. One update cannot close a metre-sized gap
+// against a decimetre prior, so only a strict decrease is asserted.
+TEST(TGEqF, DepthUpdateAtRotatedStateReducesVerticalError) {
+  TGEqF filter(State::identity(), defaultSigma(), rotatedX0());
+
+  const double z_depth = filter.position().z() + 1.0;
+  const double err_before = std::abs(filter.position().z() - z_depth);
+  filter.update_depth(z_depth, depthNoise(0.01));
+  const double err_after = std::abs(filter.position().z() - z_depth);
+
+  EXPECT(err_after < 0.95 * err_before);
+}
+
+// The horizontal-variance argument is live: shrinking it changes the correction
+// a correlated prior produces, so the default is not silently ignored.
+TEST(TGEqF, DepthUpdateHorizontalVarianceIsRespected) {
+  // Correlate p_x with p_z so the depth channel has a horizontal path to act
+  // through; the 2x2 block [[0.01, 0.008], [0.008, 0.01]] stays SPD.
+  TGEqF::Covariance18 Sigma0 = defaultSigma();
+  Sigma0(6, 8) = Sigma0(8, 6) = 0.008;
+
+  TGEqF inflated(State::identity(), Sigma0);
+  TGEqF pinned(State::identity(), Sigma0);
+
+  const double z_depth = -0.8;
+  inflated.update_depth(z_depth, depthNoise(0.01));
+  pinned.update_depth(z_depth, depthNoise(0.01), /*horizontal_variance=*/1e-6);
+
+  EXPECT((inflated.position() - pinned.position()).norm() > 1e-3);
+}
+
+}  // namespace depth_update
+/* ************************************************************************* */
+
+/* ************************************************************************* */
 int main() {
   TestResult tr;
   return TestRegistry::runAllTests(tr);

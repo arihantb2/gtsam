@@ -55,6 +55,19 @@ void MultiplicativeEKF::update_dvl(const Eigen::Vector3d& z_dvl,
   this->updateWithVector(prediction, H, z_dvl, R_dvl);
 }
 
+void MultiplicativeEKF::update_depth(double z_depth, const Covariance1& R_depth,
+                                     double horizontal_variance) {
+  Eigen::Vector3d pseudo_position = position();
+  pseudo_position.z() = z_depth;
+
+  Covariance3 R_pseudo = Covariance3::Zero();
+  R_pseudo(0, 0) = horizontal_variance;
+  R_pseudo(1, 1) = horizontal_variance;
+  R_pseudo(2, 2) = R_depth(0, 0);
+
+  update_position(pseudo_position, R_pseudo);
+}
+
 MultiplicativeEKF::TangentVector MultiplicativeEKF::errorStateVector(
     const MekfState& X_true) const {
   return gtsam::traits<MekfState>::Local(this->state(), X_true);

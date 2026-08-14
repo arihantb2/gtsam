@@ -23,6 +23,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   using Covariance18 = Eigen::Matrix<double, 18, 18>;
   using Covariance15 = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
+  using Covariance1 = Eigen::Matrix<double, 1, 1>;
+
+  /// Default variance (m^2) given to the pseudo-measured horizontal axes of a
+  /// depth update, large enough that the update leaves x and y untouched.
+  static constexpr double kDefaultHorizontalVariance = 1e3;
 
   /// Initial stddev of the virtual bias b_v. The virtual bias has no physical
   /// counterpart to perturb: it starts at zero, held there by the b_v = 0
@@ -90,6 +95,28 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Position update via h'(xi) = R^T(pi - p).
   void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos,
                        bool use_Cstar = true);
+
+  /**
+   * Pressure-sensor depth update from the world-frame z position.
+   *
+   * The scalar model h(xi) = e_3^T p is not equivariant: under the state action
+   * it picks up a term e_3^T R p_A that no output action can reproduce. The
+   * depth is therefore stacked onto the estimated horizontal position to form
+   * the pseudo-position p_tilde = [p_x, p_y, z_depth]^T, which is fed through
+   * the position output with the horizontal variance inflated so only the
+   * vertical direction is corrected. Since the horizontal entries come from the
+   * estimate rather than the true state, this update is a second-order
+   * approximation. See Sec. V-B of docs/EqF_design_for_DVL_Depth_aided_INS.pdf.
+   *
+   * @param z_depth              Measured world-frame z position.
+   * @param R_depth              Variance of z_depth, as a 1x1 matrix.
+   * @param horizontal_variance  Variance assigned to the pseudo-measured x and
+   *                             y axes.
+   * @param use_Cstar            Forwarded to update_position.
+   */
+  void update_depth(double z_depth, const Covariance1& R_depth,
+                    double horizontal_variance = kDefaultHorizontalVariance,
+                    bool use_Cstar = true);
 
   // Virtual-bias anchor b_v = 0 pseudo-measurement.
   void update_virtual_bias(const Covariance3& R_vb);

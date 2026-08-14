@@ -62,7 +62,10 @@ struct RunOptions {
   double dvl_rate = 0.0;  // DVL body-velocity update rate in Hz (0 = off)
   double dvl_noise_sigma = 0.02;  // DVL measurement noise stddev (m/s)
 
-  double aiding_start_time = 0.0;  // delay before pos/DVL updates start (s)
+  double depth_rate = 0.0;  // pressure-sensor depth update rate in Hz (0 = off)
+  double depth_noise_sigma = 0.05;  // depth measurement noise stddev (m)
+
+  double aiding_start_time = 0.0;  // delay before aiding updates start (s)
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -137,6 +140,10 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.dvl_rate = std::stod(value());
     } else if (arg == "--dvl-noise") {
       opts.dvl_noise_sigma = std::stod(value());
+    } else if (arg == "--depth-rate") {
+      opts.depth_rate = std::stod(value());
+    } else if (arg == "--depth-noise") {
+      opts.depth_noise_sigma = std::stod(value());
     } else if (arg == "--aiding-start-time") {
       opts.aiding_start_time = std::stod(value());
     } else {
@@ -160,6 +167,11 @@ inline void validateRunOptions(const RunOptions& opts) {
     throw std::runtime_error(
         "dvl_noise_sigma must be > 0 when DVL updates are enabled "
         "(dvl_rate > 0)");
+  }
+  if (opts.depth_rate > 0.0 && opts.depth_noise_sigma <= 0.0) {
+    throw std::runtime_error(
+        "depth_noise_sigma must be > 0 when depth updates are enabled "
+        "(depth_rate > 0)");
   }
 }
 
@@ -248,6 +260,12 @@ struct DvlMeasurement {
   Eigen::Matrix3d covariance;
 };
 
+/// Noisy pressure-sensor measurement of the world-frame z position.
+struct DepthMeasurement {
+  double depth;
+  Eigen::Matrix<double, 1, 1> covariance;
+};
+
 /// IMU signals handed to a filter: corrupted by bias and white noise.
 struct ImuMeasurement {
   Eigen::Vector3d omega;
@@ -289,6 +307,14 @@ class ImuSimulator {
   DvlMeasurement sampleDvl(const gtsam::NavState& gt, double sigma) {
     const Eigen::Vector3d body_vel = gt.attitude().unrotate(gt.velocity());
     return {body_vel + draw(sigma), isotropic(sigma)};
+  }
+
+  /// Pressure-sensor measurement of the world-frame z position. Draws a single
+  /// normal, since the sensor reports one channel.
+  DepthMeasurement sampleDepth(const gtsam::NavState& gt, double sigma) {
+    Eigen::Matrix<double, 1, 1> covariance;
+    covariance(0, 0) = sigma * sigma;
+    return {gt.position().z() + sigma * normal_(rng_), covariance};
   }
 
   /// Advance the true biases by one random-walk step (no-op at zero rate).
