@@ -43,7 +43,8 @@ class ScenarioAdapter {
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(
             gtsam::PreintegrationParams::MakeSharedU(imu_scenarios::kGravity)
-                ->n_gravity) {}
+                ->n_gravity),
+        reset_step_(opts.tg_eqf_reset_step) {}
 
   /// The virtual bias bv is estimate-only: it has no ground-truth counterpart.
   std::string csvHeader() const {
@@ -67,7 +68,9 @@ class ScenarioAdapter {
     xi_hat0.b_a = initial.bias_accel;
     // b_v stays zero: the virtual bias has no physical truth to perturb.
     const State xi0 = State::identity();
-    return Filter(xi0, Filter::initialCovariance(P0), phiInverse(xi0, xi_hat0));
+    Filter filter(xi0, Filter::initialCovariance(P0), phiInverse(xi0, xi_hat0));
+    filter.set_reset_step(reset_step_);
+    return filter;
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,
@@ -127,6 +130,7 @@ class ScenarioAdapter {
  private:
   ImuNoise noise_;
   gtsam::Vector3 gravity_;
+  bool reset_step_;
 };
 
 inline RunSummary runScenario(const gtsam::Scenario& scenario,

@@ -66,6 +66,10 @@ struct RunOptions {
   double depth_noise_sigma = 0.05;  // depth measurement noise stddev (m)
 
   double aiding_start_time = 0.0;  // delay before aiding updates start (s)
+
+  // TG-EqF only: enable the covariance transport (reset) step after each
+  // measurement update. Other filter adapters ignore this field.
+  bool tg_eqf_reset_step = true;
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -146,6 +150,12 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.depth_noise_sigma = std::stod(value());
     } else if (arg == "--aiding-start-time") {
       opts.aiding_start_time = std::stod(value());
+    } else if (arg == "--reset-step") {
+      const int flag = std::stoi(value());
+      if (flag != 0 && flag != 1) {
+        throw std::runtime_error("--reset-step requires 0 or 1");
+      }
+      opts.tg_eqf_reset_step = (flag != 0);
     } else {
       std::cerr << "warning: ignoring unrecognized argument '" << arg << "'\n";
     }
