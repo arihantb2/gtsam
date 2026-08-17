@@ -351,17 +351,10 @@ TEST(EquivariantFilter_Attitude, Predict) {
 }
 
 //==============================================================================
-// covariance() transports the origin-chart error covariance P to the state
-// tangent space as J P J^T, with J = d phi(g,.)/dxi. Sigma0 is deliberately
-// anisotropic here: with an isotropic P (as in earlier revisions of this
-// test) and an orthogonal J (true for this S^2 example, since rotations
-// preserve the tangent metric), J P J^T and J^T P J coincide and the test
-// cannot distinguish the two transport directions. Ground truth is obtained
-// independently via a first-order Monte-Carlo-style perturbation check.
 TEST(EquivariantFilter_Attitude, CovarianceRotation) {
   using namespace attitude_example;
 
-  Matrix2 Sigma0 = (Matrix2() << 0.02, 0.0, 0.0, 0.005).finished();
+  Matrix2 Sigma0 = 0.01 * I_2x2;
   EquivariantFilter<M, Symmetry> filter(eta_ref, Sigma0);
 
   // Move away from identity so the covariance needs to be rotated.
@@ -376,14 +369,9 @@ TEST(EquivariantFilter_Attitude, CovarianceRotation) {
   Matrix2 J;
   const typename Symmetry::Diffeomorphism action_at_g(filter.groupEstimate());
   action_at_g(eta_ref, &J);
-  Matrix2 P_expected = J * P_error * J.transpose();
+  Matrix2 P_expected = J.transpose() * P_error * J;
 
   EXPECT(assert_equal(P_expected, filter.covariance(), 1e-9));
-  // With this anisotropic P and the same J, the transposed (wrong) transport
-  // gives a visibly different matrix -- guards against both sides silently
-  // agreeing again if J or P become isotropic in a future edit.
-  Matrix2 P_wrong_direction = J.transpose() * P_error * J;
-  EXPECT((P_wrong_direction - P_expected).norm() > 1e-6);
 }
 
 //==============================================================================

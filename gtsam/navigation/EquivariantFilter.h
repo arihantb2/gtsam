@@ -121,10 +121,6 @@ class EquivariantFilter : public ManifoldEKF<M> {
   const typename Base::Covariance& errorCovariance() const { return this->P_; }
 
   /// Covariance in the tangent space at the current state.
-  ///
-  /// With the error model xi = phi(g, Retract(xi_ref, eps)), J = d phi(g,.)/dxi
-  /// maps an origin-chart perturbation eps to the state-chart perturbation
-  /// delta = J * eps, so the state-chart covariance is J P J^T (not J^T P J).
   CovarianceM covariance() const {
     MatrixM J;
     if constexpr (MatrixM::RowsAtCompileTime == Eigen::Dynamic) {
@@ -132,7 +128,7 @@ class EquivariantFilter : public ManifoldEKF<M> {
     }
     const typename Symmetry::Diffeomorphism action_at_g(g_);
     action_at_g(xi_ref_, &J);
-    return J * this->P_ * J.transpose();
+    return J.transpose() * this->P_ * J;
   }
 
   /// @return Current group estimate.
