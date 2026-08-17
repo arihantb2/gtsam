@@ -1,6 +1,7 @@
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 
+namespace gtsam {
 namespace tgeqf {
 
 Eigen::Vector3d PositionMeasurement::predict(const State& xi,
@@ -39,3 +40,4 @@ Eigen::Vector3d PositionMeasurement::output_action(const TGElement& X,
 }
 
 }  // namespace tgeqf
+}  // namespace gtsam

@@ -8,7 +8,7 @@
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam_unstable/tg_eqf/State.h>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;

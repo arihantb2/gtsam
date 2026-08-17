@@ -10,7 +10,7 @@
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -153,7 +153,10 @@ TEST(PositionOutput, InnovationZeroWhenPiEqualsP) {
 // ---------------------------------------------------------------------------
 
 // Origin-chart finite difference of  eps -> R0^T(pi - p(phi(g, Retract(xi_ref,
-// eps)))) — the exact innovation Jacobian the filter consumes.
+// eps)))) with the measurement pi held fixed. This is the Jacobian of the
+// output map, not of the innovation the filter consumes: pi is a reading of the
+// position and therefore moves with eps. See the output_matrix_accuracy fixture
+// for a check on the matrix the filter actually needs.
 static Eigen::Matrix<double, 3, 18> numericalOriginJacobian(
     const State& xi_ref, const TGElement& g, const Eigen::Vector3d& pi,
     double h = 1e-6) {
@@ -202,6 +205,8 @@ TEST(PositionOutput, JacobianCstarAtIdentityWithPi) {
   EXPECT(meq(expected, PositionMeasurement::jacobian_Cstar(xi_ref, g, pi)));
 }
 
+// At convergence C0 and C* coincide, so this pins neither against the other;
+// output_matrix_accuracy separates them by order of accuracy instead.
 TEST(PositionOutput, JacobianCstarMatchesOriginFDAtConvergence) {
   const State xi_ref = makeXi();
   const Eigen::Vector3d pi(2.5, -1.0, 1.2);
@@ -218,6 +223,101 @@ TEST(PositionOutput, JacobianCstarMatchesOriginFDAtConvergence) {
       numericalOriginJacobian(xi_ref, g, pi);
   EXPECT(meq(H_anal, H_num, 1e-5));
 }
+
+/* ************************************************************************* */
+namespace output_matrix_accuracy {
+
+using Tangent = Eigen::Matrix<double, 18, 1>;
+
+const State kXiRef = makeXi();
+const TGElement kG = makeX();
+
+/**
+ * The residual the filter linearizes, as a function of the error.
+ *
+ * TGEqF::update_position feeds prediction = R0^T(pi - p_hat) against z = 0, and
+ * EquivariantFilter::update forms delta_xi = -K (prediction - z). An output
+ * matrix C is therefore correct to the extent that
+ *
+ *   C eps  ~=  R0^T (p_hat - pi(eps)),
+ *
+ * where eps parametrises the true state as xi_true = phi(g, Retract(xi_ref,
+ * eps)) and pi is a noiseless reading of its position. pi moving with eps is
+ * what makes this the innovation Jacobian rather than the Jacobian of the
+ * output map with pi frozen, which is what numericalOriginJacobian computes.
+ */
+Eigen::Vector3d residual(const Tangent& eps) {
+  const Eigen::Vector3d p_hat = phi(kG, kXiRef).p;
+  const Eigen::Vector3d pi = phi(kG, traits<State>::Retract(kXiRef, eps)).p;
+  return kXiRef.R.unrotate(p_hat - pi);
+}
+
+/// Position the true state at eps reports to the filter.
+Eigen::Vector3d measurementAt(const Tangent& eps) {
+  return phi(kG, traits<State>::Retract(kXiRef, eps)).p;
+}
+
+/// Linearization error left by C0 at the given error.
+double errorC0(const Tangent& eps) {
+  const Eigen::Matrix<double, 3, 18> C =
+      PositionMeasurement::jacobian_C0(kXiRef, measurementAt(eps));
+  return (residual(eps) - C * eps).norm();
+}
+
+/// Linearization error left by C* at the given error.
+double errorCstar(const Tangent& eps) {
+  const Eigen::Matrix<double, 3, 18> C =
+      PositionMeasurement::jacobian_Cstar(kXiRef, kG, measurementAt(eps));
+  return (residual(eps) - C * eps).norm();
+}
+
+// Halving a pure attitude error cuts C*'s linearization error by ~8 and C0's by
+// ~4: C* is third order and C0 second. Expanding with a = g.p and E = Exp(eps^)
+// gives residual - C* eps = 1/12 eps^^3 a and residual - C0 eps = 1/2 eps^^2 a.
+// This order gap is the whole point of Equ. (B.19); the two matrices are equal
+// at convergence, so a test taken there cannot see it.
+TEST(PositionOutput, CstarIsThirdOrderInAttitudeError) {
+  Tangent d = Tangent::Zero();
+  d.segment<3>(0) = Eigen::Vector3d(0.6, -0.5, 0.62).normalized();
+
+  const double coarse_C0 = errorC0(0.2 * d);
+  const double fine_C0 = errorC0(0.1 * d);
+  const double coarse_Cstar = errorCstar(0.2 * d);
+  const double fine_Cstar = errorCstar(0.1 * d);
+
+  // Both do err at this amplitude, so the ratios below are not vacuous.
+  EXPECT(coarse_C0 > 1e-4);
+  EXPECT(coarse_Cstar > 1e-8);
+  EXPECT(fine_Cstar < fine_C0);
+
+  EXPECT(fine_C0 / coarse_C0 > 0.2);        // ~1/4
+  EXPECT(fine_C0 / coarse_C0 < 0.35);
+  EXPECT(fine_Cstar / coarse_Cstar > 0.05);  // ~1/8
+  EXPECT(fine_Cstar / coarse_Cstar < 0.2);
+}
+
+// The third order property is chart dependent and this chart loses it.
+// Fornasier et al. derive Equ. (B.19) in the SE_2(3) logarithm chart, whereas
+// traits<State>::Retract composes the rotation and adds v and p, so the true
+// residual carries no attitude-position cross term while C* eps does: with
+// q = R0^T eps_p the leftover is -1/2 q x eps_R, second order. Moving the state
+// chart to the SE_2(3) exponential should turn this ratio into ~1/8.
+TEST(PositionOutput, CstarDropsToSecondOrderForMixedError) {
+  Tangent d = Tangent::Zero();
+  d.segment<3>(0) = Eigen::Vector3d(0.4, -0.3, 0.5);
+  d.segment<3>(6) = Eigen::Vector3d(-0.5, 0.2, 0.35);
+  d.normalize();
+
+  const double coarse = errorCstar(0.2 * d);
+  const double fine = errorCstar(0.1 * d);
+
+  EXPECT(coarse > 1e-5);
+  EXPECT(fine / coarse > 0.2);  // ~1/4, not the ~1/8 of the pure attitude case
+  EXPECT(fine / coarse < 0.35);
+}
+
+}  // namespace output_matrix_accuracy
+/* ************************************************************************* */
 
 /* ************************************************************************* */
 int main() {

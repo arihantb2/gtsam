@@ -9,7 +9,7 @@
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -146,7 +146,7 @@ TEST(BodyVelocityOutput, JacobianAtIdentity) {
   const State xi_ref = State::identity();
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, DVLMeasurement::jacobian(xi_ref)));
+  EXPECT(meq(expected, DVLMeasurement::stateJacobian(xi_ref)));
 }
 
 TEST(BodyVelocityOutput, JacobianMatchesDocumentedFormula) {
@@ -157,19 +157,19 @@ TEST(BodyVelocityOutput, JacobianMatchesDocumentedFormula) {
   expected.block<3, 3>(0, 0) = gtsam::skewSymmetric(body_v);
   expected.block<3, 3>(0, 3) = xi.R.matrix().transpose();
 
-  EXPECT(meq(expected, DVLMeasurement::jacobian(xi)));
+  EXPECT(meq(expected, DVLMeasurement::stateJacobian(xi)));
 }
 
 TEST(BodyVelocityOutput, JacobianMatchesNumerical) {
   const State xi = makeXi();
   const Eigen::Matrix<double, 3, 18> H_num = numericalJacobian(xi);
-  const Eigen::Matrix<double, 3, 18> H_anal = DVLMeasurement::jacobian(xi);
+  const Eigen::Matrix<double, 3, 18> H_anal = DVLMeasurement::stateJacobian(xi);
   EXPECT(meq(H_anal, H_num, 1e-5));
 }
 
 TEST(BodyVelocityOutput, JacobianRotationBlockZeroAtIdentity) {
   const State xi_ref = State::identity();
-  const Eigen::Matrix<double, 3, 18> H = DVLMeasurement::jacobian(xi_ref);
+  const Eigen::Matrix<double, 3, 18> H = DVLMeasurement::stateJacobian(xi_ref);
   EXPECT(meq(H.block<3, 3>(0, 0), Eigen::Matrix3d::Zero(), kTol));
 }
 

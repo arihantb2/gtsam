@@ -21,7 +21,7 @@
 #include <ostream>
 #include <string>
 
-namespace tgeqf::examples {
+namespace gtsam::tgeqf::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
 // The shared options only describe the physical state: bv has no physical
@@ -92,7 +92,7 @@ class ScenarioAdapter {
 
   void updatePosition(Filter& filter,
                       const imu_scenarios::PositionMeasurement& z) const {
-    filter.update_position(z.position, z.covariance, /*use_Cstar=*/true);
+    filter.update_position(z.position, z.covariance);
   }
 
   void updateDvl(Filter& filter, const imu_scenarios::DvlMeasurement& z) const {
@@ -140,4 +140,4 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
                                           scenario_name);
 }
 
-}  // namespace tgeqf::examples
+}  // namespace gtsam::tgeqf::examples

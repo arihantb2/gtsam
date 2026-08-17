@@ -11,5 +11,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFTypicalNavigationExample",
       "tg_eqf_typical_navigation.csv", "Typical-navigation",
-      imu_scenarios::typicalNavigation, tgeqf::examples::runScenario);
+      imu_scenarios::typicalNavigation, gtsam::tgeqf::examples::runScenario);
 }

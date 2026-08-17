@@ -4,9 +4,7 @@
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
 
-#include <iomanip>
-#include <iostream>
-
+namespace gtsam {
 namespace tgeqf {
 
 namespace {
@@ -75,13 +73,6 @@ void TGEqF::computeOriginCaches() {
   input_lift_ = orbit_jacobian0_ * G;
 }
 
-Eigen::Matrix<double, 18, 18> TGEqF::originChartTransport() const {
-  Eigen::Matrix<double, 18, 18> Dphi_g;
-  const TGSymmetry::Diffeomorphism phi_g(groupEstimate());
-  phi_g(referenceState(), &Dphi_g);
-  return Dphi_g;
-}
-
 Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
     const Eigen::Matrix<double, 18, 1>& delta_xi,
     const Eigen::Matrix<double, 18, 1>& delta_x) const {
@@ -103,11 +94,12 @@ Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
 }
 
 void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
-                            const Eigen::MatrixXd& H, const Eigen::VectorXd& z,
+                            const Eigen::MatrixXd& Cstar,
+                            const Eigen::VectorXd& z,
                             const Eigen::MatrixXd& R) {
   Eigen::Matrix<double, 18, 1> delta_xi = Eigen::Matrix<double, 18, 1>::Zero();
   Base::updateWithVector(
-      prediction, H, z, R, [&](const Eigen::Matrix<double, 18, 1>& dxi) {
+      prediction, Cstar, z, R, [&](const Eigen::Matrix<double, 18, 1>& dxi) {
         delta_xi = dxi;
         return Eigen::Matrix<double, 18, 1>(innovation_lift_ * dxi);
       });
@@ -190,29 +182,30 @@ void TGEqF::set_virtual_bias_anchor(bool enable,
 
 void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {
   const State xi_hat = state();
-  const Eigen::Vector3d prediction = DVLMeasurement::predict(xi_hat);
-  const Eigen::Matrix<double, 3, 18> H =
-      DVLMeasurement::jacobian(xi_hat) * originChartTransport();
-  updateWithReset(prediction, H, z_dvl, R_dvl);
+  updateFromStateJacobian<3>(DVLMeasurement::predict(xi_hat),
+                             DVLMeasurement::stateJacobian(xi_hat), z_dvl,
+                             R_dvl);
 }
 
-void TGEqF::update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos,
-                            bool use_Cstar) {
+void TGEqF::update_position(const Eigen::Vector3d& pi,
+                            const Covariance3& R_pos) {
   const State xi_ref = referenceState();
   const Eigen::Matrix3d R0 = xi_ref.R.matrix();
+
+  // Both the residual and R_pos are expressed in the reference rotation frame.
+  // The conjugation cancels out of the Kalman update, but it has to match the
+  // -R0^T block C* carries.
   const Eigen::Vector3d prediction = xi_ref.R.unrotate(pi - state().p);
-  const Eigen::Matrix<double, 3, 18> H =
-      use_Cstar
-          ? PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi)
-          : PositionMeasurement::jacobian_C0(xi_ref, pi);
+  const Eigen::Matrix<double, 3, 18> Cstar =
+      PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi);
 
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
   const Covariance3 R_eff = R0.transpose() * R_pos * R0;
-  updateWithReset(prediction, H, z, R_eff);
+  updateWithReset(prediction, Cstar, z, R_eff);
 }
 
 void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
-                         double horizontal_variance, bool use_Cstar) {
+                         double horizontal_variance) {
   Eigen::Vector3d pseudo_position = position();
   pseudo_position.z() = z_depth;
 
@@ -221,18 +214,17 @@ void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
   R_pseudo(1, 1) = horizontal_variance;
   R_pseudo(2, 2) = R_depth(0, 0);
 
-  update_position(pseudo_position, R_pseudo, use_Cstar);
+  update_position(pseudo_position, R_pseudo);
 }
 
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
   const State xi_hat = state();
-  const Eigen::Vector3d prediction = VirtualBiasMeasurement::predict(xi_hat);
-  const Eigen::Matrix<double, 3, 18> H =
-      VirtualBiasMeasurement::jacobian_C0(xi_hat) * originChartTransport();
 
   // Constraint target b_v = 0.
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
-  updateWithReset(prediction, H, z, R_vb);
+  updateFromStateJacobian<3>(VirtualBiasMeasurement::predict(xi_hat),
+                             VirtualBiasMeasurement::stateJacobian(xi_hat), z,
+                             R_vb);
 }
 
 State TGEqF::errorState(const State& xi_true) const {
@@ -258,3 +250,4 @@ Eigen::Vector3d TGEqF::bias_accel() const { return state().b_a; }
 Eigen::Vector3d TGEqF::bias_vel() const { return state().b_v; }
 
 }  // namespace tgeqf
+}  // namespace gtsam

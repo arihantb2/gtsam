@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>
 
+namespace gtsam {
 namespace tgeqf {
 
 /// Biased INS manifold state xi = [R, v, p, b_w, b_a, b_v] on SE_2(3) x R^9
@@ -25,6 +26,7 @@ struct State {
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam
 
 namespace gtsam {
 

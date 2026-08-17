@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+namespace gtsam {
 namespace tgeqf {
 
 Eigen::Matrix<double, 5, 5> State::T_matrix() const {
@@ -23,6 +24,7 @@ Eigen::Matrix<double, 9, 1> State::bias_vector() const {
 }
 
 }  // namespace tgeqf
+}  // namespace gtsam
 
 namespace gtsam {
 

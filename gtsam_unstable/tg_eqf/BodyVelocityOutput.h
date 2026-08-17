@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>
 
+namespace gtsam {
 namespace tgeqf {
 
 /// Unbiased DVL body-frame velocity h_d(xi) = R^T v.
@@ -11,16 +12,17 @@ struct DVLMeasurement {
   static Eigen::Vector3d predict(const State& xi);
 
   /**
-   * Measurement Jacobian H_d in R^{3 x 18}.
+   * Measurement Jacobian in R^{3 x 18}, in the Retract chart at the state it is
+   * evaluated at. This is **not** error coordinates: run it through
+   * EquivariantFilter::outputMatrix() before passing it to update().
    *
-   * At general xi_ref:
    *   d(h_d)/d(delta_R) =  [R^T v]^x
    *   d(h_d)/d(delta_v) =  R^T
    *
-   * At identity origin (R=I, v=0):
-   *   H_d = [0_{3x3}  I_3  0_{3x3}  0_{3x9}]
+   * At an identity state (R=I, v=0):
+   *   [0_{3x3}  I_3  0_{3x3}  0_{3x9}]
    */
-  static Eigen::Matrix<double, 3, 18> jacobian(const State& xi_ref);
+  static Eigen::Matrix<double, 3, 18> stateJacobian(const State& xi_hat);
 
   static Eigen::Vector3d innovation(const Eigen::Vector3d& z,
                                     const State& xi_hat);
@@ -31,3 +33,4 @@ struct DVLMeasurement {
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam

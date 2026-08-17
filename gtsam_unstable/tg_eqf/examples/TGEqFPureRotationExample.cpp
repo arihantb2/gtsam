@@ -11,5 +11,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(argc, argv, "TGEqFPureRotationExample",
                                     "tg_eqf_pure_rotation.csv", "Pure-rotation",
                                     imu_scenarios::pureRotation,
-                                    tgeqf::examples::runScenario);
+                                    gtsam::tgeqf::examples::runScenario);
 }

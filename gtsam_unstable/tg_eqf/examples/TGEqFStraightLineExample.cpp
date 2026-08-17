@@ -12,5 +12,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(argc, argv, "TGEqFStraightLineExample",
                                     "tg_eqf_straight_line.csv", "Straight-line",
                                     imu_scenarios::straightLine,
-                                    tgeqf::examples::runScenario);
+                                    gtsam::tgeqf::examples::runScenario);
 }

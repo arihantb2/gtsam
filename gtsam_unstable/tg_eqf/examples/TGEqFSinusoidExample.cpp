@@ -10,5 +10,5 @@
 int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFSinusoidExample", "tg_eqf_sinusoid.csv", "Sinusoid",
-      imu_scenarios::sinusoid, tgeqf::examples::runScenario);
+      imu_scenarios::sinusoid, gtsam::tgeqf::examples::runScenario);
 }

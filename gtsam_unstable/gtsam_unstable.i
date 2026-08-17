@@ -894,5 +894,147 @@ virtual class LocalOrientedPlane3Factor : gtsam::NoiseModelFactor {
   void serialize() const;
 };
 
+//*************************************************************************
+// tg_eqf (TG-EqF biased INS filter)
+//*************************************************************************
+#include <gtsam_unstable/tg_eqf/State.h>
+#include <gtsam_unstable/tg_eqf/Group.h>
+#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/Lift.h>
+#include <gtsam_unstable/tg_eqf/PositionOutput.h>
+#include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
+#include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
+#include <gtsam_unstable/tg_eqf/EqF.h>
+namespace tgeqf {
+
+class State {
+  State();
+  gtsam::Rot3 R;
+  gtsam::Vector3 v;
+  gtsam::Vector3 p;
+  gtsam::Vector3 b_w;
+  gtsam::Vector3 b_a;
+  gtsam::Vector3 b_v;
+  static gtsam::tgeqf::State identity();
+  gtsam::Matrix T_matrix() const;
+  gtsam::Vector bias_vector() const;
+};
+
+class TGElement {
+  TGElement();
+  gtsam::Rot3 R;
+  gtsam::Vector3 v;
+  gtsam::Vector3 p;
+  static gtsam::tgeqf::TGElement Identity();
+  gtsam::tgeqf::TGElement operator*(const gtsam::tgeqf::TGElement& Y) const;
+  gtsam::tgeqf::TGElement inverse() const;
+  static gtsam::tgeqf::TGElement Expmap(gtsam::Vector xi);
+  gtsam::Vector Logmap() const;
+  gtsam::Matrix to_A_matrix() const;
+};
+
+gtsam::tgeqf::State phi(const gtsam::tgeqf::TGElement& X,
+                        const gtsam::tgeqf::State& xi);
+gtsam::tgeqf::TGElement phiInverse(const gtsam::tgeqf::State& xi_ref,
+                                   const gtsam::tgeqf::State& xi_est);
+
+class Input {
+  Input();
+  gtsam::Vector3 w;
+  gtsam::Vector3 a;
+  gtsam::Vector3 v;
+  gtsam::Vector3 tau_w;
+  gtsam::Vector3 tau_a;
+  gtsam::Vector3 tau_v;
+  gtsam::Vector3 g_vec;
+  gtsam::Vector vector() const;
+  static gtsam::tgeqf::Input from_vector(gtsam::Vector v);
+};
+
+class PositionMeasurement {
+  static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi,
+                                const gtsam::Vector3& pi);
+  static gtsam::Matrix jacobian_C0(const gtsam::tgeqf::State& xi_ref,
+                                   const gtsam::Vector3& pi);
+  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
+                                      const gtsam::tgeqf::TGElement& g,
+                                      const gtsam::Vector3& pi);
+  static gtsam::Vector3 innovation(const gtsam::Vector3& pi,
+                                   const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Vector3 output_action(const gtsam::tgeqf::TGElement& X,
+                                      const gtsam::Vector3& y);
+};
+
+class DVLMeasurement {
+  static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
+  static gtsam::Matrix stateJacobian(const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Vector3 innovation(const gtsam::Vector3& z,
+                                   const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Vector3 output_action(const gtsam::tgeqf::TGElement& X,
+                                      const gtsam::Vector3& y);
+};
+
+class VirtualBiasMeasurement {
+  static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
+  static gtsam::Matrix stateJacobian(const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Vector3 innovation(const gtsam::tgeqf::State& xi_hat);
+};
+
+class ImuNoise {
+  ImuNoise();
+  double gyro;
+  double accel;
+  double gyro_rw;
+  double accel_rw;
+};
+
+class TGEqF {
+  static gtsam::Matrix initialCovariance(const gtsam::Matrix& Sigma_physical);
+
+  TGEqF(const gtsam::tgeqf::State& xi_ref, const gtsam::Matrix& Sigma0);
+  TGEqF(const gtsam::tgeqf::State& xi_ref, const gtsam::Matrix& Sigma0,
+       const gtsam::tgeqf::TGElement& X0);
+
+  void set_reset_step(bool enable);
+  void set_virtual_bias_anchor(
+      bool enable, const std::optional<gtsam::Matrix>& R_vb = std::nullopt);
+
+  gtsam::Matrix resetMatrix(gtsam::Vector delta_xi, gtsam::Vector delta_x) const;
+
+  void propagate(const gtsam::Vector3& w_meas, const gtsam::Vector3& a_meas,
+                 const gtsam::Vector3& g_vec, const gtsam::Matrix& Qc, double dt);
+  void propagate(const gtsam::Vector3& w_meas, const gtsam::Vector3& a_meas,
+                 const gtsam::Vector3& g_vec, const gtsam::tgeqf::ImuNoise& noise,
+                 double dt);
+  gtsam::Matrix inputNoiseCov(const gtsam::Vector3& w_meas,
+                              const gtsam::Vector3& a_meas,
+                              const gtsam::Vector3& g_vec,
+                              const gtsam::tgeqf::ImuNoise& noise) const;
+
+  void update_dvl(const gtsam::Vector3& z_dvl, const gtsam::Matrix& R_dvl);
+  void update_position(const gtsam::Vector3& pi, const gtsam::Matrix& R_pos);
+  void update_depth(double z_depth, const gtsam::Matrix& R_depth,
+                    double horizontal_variance);
+  void update_virtual_bias(const gtsam::Matrix& R_vb);
+
+  gtsam::tgeqf::State errorState(const gtsam::tgeqf::State& xi_true) const;
+  gtsam::Vector errorStateVector(const gtsam::tgeqf::State& xi_true) const;
+
+  gtsam::Rot3 attitude() const;
+  gtsam::Vector3 velocity() const;
+  gtsam::Vector3 position() const;
+  gtsam::Vector3 bias_gyro() const;
+  gtsam::Vector3 bias_accel() const;
+  gtsam::Vector3 bias_vel() const;
+
+  // Inherited from gtsam::EquivariantFilter<State, TGSymmetry>.
+  const gtsam::tgeqf::State& state() const;
+  gtsam::Matrix covariance() const;
+  gtsam::Matrix errorCovariance() const;
+  const gtsam::tgeqf::TGElement& groupEstimate() const;
+  gtsam::Matrix actionDifferential() const;
+};
+
+}  // namespace tgeqf
 
 } //\namespace gtsam

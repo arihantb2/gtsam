@@ -12,5 +12,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFConstantVelocityExample",
       "tg_eqf_constant_velocity.csv", "Constant-velocity",
-      imu_scenarios::constantVelocity, tgeqf::examples::runScenario);
+      imu_scenarios::constantVelocity, gtsam::tgeqf::examples::runScenario);
 }

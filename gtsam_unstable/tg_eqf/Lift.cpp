@@ -1,6 +1,7 @@
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
 
+namespace gtsam {
 namespace tgeqf {
 
 Eigen::Matrix<double, 21, 1> Input::vector() const {
@@ -96,3 +97,4 @@ Input InputOrbit::operator()(const TGElement& X) const {
 }
 
 }  // namespace tgeqf
+}  // namespace gtsam

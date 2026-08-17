@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 
+namespace gtsam {
 namespace tgeqf {
 
 Eigen::Matrix<double, 9, 1> se2_3::vector() const {
@@ -120,6 +121,7 @@ void TGElement::A_from_matrix(const Eigen::Matrix<double, 5, 5>& A) {
 }
 
 }  // namespace tgeqf
+}  // namespace gtsam
 
 namespace gtsam {
 

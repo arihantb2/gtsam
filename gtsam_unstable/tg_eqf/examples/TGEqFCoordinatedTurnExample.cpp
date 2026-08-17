@@ -11,5 +11,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFCoordinatedTurnExample", "tg_eqf_coordinated_turn.csv",
       "Coordinated-turn", imu_scenarios::coordinatedTurn,
-      tgeqf::examples::runScenario);
+      gtsam::tgeqf::examples::runScenario);
 }

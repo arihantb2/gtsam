@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>
 
+namespace gtsam {
 namespace tgeqf {
 
 /**
@@ -12,9 +13,16 @@ namespace tgeqf {
 struct VirtualBiasMeasurement {
   static Eigen::Vector3d predict(const State& xi);
 
-  static Eigen::Matrix<double, 3, 18> jacobian_C0(const State& xi_hat);
+  /**
+   * Measurement Jacobian in the Retract chart at the state it is evaluated at,
+   * a plain selector on the virtual-bias block. This is **not** error
+   * coordinates: run it through EquivariantFilter::outputMatrix() before
+   * passing it to update().
+   */
+  static Eigen::Matrix<double, 3, 18> stateJacobian(const State& xi_hat);
 
   static Eigen::Vector3d innovation(const State& xi_hat);
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam

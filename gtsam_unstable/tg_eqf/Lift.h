@@ -4,6 +4,7 @@
 
 #include <Eigen/Dense>
 
+namespace gtsam {
 namespace tgeqf {
 
 /// Extended input u in R^21.
@@ -52,3 +53,4 @@ struct InputOrbit {
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam

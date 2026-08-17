@@ -10,5 +10,5 @@
 int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFVerticalExample", "tg_eqf_vertical.csv", "Vertical",
-      imu_scenarios::vertical, tgeqf::examples::runScenario);
+      imu_scenarios::vertical, gtsam::tgeqf::examples::runScenario);
 }

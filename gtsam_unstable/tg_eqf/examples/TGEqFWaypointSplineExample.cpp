@@ -12,5 +12,5 @@ int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFWaypointSplineExample", "tg_eqf_waypoint_spline.csv",
       "WaypointSpline", [] { return imu_scenarios::waypointSpline(); },
-      tgeqf::examples::runScenario);
+      gtsam::tgeqf::examples::runScenario);
 }

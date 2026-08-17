@@ -7,7 +7,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -57,26 +57,28 @@ TEST(VirtualBiasOutput, InnovationIsNegativePredict) {
 }
 
 // ---------------------------------------------------------------------------
-// Jacobian C0 (origin chart; realises the Eq. B.20 constraint h = b_v = 0)
+// State-chart Jacobian (realises the Eq. B.20 constraint h = b_v = 0)
 // ---------------------------------------------------------------------------
 
-// Independent finite-difference in the State::Retract chart (the chart the
-// EquivariantFilter linearises measurements in): C0 = d(predict)/d(eps).
-static Eigen::Matrix<double, 3, 18> numericalC0(const State& xi) {
+// Independent finite difference in the State::Retract chart. TGEqF transports
+// the result to error coordinates via updateFromStateJacobian.
+static Eigen::Matrix<double, 3, 18> numericalStateJacobian(const State& xi) {
   return numericalDerivative11<Eigen::Vector3d, State>(
       [](const State& x) { return VirtualBiasMeasurement::predict(x); }, xi);
 }
 
-TEST(VirtualBiasOutput, JacobianC0IsIdentityInVirtualBiasBlock) {
+TEST(VirtualBiasOutput, StateJacobianIsIdentityInVirtualBiasBlock) {
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 15) = Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, VirtualBiasMeasurement::jacobian_C0(makeXi())));
-  EXPECT(meq(expected, VirtualBiasMeasurement::jacobian_C0(State::identity())));
+  EXPECT(meq(expected, VirtualBiasMeasurement::stateJacobian(makeXi())));
+  EXPECT(meq(expected,
+             VirtualBiasMeasurement::stateJacobian(State::identity())));
 }
 
-TEST(VirtualBiasOutput, JacobianC0MatchesNumerical) {
+TEST(VirtualBiasOutput, StateJacobianMatchesNumerical) {
   const State xi = makeXi();
-  EXPECT(meq(VirtualBiasMeasurement::jacobian_C0(xi), numericalC0(xi), 1e-5));
+  EXPECT(meq(VirtualBiasMeasurement::stateJacobian(xi),
+             numericalStateJacobian(xi), 1e-5));
 }
 
 /* ************************************************************************* */

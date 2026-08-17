@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <optional>
 
+namespace gtsam {
 namespace tgeqf {
 
 // Continuous-time IMU noise PSDs; mapped through lift differential B
@@ -16,7 +17,23 @@ struct ImuNoise {
   double accel_rw = 0.0;
 };
 
-// TG-EqF biased INS filter on G = SE_2(3) ⋉ se_2(3)
+/**
+ * TG-EqF biased INS filter on G = SE_2(3) ⋉ se_2(3).
+ *
+ * The base class keeps every matrix in **error coordinates**, the tangent space
+ * at the fixed reference state xi_ref. Measurements therefore come in two
+ * flavours here, and the distinction is visible at the call site:
+ *
+ * - An ordinary measurement function differentiated at the current estimate
+ *   (DVL, virtual bias) yields a state-chart Jacobian and goes through
+ *   updateFromStateJacobian(), which transports it.
+ * - An equivariant output matrix built at the reference state (position, C* of
+ *   Equ. (B.19)) is already in error coordinates and goes straight to
+ *   updateWithReset().
+ *
+ * Getting this backwards is silent: both matrices have the same shape and
+ * coincide when the group estimate is the identity.
+ */
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
   using Base = gtsam::EquivariantFilter<State, TGSymmetry>;
@@ -92,9 +109,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // DVL body-velodity update: h(xi) = R^T v
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
 
-  // Position update via h'(xi) = R^T(pi - p).
-  void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos,
-                       bool use_Cstar = true);
+  // Position update via h'(xi) = R^T(pi - p), using the equivariant C*.
+  void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos);
 
   /**
    * Pressure-sensor depth update from the world-frame z position.
@@ -112,11 +128,9 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * @param R_depth              Variance of z_depth, as a 1x1 matrix.
    * @param horizontal_variance  Variance assigned to the pseudo-measured x and
    *                             y axes.
-   * @param use_Cstar            Forwarded to update_position.
    */
   void update_depth(double z_depth, const Covariance1& R_depth,
-                    double horizontal_variance = kDefaultHorizontalVariance,
-                    bool use_Cstar = true);
+                    double horizontal_variance = kDefaultHorizontalVariance);
 
   // Virtual-bias anchor b_v = 0 pseudo-measurement.
   void update_virtual_bias(const Covariance3& R_vb);
@@ -132,17 +146,34 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   Eigen::Vector3d bias_vel() const;
 
  private:
-  // Dphi_g = d phi(g, xi)/dxi: H_origin = H_est * Dphi_g.
-  // At g = identity this is I_18.
-  Eigen::Matrix<double, 18, 18> originChartTransport() const;
-
   // Compute the fixed-origin caches (orbit_jacobian0_, innovation_lift_,
   // input_lift_) from the current referenceState(). Called on construction.
   void computeOriginCaches();
 
+  /**
+   * Measurement update followed by the covariance reset.
+   *
+   * Cstar must already be in error coordinates, the tangent space at the
+   * reference state. Measurements holding a Jacobian at the current estimate
+   * must use updateFromStateJacobian() instead.
+   */
   void updateWithReset(const Eigen::VectorXd& prediction,
-                       const Eigen::MatrixXd& H, const Eigen::VectorXd& z,
+                       const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
                        const Eigen::MatrixXd& R);
+
+  /**
+   * Measurement update from a Jacobian taken in the chart at the current state
+   * estimate, transported to error coordinates on the way in. This is the only
+   * place the transport happens.
+   */
+  template <int Dim>
+  void updateFromStateJacobian(
+      const Eigen::Matrix<double, Dim, 1>& prediction,
+      const Eigen::Matrix<double, Dim, 18>& H_at_estimate,
+      const Eigen::Matrix<double, Dim, 1>& z,
+      const Eigen::Matrix<double, Dim, Dim>& R) {
+    updateWithReset(prediction, outputMatrix(H_at_estimate), z, R);
+  }
 
   bool anchor_virtual_bias_ = true;
 
@@ -159,3 +190,4 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam

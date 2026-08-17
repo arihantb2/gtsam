@@ -14,7 +14,7 @@
 namespace mekf {
 
 /// Continuous-time IMU noise PSDs. Same convention as tfg::ImuNoise /
-/// tgeqf::ImuNoise.
+/// gtsam::tgeqf::ImuNoise.
 struct ImuNoise {
   double gyro = 0.0;
   double accel = 0.0;

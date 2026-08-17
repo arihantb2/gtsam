@@ -5,6 +5,7 @@
 
 #include <Eigen/Dense>
 
+namespace gtsam {
 namespace tgeqf {
 
 /// Lie algebra element of se_2(3).
@@ -46,6 +47,7 @@ struct TGElement {
 };
 
 }  // namespace tgeqf
+}  // namespace gtsam
 
 namespace gtsam {
 
@@ -100,6 +102,7 @@ struct traits<const tgeqf::TGElement> : traits<tgeqf::TGElement> {};
 
 }  // namespace gtsam
 
+namespace gtsam {
 namespace tgeqf {
 namespace detail {
 
@@ -171,3 +174,4 @@ inline Eigen::Matrix<double, 9, 9> ad_se23(const tgeqf::se2_3& a) {
 
 }  // namespace detail
 }  // namespace tgeqf
+}  // namespace gtsam

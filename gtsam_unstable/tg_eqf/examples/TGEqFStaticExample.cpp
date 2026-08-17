@@ -11,5 +11,5 @@
 int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFStaticExample", "tg_eqf_static.csv", "Static",
-      imu_scenarios::staticPose, tgeqf::examples::runScenario);
+      imu_scenarios::staticPose, gtsam::tgeqf::examples::runScenario);
 }

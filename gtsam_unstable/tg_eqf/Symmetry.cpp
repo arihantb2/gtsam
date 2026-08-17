@@ -1,6 +1,7 @@
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
+namespace gtsam {
 namespace tgeqf {
 
 State phi(const TGElement& X, const State& xi) {
@@ -101,3 +102,4 @@ State TGSymmetry::Diffeomorphism::operator()(
 }
 
 }  // namespace tgeqf
+}  // namespace gtsam

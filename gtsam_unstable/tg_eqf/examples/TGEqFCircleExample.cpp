@@ -10,5 +10,5 @@
 int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(
       argc, argv, "TGEqFCircleExample", "tg_eqf_circle.csv", "Circle",
-      imu_scenarios::circle, tgeqf::examples::runScenario);
+      imu_scenarios::circle, gtsam::tgeqf::examples::runScenario);
 }

@@ -10,7 +10,7 @@
 #include <gtsam/navigation/Scenario.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 // Min eigenvalue of a symmetric matrix (SPD check).

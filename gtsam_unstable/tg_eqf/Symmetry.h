@@ -2,6 +2,7 @@
 #include <gtsam_unstable/tg_eqf/Group.h>
 #include <gtsam_unstable/tg_eqf/State.h>
 
+namespace gtsam {
 namespace tgeqf {
 
 /// Right group action phi : G x M -> M for TG-EqF.
@@ -40,3 +41,4 @@ State phi(const TGElement& X, const State& xi);
 TGElement phiInverse(const State& xi_ref, const State& xi_est);
 
 }  // namespace tgeqf
+}  // namespace gtsam

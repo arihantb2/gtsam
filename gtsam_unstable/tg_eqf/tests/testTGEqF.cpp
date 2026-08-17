@@ -14,7 +14,7 @@
 
 #include <iostream>
 
-using namespace tgeqf;
+using namespace gtsam::tgeqf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-6;
@@ -171,7 +171,7 @@ TEST(TGEqF, PositionUpdateReducesEquivariantInnovation) {
       PositionMeasurement::predict(filter.state(), pi).norm();
   EXPECT(err_before > 1.0);
 
-  filter.update_position(pi, R_pos, true);
+  filter.update_position(pi, R_pos);
 
   const double err_after =
       PositionMeasurement::predict(filter.state(), pi).norm();
@@ -185,7 +185,7 @@ TEST(TGEqF, PositionUpdateMovesEstimateTowardMeasurement) {
   const Eigen::Vector3d pi(1.5, 0.0, -0.25);
   const TGEqF::Covariance3 R_pos = 0.001 * TGEqF::Covariance3::Identity();
 
-  filter.update_position(pi, R_pos, false);
+  filter.update_position(pi, R_pos);
 
   EXPECT((filter.position() - pi).norm() < 0.2);
 }
@@ -201,7 +201,7 @@ TEST(TGEqF, PositionUpdateShrinksPositionCovariance) {
   // the state chart and would need an extra J P J^T unpacking here).
   const double trace_before =
       filter.errorCovariance().block<3, 3>(6, 6).trace();
-  filter.update_position(pi, R_pos, true);
+  filter.update_position(pi, R_pos);
   const double trace_after = filter.errorCovariance().block<3, 3>(6, 6).trace();
 
   EXPECT(trace_after < trace_before);
@@ -362,7 +362,7 @@ TEST(TGEqF, EndToEndPropagateAndUpdates) {
       filter.velocity() + Eigen::Vector3d(0.1, 0.0, 0.0));
 
   const TGEqF::Covariance3 R = 0.01 * TGEqF::Covariance3::Identity();
-  filter.update_position(pi, R, true);
+  filter.update_position(pi, R);
   filter.update_dvl(z_dvl, R);
 
   EXPECT(PositionMeasurement::predict(filter.state(), pi).norm() < 0.3);
@@ -376,7 +376,7 @@ TEST(TGEqF, PositionOutputEquivarianceHoldsAfterUpdate) {
 
   TGEqF filter(State::identity(), defaultSigma());
   const Eigen::Vector3d pi(1.0, 0.2, -0.4);
-  filter.update_position(pi, 0.005 * TGEqF::Covariance3::Identity(), true);
+  filter.update_position(pi, 0.005 * TGEqF::Covariance3::Identity());
 
   const Eigen::Vector3d y = PositionMeasurement::predict(filter.state(), pi);
   const Eigen::Vector3d lhs =
@@ -437,7 +437,7 @@ TEST(TGEqF, DvlOriginChartJacobianMatchesFiniteDifference) {
   }
 
   const Eigen::Matrix<double, 3, 18> H_origin =
-      DVLMeasurement::jacobian(xi_hat) * diffeoJacobian(X0, xi_ref);
+      DVLMeasurement::stateJacobian(xi_hat) * diffeoJacobian(X0, xi_ref);
 
   EXPECT(assert_equal((Matrix)H_fd, (Matrix)H_origin, 1e-5));
 
@@ -488,7 +488,7 @@ TEST(TGEqF, PositionUpdateMovesEstimateInGlobalFrameAtRotatedState) {
   const Eigen::Vector3d p_before = filter.position();
   const Eigen::Vector3d pi = p_before + Eigen::Vector3d(0.0, 0.5, 0.0);
 
-  filter.update_position(pi, 1e-4 * TGEqF::Covariance3::Identity(), true);
+  filter.update_position(pi, 1e-4 * TGEqF::Covariance3::Identity());
 
   const Eigen::Vector3d dp = filter.position() - p_before;
   EXPECT(dp.y() > 0.4);
@@ -622,8 +622,8 @@ TEST(TGEqF, ResetConjugatesCovarianceAndStaysSpd) {
   const Eigen::Vector3d pi =
       with_reset.position() + Eigen::Vector3d(0.5, 0.3, -0.2);
   const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
-  with_reset.update_position(pi, R, true);
-  no_reset.update_position(pi, R, true);
+  with_reset.update_position(pi, R);
+  no_reset.update_position(pi, R);
 
   const Eigen::Matrix<double, 18, 18> P = with_reset.errorCovariance();
   // Symmetric.
@@ -655,7 +655,7 @@ static double minEig(const Eigen::MatrixXd& M) {
 // IEKF difference).
 TEST(TGEqF, InputNoiseCovBlockDiagonalAtOrigin) {
   TGEqF filter(State::identity(), defaultSigma());  // g_ = I, b_ref = 0
-  tgeqf::ImuNoise nz;
+  ImuNoise nz;
   nz.gyro = 2e-4;
   nz.accel = 3e-3;
   nz.gyro_rw = 1e-6;
@@ -686,7 +686,7 @@ TEST(TGEqF, InputNoiseCovBlockDiagonalAtOrigin) {
 // The ImuNoise propagate overload must equal a raw-Qc predict fed the same
 // inputNoiseCov() result (i.e. it is exactly inputNoiseCov + Base::predict).
 TEST(TGEqF, PropagateImuNoiseMatchesManualInputCov) {
-  tgeqf::ImuNoise nz;
+  ImuNoise nz;
   nz.gyro = 1e-4;
   nz.accel = 1e-3;
   nz.gyro_rw = 1e-7;
@@ -716,7 +716,7 @@ TEST(TGEqF, PropagateImuNoiseMatchesManualInputCov) {
 // must stay symmetric and positive-semidefinite.
 TEST(TGEqF, InputNoiseCovSymmetricSpdAtRotatedState) {
   TGEqF filter(State::identity(), defaultSigma(), rotatedX0());
-  tgeqf::ImuNoise nz;
+  ImuNoise nz;
   nz.gyro = 1e-3;
   nz.accel = 1e-3;
   nz.gyro_rw = 1e-6;
@@ -869,8 +869,7 @@ TEST(TGEqF, DepthUpdateMatchesEquivalentPositionUpdate) {
   R_pseudo(0, 0) = TGEqF::kDefaultHorizontalVariance;
   R_pseudo(1, 1) = TGEqF::kDefaultHorizontalVariance;
   R_pseudo(2, 2) = sigma_z * sigma_z;
-  via_position.update_position(pseudoPosition(via_position, z_depth), R_pseudo,
-                               /*use_Cstar=*/true);
+  via_position.update_position(pseudoPosition(via_position, z_depth), R_pseudo);
 
   EXPECT(traits<State>::Equals(via_position.state(), via_depth.state(), 1e-12));
   EXPECT(assert_equal((Matrix)via_position.errorCovariance(),
