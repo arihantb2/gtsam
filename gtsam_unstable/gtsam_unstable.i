@@ -955,6 +955,18 @@ class Input {
   static gtsam::tgeqf::Input from_vector(gtsam::Vector v);
 };
 
+class Lift {
+  Lift(const gtsam::tgeqf::Input& u);
+  
+  gtsam::Vector operator()(const gtsam::tgeqf::State& xi) const;
+};
+
+class InputOrbit {
+  InputOrbit(const gtsam::tgeqf::Input& u);
+  
+  gtsam::tgeqf::Input operator()(const gtsam::tgeqf::TGElement& X) const;
+};
+
 class PositionMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi,
                                 const gtsam::Vector3& pi);
