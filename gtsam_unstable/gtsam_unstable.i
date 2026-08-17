@@ -997,7 +997,7 @@ class TGEqF {
 
   void set_reset_step(bool enable);
   void set_virtual_bias_anchor(
-      bool enable, const std::optional<gtsam::Matrix>& R_vb = std::nullopt);
+      bool enable, const std::optional<gtsam::Matrix3>& R_vb = std::nullopt);
 
   gtsam::Matrix resetMatrix(gtsam::Vector delta_xi, gtsam::Vector delta_x) const;
 
