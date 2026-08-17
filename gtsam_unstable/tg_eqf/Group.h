@@ -42,6 +42,12 @@ struct TGElement {
   /// Logarithm map; exact inverse of Expmap.
   Eigen::Matrix<double, 18, 1> Logmap() const;
 
+  /// Right retract: Compose(*this, Expmap(xi)).
+  TGElement retract(const Eigen::Matrix<double, 18, 1>& xi) const;
+
+  /// Right local coordinates: Logmap(inverse() * other).
+  Eigen::Matrix<double, 18, 1> localCoordinates(const TGElement& other) const;
+
   Eigen::Matrix<double, 5, 5> to_A_matrix() const;
   void A_from_matrix(const Eigen::Matrix<double, 5, 5>& A);
 };
@@ -91,10 +97,14 @@ struct traits<tgeqf::TGElement> {
   static Eigen::Matrix<double, 18, 18> AdjointMap(const tgeqf::TGElement& X);
 
   static tgeqf::TGElement Retract(const tgeqf::TGElement& X,
-                                  const TangentVector& xi);
+                                  const TangentVector& xi) {
+    return X.retract(xi);
+  }
 
   static TangentVector Local(const tgeqf::TGElement& X,
-                             const tgeqf::TGElement& Y);
+                             const tgeqf::TGElement& Y) {
+    return X.localCoordinates(Y);
+  }
 };
 
 template <>

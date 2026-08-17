@@ -23,34 +23,32 @@ Eigen::Matrix<double, 9, 1> State::bias_vector() const {
   return b;
 }
 
+State State::retract(const Eigen::Matrix<double, 18, 1>& delta) const {
+  State result;
+  result.R = R * Rot3::Expmap(delta.segment<3>(0));
+  result.v = v + delta.segment<3>(3);
+  result.p = p + delta.segment<3>(6);
+  result.b_w = b_w + delta.segment<3>(9);
+  result.b_a = b_a + delta.segment<3>(12);
+  result.b_v = b_v + delta.segment<3>(15);
+  return result;
+}
+
+Eigen::Matrix<double, 18, 1> State::localCoordinates(const State& other) const {
+  Eigen::Matrix<double, 18, 1> delta;
+  delta.segment<3>(0) = Rot3::Logmap(R.inverse() * other.R);
+  delta.segment<3>(3) = other.v - v;
+  delta.segment<3>(6) = other.p - p;
+  delta.segment<3>(9) = other.b_w - b_w;
+  delta.segment<3>(12) = other.b_a - b_a;
+  delta.segment<3>(15) = other.b_v - b_v;
+  return delta;
+}
+
 }  // namespace tgeqf
 }  // namespace gtsam
 
 namespace gtsam {
-
-tgeqf::State traits<tgeqf::State>::Retract(const tgeqf::State& xi,
-                                           const TangentVector& delta) {
-  tgeqf::State result;
-  result.R = xi.R * Rot3::Expmap(delta.segment<3>(0));
-  result.v = xi.v + delta.segment<3>(3);
-  result.p = xi.p + delta.segment<3>(6);
-  result.b_w = xi.b_w + delta.segment<3>(9);
-  result.b_a = xi.b_a + delta.segment<3>(12);
-  result.b_v = xi.b_v + delta.segment<3>(15);
-  return result;
-}
-
-traits<tgeqf::State>::TangentVector traits<tgeqf::State>::Local(
-    const tgeqf::State& xi_ref, const tgeqf::State& xi_est) {
-  TangentVector delta;
-  delta.segment<3>(0) = Rot3::Logmap(xi_ref.R.inverse() * xi_est.R);
-  delta.segment<3>(3) = xi_est.v - xi_ref.v;
-  delta.segment<3>(6) = xi_est.p - xi_ref.p;
-  delta.segment<3>(9) = xi_est.b_w - xi_ref.b_w;
-  delta.segment<3>(12) = xi_est.b_a - xi_ref.b_a;
-  delta.segment<3>(15) = xi_est.b_v - xi_ref.b_v;
-  return delta;
-}
 
 bool traits<tgeqf::State>::Equals(const tgeqf::State& a, const tgeqf::State& b,
                                   double tol) {

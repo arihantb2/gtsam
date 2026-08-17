@@ -918,6 +918,8 @@ class State {
   static gtsam::tgeqf::State identity();
   gtsam::Matrix T_matrix() const;
   gtsam::Vector bias_vector() const;
+  gtsam::tgeqf::State retract(gtsam::Vector delta) const;
+  gtsam::Vector localCoordinates(const gtsam::tgeqf::State& other) const;
 };
 
 class TGElement {
@@ -930,6 +932,8 @@ class TGElement {
   gtsam::tgeqf::TGElement inverse() const;
   static gtsam::tgeqf::TGElement Expmap(gtsam::Vector xi);
   gtsam::Vector Logmap() const;
+  gtsam::tgeqf::TGElement retract(gtsam::Vector xi) const;
+  gtsam::Vector localCoordinates(const gtsam::tgeqf::TGElement& other) const;
   gtsam::Matrix to_A_matrix() const;
 };
 

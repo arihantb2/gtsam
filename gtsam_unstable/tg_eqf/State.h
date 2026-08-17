@@ -23,6 +23,12 @@ struct State {
 
   Eigen::Matrix<double, 5, 5> T_matrix() const;
   Eigen::Matrix<double, 9, 1> bias_vector() const;
+
+  /// Retract in the origin chart (Expmap on R, additive elsewhere).
+  State retract(const Eigen::Matrix<double, 18, 1>& delta) const;
+
+  /// Local coordinates in the origin chart; inverse of retract.
+  Eigen::Matrix<double, 18, 1> localCoordinates(const State& other) const;
 };
 
 }  // namespace tgeqf
@@ -42,11 +48,15 @@ struct traits<tgeqf::State> {
 
   /// Retract at xi_ref
   static tgeqf::State Retract(const tgeqf::State& xi,
-                              const TangentVector& delta);
+                              const TangentVector& delta) {
+    return xi.retract(delta);
+  }
 
   /// Local(xi_ref, xi_est): origin-chart error; inverse of Retract.
   static TangentVector Local(const tgeqf::State& xi_ref,
-                             const tgeqf::State& xi_est);
+                             const tgeqf::State& xi_est) {
+    return xi_ref.localCoordinates(xi_est);
+  }
 
   static tgeqf::State Identity() { return tgeqf::State::identity(); }
 

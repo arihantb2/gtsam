@@ -120,6 +120,15 @@ void TGElement::A_from_matrix(const Eigen::Matrix<double, 5, 5>& A) {
   p = A.block<3, 1>(0, 4);
 }
 
+TGElement TGElement::retract(const Eigen::Matrix<double, 18, 1>& xi) const {
+  return (*this) * Expmap(xi);
+}
+
+Eigen::Matrix<double, 18, 1> TGElement::localCoordinates(
+    const TGElement& other) const {
+  return (inverse() * other).Logmap();
+}
+
 }  // namespace tgeqf
 }  // namespace gtsam
 
@@ -195,12 +204,6 @@ Eigen::Matrix<double, 18, 18> T::AdjointMap(const G& X) {
   Adj.block<9, 9>(9, 0) = ada * AdA;
   Adj.block<9, 9>(9, 9) = AdA;
   return Adj;
-}
-
-G T::Retract(const G& X, const TangentVector& xi) { return X * G::Expmap(xi); }
-
-T::TangentVector T::Local(const G& X, const G& Y) {
-  return (X.inverse() * Y).Logmap();
 }
 
 }  // namespace gtsam
