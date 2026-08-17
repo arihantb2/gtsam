@@ -15,6 +15,7 @@
  **/
 
 #include <gtsam/navigation/ImuFactorWithGravity.h>
+#include <gtsam/navigation/LieGroupPreintegration.h>
 #include <gtsam/navigation/ManifoldPreintegration.h>
 #include <gtsam/navigation/TangentPreintegration.h>
 
@@ -70,9 +71,9 @@ Vector ImuFactorWithGravityT<PIM, GRAVITY>::evaluateError(const Pose3& pose_i,
   const Vector3 n_gravity = Parametrization::vector(
       gravity, gravityMagnitude_, H6 ? &D_gvec_gravity : nullptr);
   Matrix93 D_r_gvec;
-  const Vector r = pim_.computeErrorAndJacobians(
-      pose_i, vel_i, pose_j, vel_j, bias_i, n_gravity, H1, H2, H3, H4, H5,
-      H6 ? &D_r_gvec : nullptr);
+  const Vector r = internal::preintegrationErrorAndJacobians(
+      pim_, pose_i, vel_i, pose_j, vel_j, bias_i, n_gravity, H1, H2, H3, H4,
+      H5, H6 ? &D_r_gvec : nullptr);
   if (H6) *H6 = D_r_gvec * D_gvec_gravity;
   return r;
 }
@@ -81,17 +82,28 @@ Vector ImuFactorWithGravityT<PIM, GRAVITY>::evaluateError(const Pose3& pose_i,
 // ImuFactorWithGravityT instantiations
 template class GTSAM_EXPORT ImuFactorWithGravityT<PreintegratedImuMeasurementsT<ManifoldPreintegration>, Unit3>;
 template class GTSAM_EXPORT ImuFactorWithGravityT<PreintegratedImuMeasurementsT<TangentPreintegration>, Unit3>;
+template class GTSAM_EXPORT ImuFactorWithGravityT<
+    PreintegratedImuMeasurementsT<LieGroupPreintegration>, Unit3>;
 template class GTSAM_EXPORT ImuFactorWithGravityT<PreintegratedImuMeasurementsT<ManifoldPreintegration>, Point3>;
 template class GTSAM_EXPORT ImuFactorWithGravityT<PreintegratedImuMeasurementsT<TangentPreintegration>, Point3>;
+template class GTSAM_EXPORT ImuFactorWithGravityT<
+    PreintegratedImuMeasurementsT<LieGroupPreintegration>, Point3>;
 
 template GTSAM_EXPORT std::ostream& operator<<(
     std::ostream& os, const ImuFactorWithGravityT<PreintegratedImuMeasurementsT<ManifoldPreintegration>, Unit3>& f);
 template GTSAM_EXPORT std::ostream& operator<<(
     std::ostream& os, const ImuFactorWithGravityT<PreintegratedImuMeasurementsT<TangentPreintegration>, Unit3>& f);
 template GTSAM_EXPORT std::ostream& operator<<(
+    std::ostream& os,
+    const ImuFactorWithGravityT<
+        PreintegratedImuMeasurementsT<LieGroupPreintegration>, Unit3>& f);
+template GTSAM_EXPORT std::ostream& operator<<(
     std::ostream& os, const ImuFactorWithGravityT<PreintegratedImuMeasurementsT<ManifoldPreintegration>, Point3>& f);
 template GTSAM_EXPORT std::ostream& operator<<(
     std::ostream& os, const ImuFactorWithGravityT<PreintegratedImuMeasurementsT<TangentPreintegration>, Point3>& f);
-
+template GTSAM_EXPORT std::ostream& operator<<(
+    std::ostream& os,
+    const ImuFactorWithGravityT<
+        PreintegratedImuMeasurementsT<LieGroupPreintegration>, Point3>& f);
 
 }  // namespace gtsam
