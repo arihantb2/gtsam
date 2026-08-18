@@ -7,29 +7,55 @@
 namespace gtsam {
 namespace tgeqf {
 
-/// Unbiased DVL body-frame velocity h_d(xi) = R^T v.
+/**
+ * Equivariant DVL body-frame velocity measurement h_d(xi) = R^T v.
+ *
+ * Like the position output, both Jacobians below are built at the reference
+ * state and are already in **error coordinates**: pass them to
+ * TGEqF::updateWithReset() unchanged. The measurement itself arrives in the
+ * body frame of the true state and has to be pulled back to the origin output
+ * space with inverse_output_action() first.
+ */
 struct DVLMeasurement {
   static Eigen::Vector3d predict(const State& xi);
 
   /**
-   * Measurement Jacobian in R^{3 x 18}, in the Retract chart at the state it is
-   * evaluated at. This is **not** error coordinates: run it through
-   * EquivariantFilter::outputMatrix() before passing it to update().
+   * Origin-chart Jacobian C0 in R^{3x18}
    *
-   *   d(h_d)/d(delta_R) =  [R^T v]^x
-   *   d(h_d)/d(delta_v) =  R^T
+   *   C0 = [ y0^  R0^T  0  0 ],   y0 = R0^T v0
    *
-   * At an identity state (R=I, v=0):
-   *   [0_{3x3}  I_3  0_{3x3}  0_{3x9}]
+   * The plain origin endpoint, with a second-order linearization error. Kept
+   * as a reference point for the order-of-accuracy tests; the filter uses C*.
    */
-  static Eigen::Matrix<double, 3, 18> stateJacobian(const State& xi_hat);
+  static Eigen::Matrix<double, 3, 18> jacobian_C0(const State& xi_ref);
+
+  /**
+   * Equivariant output matrix C*, the body-velocity counterpart of Fornasier
+   * et al. Equ. (B.19)
+   *
+   *   C* = [ 0.5 (y0 + y_tilde)^  R0^T  0  0 ]
+   *
+   * with y0 = R0^T v0 the origin output and y_tilde = psi_X^{-1}(z) the
+   * measurement pulled back to the origin output space. The half is the
+   * midpoint of the two output-action differentials, at y0 and at y_tilde,
+   * which buys a third-order linearization error where C0 is only second
+   * order. This is what the filter uses.
+   */
+  static Eigen::Matrix<double, 3, 18> jacobian_Cstar(
+      const State& xi_ref, const TGElement& g, const Eigen::Vector3d& z_dvl);
 
   static Eigen::Vector3d innovation(const Eigen::Vector3d& z,
                                     const State& xi_hat);
 
-  /// Output group action psi_d(X, y_d) = R_X^T y_d + R_X^T v_X.
+  /// Output group action psi_X(y) = R_X^T y + R_X^T v_X.
   static Eigen::Vector3d output_action(const TGElement& X,
                                        const Eigen::Vector3d& y);
+
+  /// Inverse output action psi_X^{-1}(y) = R_X y - v_X, which carries a
+  /// measurement from the body frame of the true state to the origin output
+  /// space the filter compares in.
+  static Eigen::Vector3d inverse_output_action(const TGElement& X,
+                                               const Eigen::Vector3d& y);
 };
 
 }  // namespace tgeqf

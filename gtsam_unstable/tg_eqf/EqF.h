@@ -21,18 +21,14 @@ struct ImuNoise {
  * TG-EqF biased INS filter on G = SE_2(3) ⋉ se_2(3).
  *
  * The base class keeps every matrix in **error coordinates**, the tangent space
- * at the fixed reference state xi_ref. Measurements therefore come in two
- * flavours here, and the distinction is visible at the call site:
+ * at the fixed reference state xi_ref, so every measurement here supplies an
+ * output matrix C* built at that reference state and hands it to
+ * updateWithReset(). Each output owns its own C*: Equ. (B.19) for position and
+ * DVL, Equ. (B.20) for the virtual bias.
  *
- * - An ordinary measurement function differentiated at the current estimate
- *   (DVL, virtual bias) yields a state-chart Jacobian and goes through
- *   updateFromStateJacobian(), which transports it.
- * - An equivariant output matrix built at the reference state (position, C* of
- *   Equ. (B.19)) is already in error coordinates and goes straight to
- *   updateWithReset().
- *
- * Getting this backwards is silent: both matrices have the same shape and
- * coincide when the group estimate is the identity.
+ * A measurement function differentiated in the chart at the current estimate is
+ * *not* such a matrix, and the mistake is silent: the two have the same shape
+ * and coincide when the group estimate is the identity.
  */
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
@@ -78,7 +74,10 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
-   * J -> I as the correction -> 0.
+   *
+   * Analytic derivative, at eps = delta_xi, of the error re-centring map
+   * eps -> Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref, eps))) that the
+   * group correction applies to the error. J -> I as the correction -> 0.
    */
   Eigen::Matrix<double, 18, 18> resetMatrix(
       const Eigen::Matrix<double, 18, 1>& delta_xi,
@@ -106,7 +105,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
                              const Eigen::Vector3d& g_vec,
                              const ImuNoise& noise) const;
 
-  // DVL body-velodity update: h(xi) = R^T v
+  // DVL body-velocity update via h(xi) = R^T v, using the equivariant C*.
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
 
   // Position update via h'(xi) = R^T(pi - p), using the equivariant C*.
@@ -154,26 +153,13 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Measurement update followed by the covariance reset.
    *
    * Cstar must already be in error coordinates, the tangent space at the
-   * reference state. Measurements holding a Jacobian at the current estimate
-   * must use updateFromStateJacobian() instead.
+   * reference state, and prediction, z and R must share one output frame with
+   * it. A Jacobian taken in the chart at the current estimate is not such a
+   * matrix.
    */
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
                        const Eigen::MatrixXd& R);
-
-  /**
-   * Measurement update from a Jacobian taken in the chart at the current state
-   * estimate, transported to error coordinates on the way in. This is the only
-   * place the transport happens.
-   */
-  template <int Dim>
-  void updateFromStateJacobian(
-      const Eigen::Matrix<double, Dim, 1>& prediction,
-      const Eigen::Matrix<double, Dim, 18>& H_at_estimate,
-      const Eigen::Matrix<double, Dim, 1>& z,
-      const Eigen::Matrix<double, Dim, Dim>& R) {
-    updateWithReset(prediction, outputMatrix(H_at_estimate), z, R);
-  }
 
   bool anchor_virtual_bias_ = true;
 

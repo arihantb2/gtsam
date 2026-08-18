@@ -417,9 +417,11 @@ Eigen::Matrix<double, 18, 18> diffeoJacobian(const TGElement& X,
 
 }  // namespace
 
-// The DVL Jacobian the filter consumes is the FD of the origin-chart map
-// eps -> h(phi(X0, Retract(xi_ref, eps))). The composed H_est * Dphi_g must
-// equal it, and (for this configuration) its rotation block must vanish.
+// C0 is stated in the origin output space, so R_X C0 is the FD of the map
+// eps -> h(phi(X0, Retract(xi_ref, eps))), which reads the measurement in the
+// body frame of the estimate. Composing the chart-at-estimate Jacobian with
+// Dphi_g reaches the same matrix, and (for this configuration) its rotation
+// block must vanish.
 TEST(TGEqF, DvlOriginChartJacobianMatchesFiniteDifference) {
   const State xi_ref = State::identity();
   const TGElement X0 = rotatedX0();
@@ -437,12 +439,13 @@ TEST(TGEqF, DvlOriginChartJacobianMatchesFiniteDifference) {
   }
 
   const Eigen::Matrix<double, 3, 18> H_origin =
-      DVLMeasurement::stateJacobian(xi_hat) * diffeoJacobian(X0, xi_ref);
+      X0.R.matrix().transpose() * DVLMeasurement::jacobian_C0(xi_ref);
 
   EXPECT(assert_equal((Matrix)H_fd, (Matrix)H_origin, 1e-5));
 
-  // The chart-at-estimate Jacobian has a spurious skew(R^T v) rotation block;
-  // the origin-chart one does not.
+  // The reference velocity is zero here, so the rotation block is skew(0). The
+  // chart-at-estimate Jacobian instead carries a skew(R^T v) block, which is
+  // what the transport removes.
   EXPECT(assert_equal((Matrix)Eigen::Matrix3d::Zero(),
                       (Matrix)H_origin.block<3, 3>(0, 0), 1e-5));
 }

@@ -139,39 +139,170 @@ TEST(BodyVelocityOutput, InnovationZeroWhenZMatchesPredict) {
 }
 
 // ---------------------------------------------------------------------------
+// inverse_output_action
+// ---------------------------------------------------------------------------
+
+TEST(BodyVelocityOutput, InverseOutputActionUndoesOutputAction) {
+  const TGElement X = makeX();
+  const Eigen::Vector3d y(0.3, -0.1, 0.2);
+  const Eigen::Vector3d forward = DVLMeasurement::output_action(X, y);
+  EXPECT(veq(y, DVLMeasurement::inverse_output_action(X, forward)));
+}
+
+TEST(BodyVelocityOutput, InverseOutputActionMatchesFormula) {
+  const TGElement X = makeX();
+  const Eigen::Vector3d y(0.3, -0.1, 0.2);
+  const Eigen::Vector3d expected = X.R.rotate(y) - X.v;
+  EXPECT(veq(expected, DVLMeasurement::inverse_output_action(X, y)));
+}
+
+// ---------------------------------------------------------------------------
 // Jacobians
 // ---------------------------------------------------------------------------
 
-TEST(BodyVelocityOutput, JacobianAtIdentity) {
-  const State xi_ref = State::identity();
+TEST(BodyVelocityOutput, JacobianC0AtIdentity) {
+  // Origin chart at identity: y0 = 0, so C0 = [0 | I | 0 | 0].
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, DVLMeasurement::stateJacobian(xi_ref)));
+  EXPECT(meq(expected, DVLMeasurement::jacobian_C0(State::identity())));
 }
 
-TEST(BodyVelocityOutput, JacobianMatchesDocumentedFormula) {
-  const State xi = makeXi();
-  const Eigen::Vector3d body_v = DVLMeasurement::predict(xi);
+TEST(BodyVelocityOutput, JacobianC0MatchesDocumentedFormula) {
+  const State xi_ref = makeXi();
+  const Eigen::Vector3d y0 = DVLMeasurement::predict(xi_ref);
 
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
-  expected.block<3, 3>(0, 0) = gtsam::skewSymmetric(body_v);
-  expected.block<3, 3>(0, 3) = xi.R.matrix().transpose();
+  expected.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
+  expected.block<3, 3>(0, 3) = xi_ref.R.matrix().transpose();
 
-  EXPECT(meq(expected, DVLMeasurement::stateJacobian(xi)));
+  EXPECT(meq(expected, DVLMeasurement::jacobian_C0(xi_ref)));
 }
 
-TEST(BodyVelocityOutput, JacobianMatchesNumerical) {
-  const State xi = makeXi();
-  const Eigen::Matrix<double, 3, 18> H_num = numericalJacobian(xi);
-  const Eigen::Matrix<double, 3, 18> H_anal = DVLMeasurement::stateJacobian(xi);
-  EXPECT(meq(H_anal, H_num, 1e-5));
+// The output action transports the measurement exactly, so the residual the
+// filter linearizes is eps -> predict(Retract(xi_ref, eps)) with the group
+// estimate cancelled out. C0 is that map's chart Jacobian.
+TEST(BodyVelocityOutput, JacobianC0MatchesNumerical) {
+  const State xi_ref = makeXi();
+  EXPECT(meq(DVLMeasurement::jacobian_C0(xi_ref), numericalJacobian(xi_ref),
+             1e-5));
 }
 
-TEST(BodyVelocityOutput, JacobianRotationBlockZeroAtIdentity) {
-  const State xi_ref = State::identity();
-  const Eigen::Matrix<double, 3, 18> H = DVLMeasurement::stateJacobian(xi_ref);
-  EXPECT(meq(H.block<3, 3>(0, 0), Eigen::Matrix3d::Zero(), kTol));
+TEST(BodyVelocityOutput, JacobianCstarAtIdentityGroup) {
+  const State xi_ref = makeXi();
+  const Eigen::Vector3d z(0.2, -0.3, 0.1);
+  // g = identity => y_tilde = z: C* = [0.5 (y0 + z)^ | R0^T | 0 | 0].
+  const Eigen::Vector3d y0 = DVLMeasurement::predict(xi_ref);
+  Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
+  expected.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(y0 + z);
+  expected.block<3, 3>(0, 3) = xi_ref.R.matrix().transpose();
+
+  EXPECT(meq(expected, DVLMeasurement::jacobian_Cstar(
+                           xi_ref, TGElement::Identity(), z)));
 }
+
+// At convergence the transported measurement is the origin output itself, so
+// the midpoint collapses and C* meets C0. output_matrix_accuracy separates the
+// two away from convergence instead.
+TEST(BodyVelocityOutput, JacobianCstarMeetsC0AtConvergence) {
+  const State xi_ref = makeXi();
+  const TGElement g = makeX();
+  const Eigen::Vector3d z = DVLMeasurement::predict(phi(g, xi_ref));
+
+  EXPECT(meq(DVLMeasurement::jacobian_C0(xi_ref),
+             DVLMeasurement::jacobian_Cstar(xi_ref, g, z)));
+}
+
+/* ************************************************************************* */
+namespace output_matrix_accuracy {
+
+using Tangent = Eigen::Matrix<double, 18, 1>;
+
+const State kXiRef = makeXi();
+const TGElement kG = makeX();
+
+/// Body velocity the true state at eps reports to the filter.
+Eigen::Vector3d measurementAt(const Tangent& eps) {
+  return DVLMeasurement::predict(phi(kG, traits<State>::Retract(kXiRef, eps)));
+}
+
+/**
+ * The residual the filter linearizes, as a function of the error.
+ *
+ * TGEqF::update_dvl compares predict(xi_ref) against psi_X^{-1}(z) and
+ * EquivariantFilter::update forms delta_xi = -K (prediction - z), so an output
+ * matrix C is correct to the extent that
+ *
+ *   C eps  ~=  psi_X^{-1}(z(eps)) - predict(xi_ref),
+ *
+ * with eps parametrising the true state as xi_true = phi(g, Retract(xi_ref,
+ * eps)). The measurement moves with eps, which is what makes this the
+ * innovation Jacobian rather than the Jacobian of the output map alone.
+ */
+Eigen::Vector3d residual(const Tangent& eps) {
+  return DVLMeasurement::inverse_output_action(kG, measurementAt(eps)) -
+         DVLMeasurement::predict(kXiRef);
+}
+
+/// Linearization error left by C0 at the given error.
+double errorC0(const Tangent& eps) {
+  return (residual(eps) - DVLMeasurement::jacobian_C0(kXiRef) * eps).norm();
+}
+
+/// Linearization error left by C* at the given error.
+double errorCstar(const Tangent& eps) {
+  const Eigen::Matrix<double, 3, 18> C =
+      DVLMeasurement::jacobian_Cstar(kXiRef, kG, measurementAt(eps));
+  return (residual(eps) - C * eps).norm();
+}
+
+// Halving a pure attitude error cuts C*'s linearization error by ~8 and C0's by
+// ~4, exactly as for the position output: the residual is a rotation chord,
+// and evaluating the output-action differential at the midpoint of the origin
+// output and the transported measurement is the Cayley secant of that chord,
+// which agrees with the tangent to third order. The two matrices are equal at
+// convergence, so a test taken there cannot see this gap.
+TEST(BodyVelocityOutput, CstarIsThirdOrderInAttitudeError) {
+  Tangent d = Tangent::Zero();
+  d.segment<3>(0) = Eigen::Vector3d(0.6, -0.5, 0.62).normalized();
+
+  const double coarse_C0 = errorC0(0.2 * d);
+  const double fine_C0 = errorC0(0.1 * d);
+  const double coarse_Cstar = errorCstar(0.2 * d);
+  const double fine_Cstar = errorCstar(0.1 * d);
+
+  // Both do err at this amplitude, so the ratios below are not vacuous.
+  EXPECT(coarse_C0 > 1e-4);
+  EXPECT(coarse_Cstar > 1e-8);
+  EXPECT(fine_Cstar < fine_C0);
+
+  EXPECT(fine_C0 / coarse_C0 > 0.2);  // ~1/4
+  EXPECT(fine_C0 / coarse_C0 < 0.35);
+  EXPECT(fine_Cstar / coarse_Cstar > 0.05);  // ~1/8
+  EXPECT(fine_Cstar / coarse_Cstar < 0.2);
+}
+
+// As for the position output, the third order property is chart dependent:
+// traits<State>::Retract composes the rotation and adds v, so a mixed
+// attitude-velocity error carries a cross term C* eps has and the true residual
+// does not, and the ratio falls back to ~1/4. C* is still the smaller error of
+// the two, by about 4x here.
+TEST(BodyVelocityOutput, CstarDropsToSecondOrderForMixedError) {
+  Tangent d = Tangent::Zero();
+  d.segment<3>(0) = Eigen::Vector3d(0.4, -0.3, 0.5);
+  d.segment<3>(3) = Eigen::Vector3d(-0.5, 0.2, 0.35);
+  d.normalize();
+
+  const double coarse = errorCstar(0.2 * d);
+  const double fine = errorCstar(0.1 * d);
+
+  EXPECT(coarse > 1e-5);
+  EXPECT(fine / coarse > 0.2);  // ~1/4, not the ~1/8 of the pure attitude case
+  EXPECT(fine / coarse < 0.35);
+  EXPECT(coarse < 0.5 * errorC0(0.2 * d));
+}
+
+}  // namespace output_matrix_accuracy
+/* ************************************************************************* */
 
 /* ************************************************************************* */
 int main() {

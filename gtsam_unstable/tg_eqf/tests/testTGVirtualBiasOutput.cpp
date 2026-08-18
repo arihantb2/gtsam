@@ -4,7 +4,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
-#include <gtsam/base/numericalDerivative.h>
+#include <gtsam_unstable/tg_eqf/Symmetry.h>
 #include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
 
 using namespace gtsam::tgeqf;
@@ -56,30 +56,65 @@ TEST(VirtualBiasOutput, InnovationIsNegativePredict) {
   EXPECT(veq(-xi.b_v, VirtualBiasMeasurement::innovation(xi)));
 }
 
-// ---------------------------------------------------------------------------
-// State-chart Jacobian (realises the Eq. B.20 constraint h = b_v = 0)
-// ---------------------------------------------------------------------------
+/* ************************************************************************* */
+namespace output_matrix {
 
-// Independent finite difference in the State::Retract chart. TGEqF transports
-// the result to error coordinates via updateFromStateJacobian.
-static Eigen::Matrix<double, 3, 18> numericalStateJacobian(const State& xi) {
-  return numericalDerivative11<Eigen::Vector3d, State>(
-      [](const State& x) { return VirtualBiasMeasurement::predict(x); }, xi);
+using Tangent = Eigen::Matrix<double, 18, 1>;
+
+TGElement makeX() {
+  TGElement X;
+  X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
+  X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
+  X.p = Eigen::Vector3d(0.3, 0.1, -0.4);
+  X.a = {Eigen::Vector3d(0.1, -0.1, 0.05), Eigen::Vector3d(-0.2, 0.3, 0.0),
+         Eigen::Vector3d(0.0, 0.1, -0.1)};
+  return X;
 }
 
-TEST(VirtualBiasOutput, StateJacobianIsIdentityInVirtualBiasBlock) {
+/// Residual the filter linearizes: the virtual bias the true state at eps
+/// carries, relative to the one the estimate reports.
+Eigen::Vector3d residual(const State& xi_ref, const TGElement& g,
+                         const Tangent& eps) {
+  return phi(g, traits<State>::Retract(xi_ref, eps)).b_v - phi(g, xi_ref).b_v;
+}
+
+// With g = identity the action is trivial and C* selects b_v outright.
+TEST(VirtualBiasOutput, CstarSelectsVirtualBiasAtIdentityGroup) {
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 15) = Eigen::Matrix3d::Identity();
-  EXPECT(meq(expected, VirtualBiasMeasurement::stateJacobian(makeXi())));
   EXPECT(meq(expected,
-             VirtualBiasMeasurement::stateJacobian(State::identity())));
+             VirtualBiasMeasurement::jacobian_Cstar(TGElement::Identity())));
 }
 
-TEST(VirtualBiasOutput, StateJacobianMatchesNumerical) {
-  const State xi = makeXi();
-  EXPECT(meq(VirtualBiasMeasurement::stateJacobian(xi),
-             numericalStateJacobian(xi), 1e-5));
+// C* is the b_v row of the inverse adjoint the state action applies to biases.
+TEST(VirtualBiasOutput, CstarIsTheVirtualBiasRowOfTheInverseAdjoint) {
+  const TGElement g = makeX();
+  const Eigen::Matrix<double, 9, 9> Ad_inv = detail::Ad_SE23_inv(g);
+
+  Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
+  expected.block<3, 9>(0, 9) = Ad_inv.block<3, 9>(6, 0);
+
+  EXPECT(meq(expected, VirtualBiasMeasurement::jacobian_Cstar(g)));
 }
+
+// The bias block of the state action is affine in the error, so C* carries no
+// linearization error at all: it reproduces the residual exactly, at an error
+// far larger than any the filter sees.
+TEST(VirtualBiasOutput, CstarIsExactAtFiniteError) {
+  const State xi_ref = makeXi();
+  const TGElement g = makeX();
+  const Eigen::Matrix<double, 3, 18> C =
+      VirtualBiasMeasurement::jacobian_Cstar(g);
+
+  Tangent eps;
+  eps << 0.4, -0.3, 0.5, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.2, -0.15, 0.1, -0.2,
+      0.3, 0.05, 0.1, -0.25, 0.15;
+
+  EXPECT(veq(residual(xi_ref, g, eps), C * eps, 1e-12));
+}
+
+}  // namespace output_matrix
+/* ************************************************************************* */
 
 /* ************************************************************************* */
 int main() {

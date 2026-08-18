@@ -78,18 +78,31 @@ Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
     const Eigen::Matrix<double, 18, 1>& delta_x) const {
   const TGElement Xd = TGElement::Expmap(-delta_x);
   const State& xi_ref = referenceState();
-  auto recentre = [&](const Eigen::Matrix<double, 18, 1>& eps) {
-    return gtsam::traits<State>::Local(
-        xi_ref, phi(Xd, gtsam::traits<State>::Retract(xi_ref, eps)));
-  };
-  const Eigen::Matrix<double, 18, 1> f0 = recentre(delta_xi);
-  constexpr double h = 1e-7;
+
+  // The re-centring map is
+  //   r(eps) = Local(xi_ref, phi(Xd, Retract(xi_ref, eps))),
+  // so its derivative at eps = delta_xi is the chain of three factors below.
+  // Only the rotation slot of the chart is non-trivial (Retract composes
+  // R * Expmap(delta_R) and Local takes Logmap), so the two chart factors are
+  // the right Jacobian and its inverse acting on the leading 3 columns and
+  // rows; everything else is the identity.
+  const State xi_delta = gtsam::traits<State>::Retract(xi_ref, delta_xi);
+  const State xi_plus = phi(Xd, xi_delta);
+  const Eigen::Matrix<double, 18, 1> eps_plus =
+      gtsam::traits<State>::Local(xi_ref, xi_plus);
+
   Eigen::Matrix<double, 18, 18> J;
-  for (int j = 0; j < 18; ++j) {
-    Eigen::Matrix<double, 18, 1> e = Eigen::Matrix<double, 18, 1>::Zero();
-    e(j) = h;
-    J.col(j) = (recentre(delta_xi + e) - f0) / h;
-  }
+  const TGSymmetry::Diffeomorphism phi_Xd(Xd);
+  phi_Xd(xi_delta, &J);
+
+  // d Retract(xi_ref, .)|_{delta_xi} on the input side, ...
+  const Matrix3 dexp = Rot3::ExpmapDerivative(delta_xi.head<3>());
+  J.leftCols<3>() = (J.leftCols<3>() * dexp).eval();
+
+  // ... and d Local(xi_ref, .)|_{xi_plus} on the output side.
+  const Matrix3 dlog = Rot3::LogmapDerivative(eps_plus.head<3>());
+  J.topRows<3>() = (dlog * J.topRows<3>()).eval();
+
   return J;
 }
 
@@ -181,10 +194,20 @@ void TGEqF::set_virtual_bias_anchor(bool enable,
 }
 
 void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {
-  const State xi_hat = state();
-  updateFromStateJacobian<3>(DVLMeasurement::predict(xi_hat),
-                             DVLMeasurement::stateJacobian(xi_hat), z_dvl,
-                             R_dvl);
+  const State xi_ref = referenceState();
+  const TGElement X = groupEstimate();
+  const Eigen::Matrix3d R_X = X.R.matrix();
+
+  // The comparison happens in the origin output space: the reference output
+  // against the measurement pulled back through the output action. R_dvl
+  // arrives in the body frame of the true state, one R_X from that space.
+  const Eigen::Vector3d prediction = DVLMeasurement::predict(xi_ref);
+  const Eigen::Vector3d z = DVLMeasurement::inverse_output_action(X, z_dvl);
+  const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
+
+  const Eigen::Matrix<double, 3, 18> Cstar =
+      DVLMeasurement::jacobian_Cstar(xi_ref, X, z_dvl);
+  updateWithReset(prediction, Cstar, z, R_eff);
 }
 
 void TGEqF::update_position(const Eigen::Vector3d& pi,
@@ -218,13 +241,15 @@ void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
 }
 
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
-  const State xi_hat = state();
-
-  // Constraint target b_v = 0.
+  // Constraint target b_v = 0, compared against the estimated virtual bias.
+  // The output space is the one the estimate reports in, so R_vb needs no
+  // transport.
+  const Eigen::Vector3d prediction = VirtualBiasMeasurement::predict(state());
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
-  updateFromStateJacobian<3>(VirtualBiasMeasurement::predict(xi_hat),
-                             VirtualBiasMeasurement::stateJacobian(xi_hat), z,
-                             R_vb);
+
+  const Eigen::Matrix<double, 3, 18> Cstar =
+      VirtualBiasMeasurement::jacobian_Cstar(groupEstimate());
+  updateWithReset(prediction, Cstar, z, R_vb);
 }
 
 State TGEqF::errorState(const State& xi_true) const {

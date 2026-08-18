@@ -10,9 +10,8 @@ namespace tgeqf {
 /**
  * Equivariant GNSS position measurement h'(xi) = R^T(pi - p).
  *
- * Unlike the DVL and virtual-bias outputs, both Jacobians below are built at
- * the reference state and are already in **error coordinates**: pass them to
- * EquivariantFilter::update() unchanged, never through outputMatrix().
+ * Both Jacobians below are built at the reference state and are already in
+ * **error coordinates**: pass them to TGEqF::updateWithReset() unchanged.
  */
 struct PositionMeasurement {
   static Eigen::Vector3d predict(const State& xi, const Eigen::Vector3d& pi);

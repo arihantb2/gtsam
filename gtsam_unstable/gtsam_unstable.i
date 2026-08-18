@@ -983,16 +983,21 @@ class PositionMeasurement {
 
 class DVLMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix stateJacobian(const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Matrix jacobian_C0(const gtsam::tgeqf::State& xi_ref);
+  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
+                                      const gtsam::tgeqf::TGElement& g,
+                                      const gtsam::Vector3& z_dvl);
   static gtsam::Vector3 innovation(const gtsam::Vector3& z,
                                    const gtsam::tgeqf::State& xi_hat);
   static gtsam::Vector3 output_action(const gtsam::tgeqf::TGElement& X,
                                       const gtsam::Vector3& y);
+  static gtsam::Vector3 inverse_output_action(const gtsam::tgeqf::TGElement& X,
+                                              const gtsam::Vector3& y);
 };
 
 class VirtualBiasMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix stateJacobian(const gtsam::tgeqf::State& xi_hat);
+  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::TGElement& g);
   static gtsam::Vector3 innovation(const gtsam::tgeqf::State& xi_hat);
 };
 
