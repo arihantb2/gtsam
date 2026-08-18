@@ -5,6 +5,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
+#include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
@@ -542,51 +543,151 @@ TEST(TGEqF, ConstructorTransportIsIdentityAtIdentityGroupElement) {
   EXPECT(assert_equal((Matrix)Sigma0, (Matrix)filter.covariance(), 1e-12));
 }
 
-// ---------------------------------------------------------------------------
-// Covariance reset step
-// ---------------------------------------------------------------------------
+/* ************************************************************************* */
+namespace reset_step {
 
-// resetMatrix is the first-order approximation (chart factors ~ I) of the exact
-// error re-centring map  eps -> Local(xi_ref, phi(Exp(-delta_x),
-// Retract(xi_ref, eps)))  at eps = delta_xi. For a small correction the chart
-// factors vanish (error O(|delta|^2)), so it matches the exact finite
-// difference tightly.
-static Eigen::Matrix<double, 18, 18> resetMatrixFD(const State& xi_ref,
-                                                   const Vector18& delta_xi,
-                                                   const Vector18& delta_x) {
-  const TGElement Xd = TGElement::Expmap(-delta_x);
-  auto recentre = [&](const Vector18& e) {
-    return traits<State>::Local(xi_ref,
-                                phi(Xd, traits<State>::Retract(xi_ref, e)));
-  };
-  const Vector18 f0 = recentre(delta_xi);
-  const double h = 1e-7;
-  Eigen::Matrix<double, 18, 18> J;
-  for (int j = 0; j < 18; ++j) {
-    Vector18 e = Vector18::Zero();
-    e(j) = h;
-    J.col(j) = (recentre(delta_xi + e) - f0) / h;
-  }
-  return J;
+// Orbit Jacobian Dphi0 at the group identity. It is invertible (block
+// triangular with a rotation and -I on the diagonal), so delta_x = pinv(Dphi0)
+// delta_xi inverts to delta_xi = Dphi0 delta_x.
+Eigen::Matrix<double, 18, 18> orbitJacobian0(const State& xi_ref) {
+  Eigen::Matrix<double, 18, 18> H;
+  const TGSymmetry::Orbit orbit(xi_ref);
+  orbit(TGElement::Identity(), &H);
+  return H;
 }
 
-TEST(TGEqF, ResetMatrixMatchesFiniteDifferenceForSmallCorrection) {
+// The error re-centring map the group correction applies to the error state.
+Vector18 recentre(const State& xi_ref, const TGElement& Xd,
+                  const Vector18& eps) {
+  return traits<State>::Local(xi_ref,
+                              phi(Xd, traits<State>::Retract(xi_ref, eps)));
+}
+
+// Independent oracle: central-difference derivative of the re-centring map at
+// eps = delta_xi. Shares no code with TGEqF::resetMatrix.
+Eigen::Matrix<double, 18, 18> numericalResetJacobian(const State& xi_ref,
+                                                     const Vector18& delta_xi,
+                                                     const Vector18& delta_x) {
+  const TGElement Xd = TGElement::Expmap(-delta_x);
+  return numericalDerivative11<Vector18, Vector18>(
+      [&](const Vector18& eps) { return recentre(xi_ref, Xd, eps); }, delta_xi);
+}
+
+// A correction large enough that the chart factors (the right Jacobian and its
+// inverse on the rotation slot) are far from the identity. A 1e-4-sized
+// correction makes them identity to 1e-8, which hides a left/right mix-up.
+Vector18 bigDeltaXi() {
+  Vector18 delta_xi;
+  delta_xi << 0.35, -0.25, 0.4, 0.2, -0.15, 0.1, 0.3, -0.2, 0.15, 0.05, -0.04,
+      0.03, -0.06, 0.02, -0.01, 0.02, -0.03, 0.01;
+  return delta_xi;
+}
+
+// A reference state away from the manifold identity, so the chart factors and
+// the fiber adjoint are exercised at a non-trivial origin.
+State offOriginRef() {
+  State xi_ref;
+  xi_ref.R = Rot3::Rz(0.7) * Rot3::Ry(-0.3);
+  xi_ref.v = Eigen::Vector3d(1.0, -0.5, 0.2);
+  xi_ref.p = Eigen::Vector3d(-2.0, 3.0, 0.5);
+  xi_ref.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi_ref.b_a = Eigen::Vector3d(-0.05, 0.04, 0.02);
+  xi_ref.b_v = Eigen::Vector3d(0.1, -0.08, 0.06);
+  return xi_ref;
+}
+
+TGEqF::Covariance18 anisotropicSigma0() {
+  TGEqF::Covariance18 Sigma0 = TGEqF::Covariance18::Zero();
+  for (int i = 0; i < 18; ++i) Sigma0(i, i) = 1e-4 * (1.0 + i);
+  return Sigma0;
+}
+
+// One position update at rotatedX0(), run on twins with and without the reset,
+// plus the transport rebuilt from the correction the update actually applied.
+// Xd is recovered from the public group estimates alone: X_after = Exp(delta_x)
+// X_before, so Xd = Exp(-delta_x) = X_before * X_after^-1.
+struct UpdatePair {
+  Eigen::Matrix<double, 18, 18> P_with, P_without, J;
+};
+
+UpdatePair positionUpdatePair(const TGEqF::Covariance18& Sigma0,
+                              double offset_scale = 1.0) {
+  const State xi_ref = State::identity();
+  const TGElement X0 = rotatedX0();
+  TGEqF with_reset(xi_ref, Sigma0, X0);
+  TGEqF without_reset(xi_ref, Sigma0, X0);
+  without_reset.set_reset_step(false);
+
+  const TGElement X_before = with_reset.groupEstimate();
+  const Eigen::Vector3d pi =
+      with_reset.position() + offset_scale * Eigen::Vector3d(0.5, 0.3, -0.2);
+  const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
+  with_reset.update_position(pi, R);
+  without_reset.update_position(pi, R);
+
+  const TGElement Xd = X_before * with_reset.groupEstimate().inverse();
+  const Vector18 delta_x = -Xd.Logmap();
+  const Vector18 delta_xi = orbitJacobian0(xi_ref) * delta_x;
+  return {with_reset.errorCovariance(), without_reset.errorCovariance(),
+          with_reset.resetMatrix(delta_xi, delta_x)};
+}
+
+// The analytic Jacobian matches a central-difference derivative of the exact
+// re-centring map, at a correction large enough for the chart factors to bite,
+// both at the manifold identity and at an off-origin reference state.
+//
+// Both a matched and an unmatched (delta_xi, delta_x) pair are exercised. The
+// matched pair is what the filter passes, but it re-centres the error to nearly
+// zero, which leaves the output-side chart factor at ~I and hides a left/right
+// Jacobian mix-up there. The unmatched pair lands far from zero and exposes it.
+TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
+  for (const State& xi_ref : {State::identity(), offOriginRef()}) {
+    TGEqF filter(xi_ref, defaultSigma());
+    const Vector18 delta_xi = bigDeltaXi();
+    const Vector18 matched = orbitJacobian0(xi_ref).inverse() * delta_xi;
+    const Vector18 unmatched = -0.5 * matched;
+
+    for (const Vector18& delta_x : {matched, unmatched}) {
+      EXPECT(assert_equal(
+          (Matrix)numericalResetJacobian(xi_ref, delta_xi, delta_x),
+          (Matrix)filter.resetMatrix(delta_xi, delta_x), 1e-6));
+    }
+  }
+}
+
+// The Jacobian belongs at eps = delta_xi, the post-update mean of the error,
+// not at eps = 0. Linearizing at zero is the classic reset bug: it survives
+// every small-correction check but is wrong by O(|delta_xi|).
+TEST(TGEqF, ResetMatrixLinearizesAtCorrectionNotZero) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, defaultSigma());
+  const Vector18 delta_xi = bigDeltaXi();
+  const Vector18 delta_x = orbitJacobian0(xi_ref).inverse() * delta_xi;
 
-  // Small correction so the omitted chart factors (O(|delta|^2)) are
-  // negligible.
-  Vector18 delta_xi;
-  delta_xi << 5e-4, -4e-4, 3e-4, 1e-3, -8e-4, 6e-4, 7e-4, -5e-4, 4e-4, 1e-4,
-      -2e-4, 15e-5, -3e-4, 2e-4, -1e-4, 0.0, 1e-4, -1e-4;
-  // delta_x = pinv(Dphi0) delta_xi; at identity Dphi0 = diag(I9,-I9).
-  Vector18 delta_x = delta_xi;
-  delta_x.tail<9>() = -delta_xi.tail<9>();
+  const Eigen::Matrix<double, 18, 18> J_num =
+      numericalResetJacobian(xi_ref, delta_xi, delta_x);
+  EXPECT(assert_equal((Matrix)J_num,
+                      (Matrix)filter.resetMatrix(delta_xi, delta_x), 1e-6));
+  EXPECT((filter.resetMatrix(Vector18::Zero(), delta_x) - J_num).norm() > 1e-3);
+}
 
-  const Eigen::Matrix<double, 18, 18> J = filter.resetMatrix(delta_xi, delta_x);
-  const Eigen::Matrix<double, 18, 18> J_fd =
-      resetMatrixFD(xi_ref, delta_xi, delta_x);
-  EXPECT(assert_equal((Matrix)J_fd, (Matrix)J, 1e-5));
+// The fiber block of the transport is the SE_2(3) inverse adjoint of the
+// correction. This is the path that shears the bias covariance by the velocity
+// and position parts of a navigation correction -- the block whose omission
+// (reset off) inflated the accel-bias error in the aiding study.
+TEST(TGEqF, ResetMatrixBiasBlockIsFiberAdjoint) {
+  const State xi_ref = State::identity();
+  TGEqF filter(xi_ref, defaultSigma());
+  const Vector18 delta_xi = bigDeltaXi();
+  const Vector18 delta_x = orbitJacobian0(xi_ref).inverse() * delta_xi;
+  const TGElement Xd = TGElement::Expmap(-delta_x);
+
+  const Eigen::Matrix<double, 9, 9> Ad_inv = detail::Ad_SE23_inv(Xd);
+  EXPECT(assert_equal(
+      (Matrix)Ad_inv,
+      (Matrix)filter.resetMatrix(delta_xi, delta_x).block<9, 9>(9, 9), 1e-9));
+  // The coupling is real, not a dressed-up identity.
+  EXPECT((Ad_inv - Eigen::Matrix<double, 9, 9>::Identity()).norm() > 0.1);
 }
 
 TEST(TGEqF, ResetMatrixTendsToIdentityAsCorrectionVanishes) {
@@ -597,46 +698,137 @@ TEST(TGEqF, ResetMatrixTendsToIdentityAsCorrectionVanishes) {
                       (Matrix)J, 1e-12));
 }
 
-// A tiny-innovation update leaves the covariance essentially Joseph-only:
-// reset is a near-no-op (J ~ I) when the correction is small.
-TEST(TGEqF, ResetIsNoopForTinyInnovation) {
-  TGEqF with_reset(State::identity(), defaultSigma());
-  TGEqF no_reset(State::identity(), defaultSigma());
-  no_reset.set_reset_step(false);
+// A correction confined to the fiber leaves the transport at exactly identity:
+// Xd's SE_2(3) part is the identity, so both the chart factors and the fiber
+// adjoint collapse. This is why the b_v anchor is free whenever the bias block
+// is still uncorrelated with navigation.
+TEST(TGEqF, ResetIsIdentityForPureFiberCorrection) {
+  const State xi_ref = State::identity();
+  TGEqF filter(xi_ref, defaultSigma());
 
-  const Eigen::Vector3d z_dvl(1e-4, -1e-4, 5e-5);
-  const TGEqF::Covariance3 R = 1e-3 * TGEqF::Covariance3::Identity();
-  with_reset.update_dvl(z_dvl, R);
-  no_reset.update_dvl(z_dvl, R);
+  Vector18 delta_x = Vector18::Zero();
+  delta_x.tail<9>() << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01, 0.03;
+  const Vector18 delta_xi = orbitJacobian0(xi_ref) * delta_x;
 
-  EXPECT(assert_equal(no_reset.errorCovariance(), with_reset.errorCovariance(),
-                      1e-6));
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
+                      (Matrix)filter.resetMatrix(delta_xi, delta_x), 1e-12));
+}
+
+// The map resetMatrix linearizes is the one the update actually applies to the
+// error. With Xd recovered from the group estimates alone, the post-update
+// error state must equal phi(Xd, error state before) exactly -- this pins the
+// sign of Xd and the side of the base class's Compose(Exp(delta_x), g_), which
+// no derivative oracle can see because they all inherit the same Xd.
+TEST(TGEqF, ResetTracksGroupCorrectionAppliedByUpdate) {
+  const State xi_ref = State::identity();
+  TGEqF filter(xi_ref, defaultSigma(), rotatedX0());
+
+  // A truth the estimate is genuinely wrong about, so the error is non-zero.
+  State xi_true = filter.state();
+  xi_true.v += Eigen::Vector3d(0.1, 0.05, -0.1);
+  xi_true.p += Eigen::Vector3d(0.4, -0.2, 0.3);
+
+  const State e_before = filter.errorState(xi_true);
+  const TGElement X_before = filter.groupEstimate();
+
+  const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
+  filter.update_position(xi_true.p + Eigen::Vector3d(0.05, -0.03, 0.02), R);
+
+  const TGElement Xd = X_before * filter.groupEstimate().inverse();
+  EXPECT(traits<State>::Equals(phi(Xd, e_before), filter.errorState(xi_true),
+                               1e-9));
+}
+
+// End to end: the covariance the filter ships after an update is exactly the
+// transport of its Joseph-updated covariance by the reset Jacobian. Closes the
+// loop between resetMatrix and updateWithReset.
+TEST(TGEqF, ResetTransportsJosephCovarianceByObservedCorrection) {
+  const UpdatePair u = positionUpdatePair(anisotropicSigma0());
+  EXPECT(assert_equal((Matrix)(u.J * u.P_without * u.J.transpose()),
+                      (Matrix)u.P_with, 1e-9));
+}
+
+// Guard the transport direction against a transpose slip: with an anisotropic
+// covariance at a rotated state, J^T P J is O(1) away from J P J^T.
+TEST(TGEqF, ResetTransportDirectionGuard) {
+  const UpdatePair u = positionUpdatePair(anisotropicSigma0());
+  EXPECT((u.J.transpose() * u.P_without * u.J - u.P_with).norm() > 1e-3);
+}
+
+// The reset is a genuine first-order term in the correction: halving the
+// innovation halves its effect on the covariance. A test that only asserts
+// "small" would pass just as well if the reset were a no-op or O(1).
+TEST(TGEqF, ResetDifferenceScalesWithCorrection) {
+  const UpdatePair full = positionUpdatePair(defaultSigma(), 1.0);
+  const UpdatePair half = positionUpdatePair(defaultSigma(), 0.5);
+
+  const double d_full = (full.P_with - full.P_without).norm();
+  const double d_half = (half.P_with - half.P_without).norm();
+  EXPECT(d_full > 1e-9);
+  EXPECT(d_half / d_full > 0.4);
+  EXPECT(d_half / d_full < 0.6);
+}
+
+// The b_v anchor fires once per propagate in production, so it has to go
+// through the same transport. Once propagation has correlated the bias block
+// with navigation the anchor's correction is no longer pure fiber, and the
+// reset changes the covariance.
+TEST(TGEqF, ResetAppliesToVirtualBiasAnchorUpdate) {
+  State xi_ref = State::identity();
+  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
+  TGEqF with_reset(xi_ref, defaultSigma());
+  TGEqF without_reset(xi_ref, defaultSigma());
+  without_reset.set_reset_step(false);
+
+  const Eigen::Vector3d omega(0.05, -0.02, 0.01);
+  const Eigen::Vector3d accel(0.1, -0.2, 0.05);
+  const Eigen::Vector3d g_vec(0.0, 0.0, -9.81);
+  for (int k = 0; k < 10; ++k) {
+    with_reset.propagate(omega, accel, g_vec, defaultQc(), 0.01);
+    without_reset.propagate(omega, accel, g_vec, defaultQc(), 0.01);
+  }
+
+  EXPECT(
+      (with_reset.errorCovariance() - without_reset.errorCovariance()).norm() >
+      1e-12);
+}
+
+// The reset is on unless it is explicitly switched off. The aiding-study
+// configs disable it, so guard the default against a silent flip.
+TEST(TGEqF, ResetStepOnByDefault) {
+  const State xi_ref = State::identity();
+  const TGElement X0 = rotatedX0();
+  TGEqF by_default(xi_ref, anisotropicSigma0(), X0);
+  TGEqF explicitly_on(xi_ref, anisotropicSigma0(), X0);
+  TGEqF turned_off(xi_ref, anisotropicSigma0(), X0);
+  explicitly_on.set_reset_step(true);
+  turned_off.set_reset_step(false);
+
+  const Eigen::Vector3d pi =
+      by_default.position() + Eigen::Vector3d(0.5, 0.3, -0.2);
+  const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
+  by_default.update_position(pi, R);
+  explicitly_on.update_position(pi, R);
+  turned_off.update_position(pi, R);
+
+  EXPECT(assert_equal(explicitly_on.errorCovariance(),
+                      by_default.errorCovariance(), 1e-12));
+  EXPECT((turned_off.errorCovariance() - by_default.errorCovariance()).norm() >
+         1e-9);
 }
 
 // A sizeable update at a rotated state: the reset conjugates the post-update
 // covariance by J and keeps it symmetric positive-definite.
 TEST(TGEqF, ResetConjugatesCovarianceAndStaysSpd) {
-  const State xi_ref = State::identity();
-  const TGElement X0 = rotatedX0();
-  TGEqF with_reset(xi_ref, defaultSigma(), X0);
-  TGEqF no_reset(xi_ref, defaultSigma(), X0);
-  no_reset.set_reset_step(false);
-
-  const Eigen::Vector3d pi =
-      with_reset.position() + Eigen::Vector3d(0.5, 0.3, -0.2);
-  const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
-  with_reset.update_position(pi, R);
-  no_reset.update_position(pi, R);
-
-  const Eigen::Matrix<double, 18, 18> P = with_reset.errorCovariance();
-  // Symmetric.
-  EXPECT(assert_equal((Matrix)P, (Matrix)P.transpose(), 1e-12));
-  // Positive-definite (Cholesky succeeds).
-  Eigen::LLT<Eigen::Matrix<double, 18, 18>> llt(P);
+  const UpdatePair u = positionUpdatePair(defaultSigma());
+  EXPECT(assert_equal((Matrix)u.P_with, (Matrix)u.P_with.transpose(), 1e-12));
+  Eigen::LLT<Eigen::Matrix<double, 18, 18>> llt(u.P_with);
   EXPECT(llt.info() == Eigen::Success);
-  // The reset actually changed something vs the no-reset twin.
-  EXPECT((P - no_reset.errorCovariance()).norm() > 1e-9);
+  EXPECT((u.P_with - u.P_without).norm() > 1e-9);
 }
+
+}  // namespace reset_step
+/* ************************************************************************* */
 
 // Min eigenvalue of a symmetric matrix (SPD check). The 30 s scenario
 // regressions (biased-IMU turn) live in testTGEqFRegression.cpp; this copy is
