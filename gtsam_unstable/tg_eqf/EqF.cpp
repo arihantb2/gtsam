@@ -30,7 +30,8 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
   // J is block diagonal, diag(Ad_SE23_inv(X), Ad_SE23_inv(X)), so the solve is
   // always well posed. Sigma0 is symmetric, hence (J^-1 Sigma0)^T = Sigma0 J^-T
   // and a second solve completes the congruence.
-  const Eigen::PartialPivLU<Eigen::Matrix<double, 18, 18>> lu = J.partialPivLu();
+  const Eigen::PartialPivLU<Eigen::Matrix<double, 18, 18>> lu =
+      J.partialPivLu();
   const Eigen::Matrix<double, 18, 18> half = lu.solve(Sigma0).transpose();
   const Eigen::Matrix<double, 18, 18> Sigma_eps = lu.solve(half);
   return 0.5 * (Sigma_eps + Sigma_eps.transpose());
@@ -42,9 +43,9 @@ TGEqF::Covariance18 TGEqF::initialCovariance(
     const Covariance15& Sigma_physical) {
   Covariance18 Sigma0 = Covariance18::Zero();
   Sigma0.topLeftCorner<15, 15>() = Sigma_physical;
-  Sigma0.bottomRightCorner<3, 3>() =
-      kVirtualBiasInitialSigma * kVirtualBiasInitialSigma *
-      Covariance3::Identity();
+  Sigma0.bottomRightCorner<3, 3>() = kVirtualBiasInitialSigma *
+                                     kVirtualBiasInitialSigma *
+                                     Covariance3::Identity();
   return Sigma0;
 }
 

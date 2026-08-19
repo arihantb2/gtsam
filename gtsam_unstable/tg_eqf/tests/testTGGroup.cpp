@@ -129,8 +129,7 @@ TEST(TGElement, AdjointMatricesAgreeWithClosedForm) {
                       (Vector)(detail::Ad_SE23_inv(X) * a.vector()),
                       fixture::kTol));
   EXPECT(fixture::meq(detail::Ad_SE23_inv(X) * detail::Ad_SE23(X),
-                      Eigen::Matrix<double, 9, 9>::Identity(),
-                      fixture::kTolL));
+                      Eigen::Matrix<double, 9, 9>::Identity(), fixture::kTolL));
 }
 
 // Ad_{XY} = Ad_X Ad_Y: the adjoint is a group homomorphism.
@@ -158,10 +157,10 @@ TEST(TGElement, IdentityIsNeutral) {
 TEST(TGElement, InverseIsTwoSided) {
   const TGElement X = fixture::makeX();
   const TGElement XI = X.inverse();
-  EXPECT(traits<TGElement>::Equals(XI * X, TGElement::Identity(),
-                                   fixture::kTol));
-  EXPECT(traits<TGElement>::Equals(X * XI, TGElement::Identity(),
-                                   fixture::kTol));
+  EXPECT(
+      traits<TGElement>::Equals(XI * X, TGElement::Identity(), fixture::kTol));
+  EXPECT(
+      traits<TGElement>::Equals(X * XI, TGElement::Identity(), fixture::kTol));
 }
 
 // The semidirect product is associative. This is the axiom the fiber term

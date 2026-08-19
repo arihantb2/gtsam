@@ -24,11 +24,10 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/navigation/Scenario.h>
 
-#include <unsupported/Eigen/Splines>
-
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <unsupported/Eigen/Splines>
 #include <vector>
 
 namespace imu_scenarios {
@@ -83,7 +82,7 @@ inline constexpr double kRampDuration = 2.0;  // s, shared spin-up duration
 /// and for `t >= T` it reduces to `S(t) = t - T/2` with `S'=1, S''=0` (exact
 /// cruise, C2-continuous stitch at `t=T`). Built from the quintic smootherstep
 /// `f(x) = 6x^5 - 15x^4 + 10x^3` (`S' = f(t/T)`, `S = integral of f`, `S'' =
-/// f'/T`). https://iquilezles.org/articles/smoothsteps/ 
+/// f'/T`). https://iquilezles.org/articles/smoothsteps/
 struct RampProfile {
   double S;
   double Sdot;
@@ -186,17 +185,17 @@ class SinusoidScenario : public gtsam::Scenario {
 /// Waypoint trajectory: a cubic C2 spline interpolated through a list of
 /// nav-frame position waypoints, driving position/velocity/acceleration by
 /// ANALYTIC differentiation of that one spline (so the three channels are
-/// exactly self-consistent, as ScenarioRunner's IMU synthesis requires -- unlike
-/// gtsam::DiscreteScenario, which interpolates each channel independently). The
-/// spline parameter u in [0,1] is mapped to physical time through the shared
-/// `evalRamp` time-warp `S(t)` (u = S(t) / pathDuration), so the path spins up
-/// smoothly from rest -- pose(0)=origin, v(0)=a(0)=0 -- matching the rest-start
-/// invariant every other factory obeys. Attitude is held at identity (like
-/// SinusoidScenario), so omega_b = 0 and the accelerometer sees the path's
-/// nav-frame specific force; rotation is exercised by the circle / coordinated
-/// turn / typical-navigation factories instead. Past the final waypoint
-/// (u >= 1) the pose is clamped and held at rest; size pathDuration so a run
-/// stays within the path (the default does).
+/// exactly self-consistent, as ScenarioRunner's IMU synthesis requires --
+/// unlike gtsam::DiscreteScenario, which interpolates each channel
+/// independently). The spline parameter u in [0,1] is mapped to physical time
+/// through the shared `evalRamp` time-warp `S(t)` (u = S(t) / pathDuration), so
+/// the path spins up smoothly from rest -- pose(0)=origin, v(0)=a(0)=0 --
+/// matching the rest-start invariant every other factory obeys. Attitude is
+/// held at identity (like SinusoidScenario), so omega_b = 0 and the
+/// accelerometer sees the path's nav-frame specific force; rotation is
+/// exercised by the circle / coordinated turn / typical-navigation factories
+/// instead. Past the final waypoint (u >= 1) the pose is clamped and held at
+/// rest; size pathDuration so a run stays within the path (the default does).
 class SplineScenario : public gtsam::Scenario {
  public:
   /// @param waypoints  >= 2 nav-frame positions; the path is auto-translated so
@@ -210,8 +209,7 @@ class SplineScenario : public gtsam::Scenario {
       : pathDuration_(pathDuration), rampDuration_(rampDuration) {
     const std::size_t n = waypoints.size();
     if (n < 2) {
-      throw std::invalid_argument(
-          "SplineScenario needs at least 2 waypoints.");
+      throw std::invalid_argument("SplineScenario needs at least 2 waypoints.");
     }
     if (!(pathDuration_ > 0.0)) {
       throw std::invalid_argument("SplineScenario pathDuration must be > 0.");
@@ -225,8 +223,8 @@ class SplineScenario : public gtsam::Scenario {
     const Eigen::Index degree =
         std::min<Eigen::Index>(3, static_cast<Eigen::Index>(n) - 1);
     spline_ = Eigen::SplineFitting<Spline3>::Interpolate(pts, degree);
-    origin_ = spline_(0.0).matrix();               // == waypoints.front()
-    finalPos_ = spline_(1.0).matrix() - origin_;   // held past the last waypoint
+    origin_ = spline_(0.0).matrix();              // == waypoints.front()
+    finalPos_ = spline_(1.0).matrix() - origin_;  // held past the last waypoint
   }
 
   gtsam::Pose3 pose(double t) const override {
@@ -265,8 +263,8 @@ class SplineScenario : public gtsam::Scenario {
     return spline_.derivatives(u, 1).col(1).matrix();
   }
 
-  /// Spline parameter u = S(t)/pathDuration and its time derivatives, where S is
-  /// the shared rest-start ramp. `clamped` marks t <= 0 (held at origin) or
+  /// Spline parameter u = S(t)/pathDuration and its time derivatives, where S
+  /// is the shared rest-start ramp. `clamped` marks t <= 0 (held at origin) or
   /// u >= 1 (held at the final waypoint) -- both rest states (v = a = 0).
   struct UParam {
     double u, udot, uddot;

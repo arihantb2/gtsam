@@ -81,8 +81,7 @@ Eigen::Matrix<double, 21, 1> pack(const Input& u) {
 Eigen::Matrix<double, 18, 1> liftConditionResidual(const TGElement& X,
                                                    const State& xi,
                                                    const Input& u) {
-  const Eigen::Matrix<double, 18, 1> lhs =
-      Lift(InputOrbit(u)(X))(phi(X, xi));
+  const Eigen::Matrix<double, 18, 1> lhs = Lift(InputOrbit(u)(X))(phi(X, xi));
   const Eigen::Matrix<double, 18, 1> rhs =
       traits<TGElement>::AdjointMap(X.inverse()) * Lift(u)(xi);
   return lhs - rhs;
@@ -149,8 +148,8 @@ TEST(Lift, SatisfiesTheLiftCondition) {
   logX << 0.15, -0.1, 0.05, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.1, -0.1, 0.05,
       -0.2, 0.3, 0.0, 0.0, 0.1, -0.1;
 
-  for (const TGElement& X : {TGElement::Identity(), fixture::makeX(),
-                             TGElement::Expmap(logX)}) {
+  for (const TGElement& X :
+       {TGElement::Identity(), fixture::makeX(), TGElement::Expmap(logX)}) {
     EXPECT(fixture::veq(Eigen::Matrix<double, 18, 1>::Zero(),
                         fixture::liftConditionResidual(X, xi, u),
                         fixture::kTolL));
@@ -185,9 +184,9 @@ TEST(InputOrbit, IsARightAction) {
 
   EXPECT(fixture::veq(fixture::pack(u),
                       fixture::pack(InputOrbit(u)(TGElement::Identity()))));
-  EXPECT(fixture::veq(
-      fixture::pack(InputOrbit(u)(X * Y)),
-      fixture::pack(InputOrbit(InputOrbit(u)(X))(Y)), fixture::kTolL));
+  EXPECT(fixture::veq(fixture::pack(InputOrbit(u)(X * Y)),
+                      fixture::pack(InputOrbit(InputOrbit(u)(X))(Y)),
+                      fixture::kTolL));
 }
 
 // Gravity is a fixed frame quantity, not part of the input the group acts on,

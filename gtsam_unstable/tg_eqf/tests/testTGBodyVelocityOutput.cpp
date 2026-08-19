@@ -72,8 +72,8 @@ TEST(BodyVelocityOutput, IsARightAction) {
   const Eigen::Vector3d y(0.3, -0.1, 0.2);
   const TGElement X = fixture::makeX(), Y = fixture::makeY();
 
-  EXPECT(fixture::veq(
-      y, DVLMeasurement::output_action(TGElement::Identity(), y)));
+  EXPECT(
+      fixture::veq(y, DVLMeasurement::output_action(TGElement::Identity(), y)));
   EXPECT(fixture::veq(
       DVLMeasurement::output_action(X * Y, y),
       DVLMeasurement::output_action(Y, DVLMeasurement::output_action(X, y)),
@@ -101,8 +101,8 @@ TEST(BodyVelocityOutput, IsEquivariant) {
   logX << 0.15, -0.1, 0.05, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.1, -0.1, 0.05,
       -0.2, 0.3, 0.0, 0.0, 0.1, -0.1;
 
-  for (const TGElement& X : {TGElement::Identity(), fixture::makeX(),
-                             TGElement::Expmap(logX)}) {
+  for (const TGElement& X :
+       {TGElement::Identity(), fixture::makeX(), TGElement::Expmap(logX)}) {
     EXPECT(fixture::veq(
         DVLMeasurement::predict(phi(X, xi)),
         DVLMeasurement::output_action(X, DVLMeasurement::predict(xi)),
@@ -176,9 +176,8 @@ double errorC0(const fixture::Tangent& eps) {
 }
 
 double errorCstar(const fixture::Tangent& eps) {
-  return (residual(eps) - DVLMeasurement::jacobian_Cstar(
-                              kXiRef, kG, measurementAt(eps)) *
-                              eps)
+  return (residual(eps) -
+          DVLMeasurement::jacobian_Cstar(kXiRef, kG, measurementAt(eps)) * eps)
       .norm();
 }
 
@@ -202,7 +201,7 @@ TEST(BodyVelocityOutput, CstarIsThirdOrderInAttitudeError) {
   EXPECT(errorCstar(0.2 * d) > 1e-8);
   EXPECT(errorCstar(0.1 * d) < errorC0(0.1 * d));
 
-  EXPECT(halvingRatio(errorC0, d) > 0.20);     // ~1/4
+  EXPECT(halvingRatio(errorC0, d) > 0.20);  // ~1/4
   EXPECT(halvingRatio(errorC0, d) < 0.35);
   EXPECT(halvingRatio(errorCstar, d) > 0.05);  // ~1/8
   EXPECT(halvingRatio(errorCstar, d) < 0.20);

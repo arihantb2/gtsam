@@ -46,8 +46,8 @@ State State::retract(const Eigen::Matrix<double, 18, 1>& delta) const {
 
 Eigen::Matrix<double, 18, 1> State::localCoordinates(const State& other) const {
   Eigen::Matrix<double, 18, 1> delta;
-  delta.head<9>() = ExtendedPose3<2>::Logmap(extendedPose().inverse() *
-                                             other.extendedPose());
+  delta.head<9>() =
+      ExtendedPose3<2>::Logmap(extendedPose().inverse() * other.extendedPose());
   delta.segment<3>(9) = other.b_w - b_w;
   delta.segment<3>(12) = other.b_a - b_a;
   delta.segment<3>(15) = other.b_v - b_v;

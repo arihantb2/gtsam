@@ -90,13 +90,12 @@ TEST(PositionOutput, IsEquivariant) {
   logX << 0.15, -0.1, 0.05, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.1, -0.1, 0.05,
       -0.2, 0.3, 0.0, 0.0, 0.1, -0.1;
 
-  for (const TGElement& X : {TGElement::Identity(), fixture::makeX(),
-                             TGElement::Expmap(logX)}) {
-    EXPECT(fixture::veq(
-        PositionMeasurement::predict(phi(X, xi), fixture::kPi),
-        PositionMeasurement::output_action(
-            X, PositionMeasurement::predict(xi, fixture::kPi)),
-        fixture::kTolL));
+  for (const TGElement& X :
+       {TGElement::Identity(), fixture::makeX(), TGElement::Expmap(logX)}) {
+    EXPECT(fixture::veq(PositionMeasurement::predict(phi(X, xi), fixture::kPi),
+                        PositionMeasurement::output_action(
+                            X, PositionMeasurement::predict(xi, fixture::kPi)),
+                        fixture::kTolL));
   }
 }
 
@@ -117,9 +116,9 @@ TEST(PositionOutput, C0MatchesNumerical) {
           },
           xi_ref);
 
-  EXPECT(assert_equal((Matrix)PositionMeasurement::jacobian_C0(xi_ref,
-                                                              fixture::kPi),
-                      (Matrix)H_num, 1e-5));
+  EXPECT(assert_equal(
+      (Matrix)PositionMeasurement::jacobian_C0(xi_ref, fixture::kPi),
+      (Matrix)H_num, 1e-5));
 }
 
 // At convergence the transported measurement is the origin output itself, so
@@ -175,9 +174,9 @@ double errorC0(const fixture::Tangent& eps) {
 }
 
 double errorCstar(const fixture::Tangent& eps) {
-  return (residual(eps) - PositionMeasurement::jacobian_Cstar(
-                              kXiRef, kG, measurementAt(eps)) *
-                              eps)
+  return (residual(eps) -
+          PositionMeasurement::jacobian_Cstar(kXiRef, kG, measurementAt(eps)) *
+              eps)
       .norm();
 }
 
@@ -201,7 +200,7 @@ TEST(PositionOutput, CstarIsThirdOrderInAttitudeError) {
   EXPECT(errorCstar(0.2 * d) > 1e-8);
   EXPECT(errorCstar(0.1 * d) < errorC0(0.1 * d));
 
-  EXPECT(halvingRatio(errorC0, d) > 0.20);     // ~1/4
+  EXPECT(halvingRatio(errorC0, d) > 0.20);  // ~1/4
   EXPECT(halvingRatio(errorC0, d) < 0.35);
   EXPECT(halvingRatio(errorCstar, d) > 0.05);  // ~1/8
   EXPECT(halvingRatio(errorCstar, d) < 0.20);

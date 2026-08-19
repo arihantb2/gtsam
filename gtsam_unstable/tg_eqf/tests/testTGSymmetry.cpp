@@ -112,8 +112,8 @@ TEST(Phi, IsARightAction) {
 TEST(Phi, RightTranslatesTheExtendedPose) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX();
-  EXPECT(fixture::meq(phi(X, xi).T_matrix(),
-                      xi.T_matrix() * X.to_A_matrix(), fixture::kTolL));
+  EXPECT(fixture::meq(phi(X, xi).T_matrix(), xi.T_matrix() * X.to_A_matrix(),
+                      fixture::kTolL));
 }
 
 // The action is transitive and free: phiInverse returns the one element taking
@@ -183,10 +183,10 @@ TEST(Diffeomorphism, JacobianInvertsThatOfTheInverseAction) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX();
 
-  EXPECT(fixture::meq(
-      fixture::diffeoJacobian(X.inverse(), phi(X, xi)) *
-          fixture::diffeoJacobian(X, xi),
-      Eigen::Matrix<double, 18, 18>::Identity(), fixture::kTolL));
+  EXPECT(fixture::meq(fixture::diffeoJacobian(X.inverse(), phi(X, xi)) *
+                          fixture::diffeoJacobian(X, xi),
+                      Eigen::Matrix<double, 18, 18>::Identity(),
+                      fixture::kTolL));
 }
 
 }  // namespace functors

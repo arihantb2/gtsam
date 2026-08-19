@@ -1,11 +1,12 @@
 /**
  * @file  testTGVirtualBiasOutput.cpp
- * @brief The b_v = 0 pseudo-measurement that pins the unobservable virtual bias.
+ * @brief The b_v = 0 pseudo-measurement that pins the unobservable virtual
+ * bias.
  *
- * The state action is affine on the bias block, so this output matrix carries no
- * linearization error at all. Exactness is the only property worth asserting:
- * a linear map that reproduces the residual on a spanning set of errors is the
- * only such map, so exactness already determines C* completely.
+ * The state action is affine on the bias block, so this output matrix carries
+ * no linearization error at all. Exactness is the only property worth
+ * asserting: a linear map that reproduces the residual on a spanning set of
+ * errors is the only such map, so exactness already determines C* completely.
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
@@ -74,8 +75,8 @@ TEST(VirtualBiasOutput, CstarIsExact) {
 }
 
 // jacobian_Cstar takes only the group element, because the bias coordinates are
-// Euclidean: the reference biases cancel out of the residual, so the same matrix
-// is exact at any reference state.
+// Euclidean: the reference biases cancel out of the residual, so the same
+// matrix is exact at any reference state.
 TEST(VirtualBiasOutput, CstarDoesNotDependOnTheReferenceState) {
   const TGElement g = fixture::makeX();
   const fixture::Tangent eps = fixture::makeEps();

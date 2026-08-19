@@ -74,7 +74,8 @@ TEST(State, EqualsSeparatesStates) {
 /* ************************************************************************* */
 namespace chart {
 
-// Retract(xi, 0) = xi and Local(xi, xi) = 0: the chart is centred where it says.
+// Retract(xi, 0) = xi and Local(xi, xi) = 0: the chart is centred where it
+// says.
 TEST(State, ChartIsCentredAtItsBasePoint) {
   const State xi = fixture::makeXi();
   const Eigen::Matrix<double, 18, 1> zero =
@@ -109,11 +110,11 @@ TEST(State, ChartIsLeftInvariant) {
   const Eigen::Vector3d v_s(-3.0, 1.0, 0.7);
   const Eigen::Vector3d p_s(2.0, -0.5, 4.0);
 
-  EXPECT(assert_equal(
-      (Vector)traits<State>::Local(xi_ref, xi),
-      (Vector)traits<State>::Local(fixture::leftTranslate(R_s, v_s, p_s, xi_ref),
-                                   fixture::leftTranslate(R_s, v_s, p_s, xi)),
-      1e-9));
+  EXPECT(assert_equal((Vector)traits<State>::Local(xi_ref, xi),
+                      (Vector)traits<State>::Local(
+                          fixture::leftTranslate(R_s, v_s, p_s, xi_ref),
+                          fixture::leftTranslate(R_s, v_s, p_s, xi)),
+                      1e-9));
 }
 
 // The bias block is Euclidean and uncoupled from the navigation block: shifting
@@ -123,12 +124,11 @@ TEST(State, BiasBlockIsEuclidean) {
   State xi = xi_ref;
   xi.b_a += Eigen::Vector3d(0.3, -0.2, 0.1);
 
-  Eigen::Matrix<double, 18, 1> expected =
-      Eigen::Matrix<double, 18, 1>::Zero();
+  Eigen::Matrix<double, 18, 1> expected = Eigen::Matrix<double, 18, 1>::Zero();
   expected.segment<3>(12) = Eigen::Vector3d(0.3, -0.2, 0.1);
 
-  EXPECT(assert_equal((Vector)expected, (Vector)traits<State>::Local(xi_ref, xi),
-                      fixture::kTol));
+  EXPECT(assert_equal((Vector)expected,
+                      (Vector)traits<State>::Local(xi_ref, xi), fixture::kTol));
 }
 
 }  // namespace chart

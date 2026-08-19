@@ -129,8 +129,8 @@ TEST(TGEqF, ConstructorTransportsCovarianceToTheOriginChart) {
       fixture::diffeoJacobian(X0, xi_ref).inverse();
   const Eigen::Matrix<double, 18, 18> expected =
       J_inv * Sigma0 * J_inv.transpose();
-  EXPECT(assert_equal((Matrix)expected, (Matrix)filter.errorCovariance(),
-                      1e-9));
+  EXPECT(
+      assert_equal((Matrix)expected, (Matrix)filter.errorCovariance(), 1e-9));
   EXPECT((J_inv.transpose() * Sigma0 * J_inv - expected).norm() > 1e-3);
 
   // At the group identity the transport is the identity.
@@ -247,8 +247,8 @@ TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
 
   TGEqF via_propagate(xi_ref, fixture::defaultSigma());
   via_propagate.set_virtual_bias_anchor(false);
-  via_propagate.propagate(omega, accel, fixture::kGravity,
-                          fixture::defaultQc(), dt);
+  via_propagate.propagate(omega, accel, fixture::kGravity, fixture::defaultQc(),
+                          dt);
 
   Input u;
   u.w = omega;
@@ -334,15 +334,12 @@ TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
 
   const Eigen::Matrix<double, 3, 18> H_num =
       numericalDerivative11<Eigen::Vector3d, State>(
-          [&X0](const State& x) {
-            return DVLMeasurement::predict(phi(X0, x));
-          },
+          [&X0](const State& x) { return DVLMeasurement::predict(phi(X0, x)); },
           xi_ref);
 
   EXPECT(assert_equal(
       (Matrix)H_num,
-      (Matrix)(X0.R.matrix().transpose() *
-               DVLMeasurement::jacobian_C0(xi_ref)),
+      (Matrix)(X0.R.matrix().transpose() * DVLMeasurement::jacobian_C0(xi_ref)),
       1e-5));
 }
 
@@ -357,8 +354,8 @@ TEST(TGEqF, DvlUpdateMovesVelocityInTheGlobalFrame) {
   TGEqF filter(State::identity(), Sigma0, fixture::rotatedX0());
 
   const Eigen::Vector3d v_before = filter.velocity();
-  const Eigen::Vector3d z_dvl = filter.attitude().unrotate(
-      v_before + Eigen::Vector3d(0.0, 0.1, 0.0));
+  const Eigen::Vector3d z_dvl =
+      filter.attitude().unrotate(v_before + Eigen::Vector3d(0.0, 0.1, 0.0));
   filter.update_dvl(z_dvl, 1e-4 * TGEqF::Covariance3::Identity());
 
   const Eigen::Vector3d dv = filter.velocity() - v_before;
@@ -429,8 +426,8 @@ TEST(TGEqF, AnchorNoiseSurvivesAToggle) {
 
   EXPECT(traits<TGElement>::Equals(direct.groupEstimate(),
                                    toggled.groupEstimate(), 1e-12));
-  EXPECT(assert_equal(direct.errorCovariance(), toggled.errorCovariance(),
-                      1e-12));
+  EXPECT(
+      assert_equal(direct.errorCovariance(), toggled.errorCovariance(), 1e-12));
 }
 
 }  // namespace virtual_bias_anchor
@@ -518,8 +515,8 @@ TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
   for (const State& xi_ref : {State::identity(), offOriginRef()}) {
     TGEqF filter(xi_ref, fixture::defaultSigma());
     const Vector18 delta_xi = bigDeltaXi();
-    const Vector18 matched = fixture::orbitJacobian0(xi_ref).inverse() *
-                             delta_xi;
+    const Vector18 matched =
+        fixture::orbitJacobian0(xi_ref).inverse() * delta_xi;
 
     for (const Vector18& delta_x : {matched, Vector18(-0.5 * matched)}) {
       EXPECT(assert_equal(
@@ -544,10 +541,9 @@ TEST(TGEqF, ResetIsIdentityWhenTheCorrectionCannotMoveTheChart) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, fixture::defaultSigma());
 
-  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
-                      (Matrix)filter.resetMatrix(Vector18::Zero(),
-                                                 Vector18::Zero()),
-                      1e-12));
+  EXPECT(assert_equal(
+      (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
+      (Matrix)filter.resetMatrix(Vector18::Zero(), Vector18::Zero()), 1e-12));
 
   Vector18 fiber_only = Vector18::Zero();
   fiber_only.tail<9>() << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01, 0.03;
@@ -628,8 +624,9 @@ TEST(TGEqF, ResetAppliesToTheVirtualBiasAnchor) {
                             fixture::defaultQc(), 0.01);
   }
 
-  EXPECT((with_reset.errorCovariance() - without_reset.errorCovariance())
-             .norm() > 1e-12);
+  EXPECT(
+      (with_reset.errorCovariance() - without_reset.errorCovariance()).norm() >
+      1e-12);
 }
 
 // The reset is on unless explicitly switched off. Callers can disable it, so
@@ -673,15 +670,15 @@ ImuNoise makeNoise() {
 TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   const ImuNoise nz = makeNoise();
-  const TGEqF::Covariance18 Q = filter.inputNoiseCov(
-      Eigen::Vector3d(0.1, -0.05, 0.02), -fixture::kGravity, fixture::kGravity,
-      nz);
+  const TGEqF::Covariance18 Q =
+      filter.inputNoiseCov(Eigen::Vector3d(0.1, -0.05, 0.02),
+                           -fixture::kGravity, fixture::kGravity, nz);
 
   const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
-  EXPECT(assert_equal((Matrix)(nz.gyro * I3), (Matrix)Q.block<3, 3>(0, 0),
-                      1e-6));
-  EXPECT(assert_equal((Matrix)(nz.accel * I3), (Matrix)Q.block<3, 3>(3, 3),
-                      1e-6));
+  EXPECT(
+      assert_equal((Matrix)(nz.gyro * I3), (Matrix)Q.block<3, 3>(0, 0), 1e-6));
+  EXPECT(
+      assert_equal((Matrix)(nz.accel * I3), (Matrix)Q.block<3, 3>(3, 3), 1e-6));
   EXPECT(assert_equal((Matrix)(nz.gyro_rw * I3), (Matrix)Q.block<3, 3>(9, 9),
                       1e-6));
   EXPECT(assert_equal((Matrix)(nz.accel_rw * I3), (Matrix)Q.block<3, 3>(12, 12),
@@ -714,8 +711,8 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   u.a = accel;
   u.g_vec = fixture::kGravity;
   const auto lambda_origin = [&](const Input& uu) {
-    return Eigen::Matrix<double, 18, 1>(
-        Dphi0 * Lift(InputOrbit(uu)(Xhat_inv))(xi_ref));
+    return Eigen::Matrix<double, 18, 1>(Dphi0 *
+                                        Lift(InputOrbit(uu)(Xhat_inv))(xi_ref));
   };
 
   const Eigen::Matrix<double, 18, 1> L0 = lambda_origin(u);
