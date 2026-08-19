@@ -25,8 +25,6 @@ struct VirtualBiasMeasurement {
    * on, and no C0/C* distinction to make.
    */
   static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const TGElement& g);
-
-  static Eigen::Vector3d innovation(const State& xi_hat);
 };
 
 }  // namespace tgeqf

@@ -58,10 +58,14 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
     // dv; the bias terms are additive (-I on the matching bias columns).
     // Lambda_2 = ad_b[Lambda_1] - tau, so d(Lambda_2) = ad_b d(Lambda_1) -
     // ad_{Lambda_1} db  (using [b,x] = -[x,b]) with db/dxi = [0_9x9 | I_9].
+    //
+    // The dv column of Lambda_1.v is I_3, not R^T: the chart perturbs the
+    // extended pose on the right, v -> v + R dv, and the R^T in R^T v cancels
+    // it. Only the dR columns keep the R^T that appears in the expressions.
     D_lift->setZero();
     D_lift->block<3, 3>(3, 0) = gtsam::skewSymmetric(Rt * u.g_vec);
     D_lift->block<3, 3>(6, 0) = gtsam::skewSymmetric(Rt * xi.v);
-    D_lift->block<3, 3>(6, 3) = Rt;
+    D_lift->block<3, 3>(6, 3) = Eigen::Matrix3d::Identity();
     D_lift->block<9, 9>(0, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
 
     D_lift->block<9, 18>(9, 0) = ad_b * D_lift->block<9, 18>(0, 0);

@@ -20,10 +20,5 @@ Eigen::Matrix<double, 3, 18> VirtualBiasMeasurement::jacobian_Cstar(
   return Cstar;
 }
 
-Eigen::Vector3d VirtualBiasMeasurement::innovation(const State& xi_hat) {
-  // Constraint target z = 0; residual is -h(xi_hat).
-  return -predict(xi_hat);
-}
-
 }  // namespace tgeqf
 }  // namespace gtsam

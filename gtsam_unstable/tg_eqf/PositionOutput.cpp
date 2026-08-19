@@ -14,7 +14,7 @@ Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
   const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
   Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
-  C0.block<3, 3>(0, 6) = -xi_ref.R.matrix().transpose();
+  C0.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   return C0;
 }
 
@@ -25,13 +25,8 @@ Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_Cstar(
 
   Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
-  Cstar.block<3, 3>(0, 6) = -xi_ref.R.matrix().transpose();
+  Cstar.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
   return Cstar;
-}
-
-Eigen::Vector3d PositionMeasurement::innovation(const Eigen::Vector3d& pi,
-                                                const State& xi_hat) {
-  return -predict(xi_hat, pi);
 }
 
 Eigen::Vector3d PositionMeasurement::output_action(const TGElement& X,

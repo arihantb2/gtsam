@@ -19,7 +19,7 @@ struct PositionMeasurement {
   /**
    * Origin-chart Jacobian C0 in R^{3x18}
    *
-   *   C0 = [ y0^  0  -R0^T  0 ],   y0 = R0^T (pi - p0)
+   *   C0 = [ y0^  0  -I_3  0 ],   y0 = R0^T (pi - p0)
    *
    * The plain origin endpoint, with a second-order linearization error. Kept
    * as a reference point for the order-of-accuracy tests; the filter uses C*.
@@ -30,7 +30,7 @@ struct PositionMeasurement {
   /**
    * Equivariant output matrix C*, Fornasier et al. Equ. (B.19)
    *
-   *   C* = [ 0.5 (y0 + p_X)^  0  -R0^T  0 ]
+   *   C* = [ 0.5 (y0 + p_X)^  0  -I_3  0 ]
    *
    * with y0 = R0^T (pi - p0), p_X = g.p. The half is the midpoint of the two
    * output-action differentials, at the origin output y0 and at the transported
@@ -40,9 +40,6 @@ struct PositionMeasurement {
   static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const State& xi_ref,
                                                      const TGElement& g,
                                                      const Eigen::Vector3d& pi);
-
-  static Eigen::Vector3d innovation(const Eigen::Vector3d& pi,
-                                    const State& xi_hat);
 
   /// Output group action psi_X(y) = R_X^T (y - p_X).
   static Eigen::Vector3d output_action(const TGElement& X,

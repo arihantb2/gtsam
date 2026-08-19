@@ -1,7 +1,11 @@
 /**
  * @file  testTGGroup.cpp
- * @brief Unit tests for the tangent-group element G_TG = SE_2(3) ltimes
- * se_2(3): se2_3 fiber ops, group product/inverse, Adjoint, Expmap/Logmap.
+ * @brief Group and algebra axioms for G_TG = SE_2(3) semidirect se_2(3).
+ *
+ * Layer above testTGState.cpp: the symmetry group the observer state lives on.
+ * Tests are axioms (associativity, inverse, homomorphism, exp/log round trip)
+ * or cross-checks between two independent implementations of the same map --
+ * never a restatement of the closed form under test.
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
@@ -11,25 +15,22 @@
 using namespace gtsam::tgeqf;
 using namespace gtsam;
 
-static constexpr double kTol = 1e-9;
-static constexpr double kTolL = 1e-7;  // looser for composed operations
+/* ************************************************************************* */
+namespace fixture {
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+constexpr double kTol = 1e-9;
+constexpr double kTolL = 1e-7;  // looser, for composed operations
 
-static bool veq(const Eigen::Vector3d& a, const Eigen::Vector3d& b,
-                double tol = kTol) {
-  return assert_equal((Vector)a, (Vector)b, tol);
-}
-
-static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
-                double tol = kTol) {
+bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
+         double tol = kTol) {
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
-// Factory: group element with known non-trivial values.
-static TGElement makeX() {
+bool aeq(const se2_3& a, const se2_3& b, double tol = kTol) {
+  return assert_equal((Vector)a.vector(), (Vector)b.vector(), tol);
+}
+
+TGElement makeX() {
   TGElement X;
   X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
   X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
@@ -39,228 +40,198 @@ static TGElement makeX() {
   return X;
 }
 
-static TGElement makeY() {
+TGElement makeY() {
   TGElement Y;
   Y.R = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
-  Y.p = Eigen::Vector3d(-0.5, 1.0, 2.0);
   Y.v = Eigen::Vector3d(0.2, -0.3, 0.1);
+  Y.p = Eigen::Vector3d(-0.5, 1.0, 2.0);
   Y.a = {Eigen::Vector3d(0.05, 0.0, -0.05), Eigen::Vector3d(0.1, -0.1, 0.2),
          Eigen::Vector3d(-0.1, 0.0, 0.05)};
   return Y;
 }
 
-// ---------------------------------------------------------------------------
-// se2_3 basic operations
-// ---------------------------------------------------------------------------
-
-TEST(se2_3, VectorRoundTrip) {
-  se2_3 a = {Eigen::Vector3d(1, 2, 3), Eigen::Vector3d(4, 5, 6),
-             Eigen::Vector3d(7, 8, 9)};
-  EXPECT(veq(a.w, se2_3::from_vector(a.vector()).w));
-  EXPECT(veq(a.a, se2_3::from_vector(a.vector()).a));
-  EXPECT(veq(a.v, se2_3::from_vector(a.vector()).v));
-}
-
-TEST(se2_3, WedgeVeeRoundTrip) {
-  se2_3 a = {Eigen::Vector3d(0.1, -0.2, 0.3), Eigen::Vector3d(1.0, 2.0, 3.0),
-             Eigen::Vector3d(-1.0, 0.5, 0.2)};
-  se2_3 recovered = se2_3::vee(a.wedge());
-  EXPECT(veq(a.w, recovered.w));
-  EXPECT(veq(a.a, recovered.a));
-  EXPECT(veq(a.v, recovered.v));
-}
-
-TEST(se2_3, WedgeStructure) {
-  se2_3 a = {Eigen::Vector3d(1, 0, 0), Eigen::Vector3d(0, 1, 0),
-             Eigen::Vector3d(0, 0, 1)};
-  auto W = a.wedge();
-  // Rotation block is skew of omega
-  EXPECT(meq(W.block<3, 3>(0, 0), Rot3::Hat(a.w)));
-  // Translation columns
-  EXPECT(veq(a.a, W.block<3, 1>(0, 3)));
-  EXPECT(veq(a.v, W.block<3, 1>(0, 4)));
-  // Bottom rows zero
-  EXPECT(meq(W.block<2, 5>(3, 0), Eigen::Matrix<double, 2, 5>::Zero()));
-}
-
-// ---------------------------------------------------------------------------
-// TGElement::to_A_matrix
-// ---------------------------------------------------------------------------
-
-// to_A_matrix() places R in (0:3,0:3), v in col 3, p in col 4, 1s at (3,3)
-// and (4,4), and zeros in the bottom-left 2x3 block.
-TEST(TGElement, AMatrixBlocks) {
-  auto X = makeX();
-  auto A = X.to_A_matrix();
-  EXPECT(meq(X.R.matrix(), A.block<3, 3>(0, 0)));
-  EXPECT(veq(X.v, A.block<3, 1>(0, 3)));
-  EXPECT(veq(X.p, A.block<3, 1>(0, 4)));
-  DOUBLES_EQUAL(1.0, A(3, 3), kTol);
-  DOUBLES_EQUAL(1.0, A(4, 4), kTol);
-  DOUBLES_EQUAL(0.0, A(3, 4), kTol);
-  DOUBLES_EQUAL(0.0, A(4, 3), kTol);
-  // bottom-left 2x3 block must be zero
-  EXPECT(meq(A.block<2, 3>(3, 0), Eigen::Matrix<double, 2, 3>::Zero()));
-}
-
-// ---------------------------------------------------------------------------
-// Group product and inverse
-// ---------------------------------------------------------------------------
-
-TEST(TGElement, IdentityIsNeutral) {
-  auto X = makeX();
-  auto I = TGElement::Identity();
-  EXPECT(traits<TGElement>::Equals(I * X, X, kTol));
-  EXPECT(traits<TGElement>::Equals(X * I, X, kTol));
-}
-
-TEST(TGElement, Inverse) {
-  auto X = makeX();
-  auto XI = X.inverse();
-  EXPECT(traits<TGElement>::Equals(XI * X, TGElement::Identity(), kTol));
-  EXPECT(traits<TGElement>::Equals(X * XI, TGElement::Identity(), kTol));
-}
-
-TEST(TGElement, GroupProductAssociativity) {
-  auto X = makeX(), Y = makeY();
+TGElement makeZ() {
   TGElement Z;
   Z.R = Rot3::Rx(0.5);
-  Z.v = Eigen::Vector3d(0, 0, 1);
+  Z.v = Eigen::Vector3d(0.0, 0.0, 1.0);
   Z.p = Eigen::Vector3d(0.2, -0.1, 0.3);
   Z.a = {Eigen::Vector3d(0.03, -0.02, 0.01), Eigen::Vector3d(-0.05, 0.0, 0.02),
          Eigen::Vector3d(0.0, -0.03, 0.04)};
-  EXPECT(traits<TGElement>::Equals((X * Y) * Z, X * (Y * Z), kTolL));
+  return Z;
 }
 
-// ---------------------------------------------------------------------------
-// Adjoint maps
-// ---------------------------------------------------------------------------
-
-// Ad_A_inv(Ad_A(xi)) == xi: the two adjoints are exact inverses on se_2(3).
-TEST(TGElement, AdjointRoundTrip) {
-  auto X = makeX();
-  se2_3 a = {Eigen::Vector3d(0.1, -0.2, 0.3), Eigen::Vector3d(1, 2, 3),
-             Eigen::Vector3d(-1, 0, 0.5)};
-  se2_3 round_trip = X.Ad_A_inv(X.Ad_A(a));
-  EXPECT(veq(a.w, round_trip.w, kTolL));
-  EXPECT(veq(a.a, round_trip.a, kTolL));
-  EXPECT(veq(a.v, round_trip.v, kTolL));
+se2_3 makeAlgebra() {
+  return {Eigen::Vector3d(0.1, -0.2, 0.3), Eigen::Vector3d(1.0, 2.0, 3.0),
+          Eigen::Vector3d(-1.0, 0.5, 0.2)};
 }
 
-// Ad_{XY}[xi] == Ad_X[Ad_Y[xi]]: Ad_A is a group homomorphism from G_TG into
-// GL(se_2(3)).
-TEST(TGElement, AdjointHomomorphism) {
-  auto X = makeX(), Y = makeY();
-  se2_3 a = {Eigen::Vector3d(0.2, 0.1, -0.1), Eigen::Vector3d(0.5, -1, 0),
-             Eigen::Vector3d(0, 0.3, -0.2)};
-  auto lhs = (X * Y).Ad_A(a);
-  auto rhs = X.Ad_A(Y.Ad_A(a));
-  EXPECT(veq(lhs.w, rhs.w, kTolL));
-  EXPECT(veq(lhs.a, rhs.a, kTolL));
-  EXPECT(veq(lhs.v, rhs.v, kTolL));
+se2_3 makeAlgebraOther() {
+  return {Eigen::Vector3d(0.2, 0.1, -0.1), Eigen::Vector3d(0.5, -1.0, 0.0),
+          Eigen::Vector3d(0.0, 0.3, -0.2)};
 }
 
-// ---------------------------------------------------------------------------
-// Expmap / Logmap
-// ---------------------------------------------------------------------------
-
-TEST(TGElement, ExpmapAtZeroIsIdentity) {
-  auto X = TGElement::Expmap(Eigen::Matrix<double, 18, 1>::Zero());
-  EXPECT(traits<TGElement>::Equals(X, TGElement::Identity(), kTol));
-}
-
-TEST(TGElement, LogmapOfIdentityIsZero) {
-  auto v = TGElement::Identity().Logmap();
-  EXPECT(assert_equal((Vector)Eigen::Matrix<double, 18, 1>::Zero(), (Vector)v,
-                      kTol));
-}
-
-// Both the SE_2(3) part and the fiber (via Xi(tau), the tangent-group dexp)
-// round-trip exactly.
-TEST(TGElement, ExpmapLogmapRoundTrip) {
-  Eigen::Matrix<double, 18, 1> v;
-  v << 0.1, -0.2, 0.05,  // dR
-      0.3, -0.5, 0.2,    // dv
-      -0.1, 0.4, -0.2,   // dp
-      0.05, 0.1, -0.05,  // dw
-      -0.2, 0.3, 0.0,    // da
-      0.0, -0.1, 0.2;    // dv
-  auto v_rec = TGElement::Expmap(v).Logmap();
-  EXPECT(assert_equal((Vector)v, (Vector)v_rec, kTolL));
-}
-
-// Exp intertwines the adjoint: Exp(Ad_X w) == X * Exp(w) * X^{-1}. Also only
-// holds for the exact exponential.
-TEST(TGElement, ExpmapAdjointHomomorphism) {
-  const auto X = makeX();
-  Eigen::Matrix<double, 18, 1> w = 0.1 * Eigen::Matrix<double, 18, 1>::Ones();
-  const auto AdX = traits<TGElement>::AdjointMap(X);
-  const auto lhs = TGElement::Expmap(AdX * w);
-  const auto rhs = X * TGElement::Expmap(w) * X.inverse();
-  EXPECT(traits<TGElement>::Equals(lhs, rhs, 1e-9));
-}
-
-// ---------------------------------------------------------------------------
-// traits::Retract / Local round-trip
-// ---------------------------------------------------------------------------
-
-TEST(TGElement, LocalRetractRoundTripFromIdentity) {
+Eigen::Matrix<double, 18, 1> makeDelta() {
   Eigen::Matrix<double, 18, 1> delta;
   delta << 0.05, -0.1, 0.03, 0.2, -0.3, 0.1, -0.1, 0.2, -0.05, 0.01, 0.02,
       -0.01, 0.05, 0.0, -0.05, 0.0, 0.03, -0.02;
-
-  auto I = TGElement::Identity();
-  auto X = traits<TGElement>::Retract(I, delta);
-  auto rec = traits<TGElement>::Local(I, X);
-  EXPECT(assert_equal((Vector)delta, (Vector)rec, kTolL));
+  return delta;
 }
 
-TEST(TGElement, LocalRetractRoundTripFromNonIdentity) {
-  auto X = makeX();
-  Eigen::Matrix<double, 18, 1> delta;
-  delta << 0.02, -0.05, 0.01, 0.1, -0.1, 0.05, -0.05, 0.1, 0.0, 0.005, 0.0,
-      -0.005, 0.01, -0.01, 0.0, 0.0, 0.02, -0.01;
+}  // namespace fixture
+/* ************************************************************************* */
 
-  auto Y = traits<TGElement>::Retract(X, delta);
-  auto rec = traits<TGElement>::Local(X, Y);
-  EXPECT(assert_equal((Vector)delta, (Vector)rec, kTolL));
+/* ************************************************************************* */
+namespace algebra {
+
+// vee undoes wedge, and from_vector undoes vector: the two coordinate maps on
+// se_2(3) are mutual inverses.
+TEST(se2_3, CoordinateMapsRoundTrip) {
+  const se2_3 a = fixture::makeAlgebra();
+  EXPECT(fixture::aeq(a, se2_3::vee(a.wedge())));
+  EXPECT(fixture::aeq(a, se2_3::from_vector(a.vector())));
 }
 
-// ---------------------------------------------------------------------------
-// traits::AdjointMap structure
-// ---------------------------------------------------------------------------
+// ad_a is the Lie bracket in coordinates: ad_a b = vee(a^ b^ - b^ a^). Pins the
+// hand-written 9x9 ad_se23 against the matrix commutator.
+TEST(se2_3, AdIsTheMatrixCommutator) {
+  const se2_3 a = fixture::makeAlgebra();
+  const se2_3 b = fixture::makeAlgebraOther();
 
-// Top-right 9x9 block is zero; the two diagonal 9x9 blocks are equal (both
-// Ad_A of the SE_2(3) part).
-TEST(TGElement, AdjointMapBlockStructure) {
-  auto X = makeX();
-  auto Adj = traits<TGElement>::AdjointMap(X);
+  const Eigen::Matrix<double, 5, 5> A = a.wedge(), B = b.wedge();
+  const se2_3 bracket = se2_3::vee(A * B - B * A);
 
-  // Top-right block must be zero
-  EXPECT(meq(Adj.block<9, 9>(0, 9), Eigen::Matrix<double, 9, 9>::Zero()));
-  // Diagonal blocks must be equal (both Ad_A)
-  EXPECT(meq(Adj.block<9, 9>(0, 0), Adj.block<9, 9>(9, 9)));
+  EXPECT(assert_equal((Vector)bracket.vector(),
+                      (Vector)(detail::ad_se23(a) * b.vector()),
+                      fixture::kTol));
 }
 
-// Ad_I = Id on the algebra.
-TEST(TGElement, AdjointMapAtIdentityIsIdentity18) {
-  auto I = TGElement::Identity();
-  auto Adj = traits<TGElement>::AdjointMap(I);
-  EXPECT(meq(Adj, Eigen::Matrix<double, 18, 18>::Identity()));
+// Ad_A is conjugation on the algebra: (Ad_A a)^ = A a^ A^-1. Pins the closed
+// form against the 5x5 matrix representation.
+TEST(TGElement, AdjointIsConjugation) {
+  const TGElement X = fixture::makeX();
+  const se2_3 a = fixture::makeAlgebra();
+
+  const Eigen::Matrix<double, 5, 5> A = X.to_A_matrix();
+  EXPECT(fixture::meq(X.Ad_A(a).wedge(), A * a.wedge() * A.inverse(),
+                      fixture::kTolL));
 }
 
-// ---------------------------------------------------------------------------
-// traits::Compose / Between / Inverse Jacobians
-// ---------------------------------------------------------------------------
+// The 9x9 Ad_SE23 / Ad_SE23_inv helpers agree with the Ad_A / Ad_A_inv closed
+// forms and are mutual inverses. Both spellings are used in production.
+TEST(TGElement, AdjointMatricesAgreeWithClosedForm) {
+  const TGElement X = fixture::makeX();
+  const se2_3 a = fixture::makeAlgebra();
 
-// Checks that the analytic Compose/Between/Inverse Jacobians (Ad-based, right
-// chart) match finite differences through the traits Retract/Local chart. The
-// Ad formulas are the exact first derivatives in any chart that agrees with
-// the exponential to first order at the identity, so this test is valid (and
-// empirically passes) with either the exact or a first-order fiber Expmap.
-TEST(TGElement, ComposeBetweenInverseJacobians) {
-  const auto X = makeX();
-  const auto Y = makeY();
+  EXPECT(assert_equal((Vector)X.Ad_A(a).vector(),
+                      (Vector)(detail::Ad_SE23(X) * a.vector()),
+                      fixture::kTol));
+  EXPECT(assert_equal((Vector)X.Ad_A_inv(a).vector(),
+                      (Vector)(detail::Ad_SE23_inv(X) * a.vector()),
+                      fixture::kTol));
+  EXPECT(fixture::meq(detail::Ad_SE23_inv(X) * detail::Ad_SE23(X),
+                      Eigen::Matrix<double, 9, 9>::Identity(),
+                      fixture::kTolL));
+}
+
+// Ad_{XY} = Ad_X Ad_Y: the adjoint is a group homomorphism.
+TEST(TGElement, AdjointIsAHomomorphism) {
+  const TGElement X = fixture::makeX(), Y = fixture::makeY();
+  const se2_3 a = fixture::makeAlgebraOther();
+  EXPECT(fixture::aeq((X * Y).Ad_A(a), X.Ad_A(Y.Ad_A(a)), fixture::kTolL));
+}
+
+}  // namespace algebra
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace group_axioms {
+
+// The identity is neutral on both sides.
+TEST(TGElement, IdentityIsNeutral) {
+  const TGElement X = fixture::makeX();
+  const TGElement I = TGElement::Identity();
+  EXPECT(traits<TGElement>::Equals(I * X, X, fixture::kTol));
+  EXPECT(traits<TGElement>::Equals(X * I, X, fixture::kTol));
+}
+
+// inverse() is a two-sided inverse.
+TEST(TGElement, InverseIsTwoSided) {
+  const TGElement X = fixture::makeX();
+  const TGElement XI = X.inverse();
+  EXPECT(traits<TGElement>::Equals(XI * X, TGElement::Identity(),
+                                   fixture::kTol));
+  EXPECT(traits<TGElement>::Equals(X * XI, TGElement::Identity(),
+                                   fixture::kTol));
+}
+
+// The semidirect product is associative. This is the axiom the fiber term
+// c + Ad_A[d] has to satisfy, and the one a wrong adjoint side breaks.
+TEST(TGElement, ProductIsAssociative) {
+  const TGElement X = fixture::makeX(), Y = fixture::makeY(),
+                  Z = fixture::makeZ();
+  EXPECT(traits<TGElement>::Equals((X * Y) * Z, X * (Y * Z), fixture::kTolL));
+}
+
+// The 18x18 AdjointMap is a homomorphism and reduces to the identity at id.
+TEST(TGElement, AdjointMapIsAHomomorphism) {
+  const TGElement X = fixture::makeX(), Y = fixture::makeY();
+  using Tr = traits<TGElement>;
+
+  EXPECT(fixture::meq(Tr::AdjointMap(X * Y),
+                      Tr::AdjointMap(X) * Tr::AdjointMap(Y), fixture::kTolL));
+  EXPECT(fixture::meq(Tr::AdjointMap(TGElement::Identity()),
+                      Eigen::Matrix<double, 18, 18>::Identity(),
+                      fixture::kTol));
+}
+
+}  // namespace group_axioms
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace exponential {
+
+// Exp and Log agree at the identity and invert each other away from it. The
+// fiber leg runs through the Xi(tau) series, so the round trip is the only
+// cheap check that the series and its solve match.
+TEST(TGElement, ExpmapLogmapRoundTrip) {
+  EXPECT(traits<TGElement>::Equals(
+      TGElement::Expmap(Eigen::Matrix<double, 18, 1>::Zero()),
+      TGElement::Identity(), fixture::kTol));
+  EXPECT(assert_equal((Vector)Eigen::Matrix<double, 18, 1>::Zero(),
+                      (Vector)TGElement::Identity().Logmap(), fixture::kTol));
+
+  const Eigen::Matrix<double, 18, 1> v = fixture::makeDelta();
+  EXPECT(assert_equal((Vector)v, (Vector)TGElement::Expmap(v).Logmap(),
+                      fixture::kTolL));
+}
+
+// Exp intertwines the adjoint: Exp(Ad_X w) = X Exp(w) X^-1. Holds only for the
+// exact exponential, so it separates the Xi series from a truncation.
+TEST(TGElement, ExpmapIntertwinesTheAdjoint) {
+  const TGElement X = fixture::makeX();
+  const Eigen::Matrix<double, 18, 1> w =
+      0.1 * Eigen::Matrix<double, 18, 1>::Ones();
+
+  EXPECT(traits<TGElement>::Equals(
+      TGElement::Expmap(traits<TGElement>::AdjointMap(X) * w),
+      X * TGElement::Expmap(w) * X.inverse(), fixture::kTol));
+}
+
+// The right chart round-trips, at the identity and away from it.
+TEST(TGElement, RetractLocalRoundTrip) {
+  const Eigen::Matrix<double, 18, 1> delta = fixture::makeDelta();
+
+  for (const TGElement& X : {TGElement::Identity(), fixture::makeX()}) {
+    const TGElement Y = traits<TGElement>::Retract(X, delta);
+    EXPECT(assert_equal((Vector)delta, (Vector)traits<TGElement>::Local(X, Y),
+                        fixture::kTolL));
+  }
+}
+
+// The Ad-based Compose/Between/Inverse Jacobians are the true derivatives in
+// the traits chart.
+TEST(TGElement, ChartJacobiansMatchNumerical) {
+  const TGElement X = fixture::makeX(), Y = fixture::makeY();
   using Tr = traits<TGElement>;
   const auto compose = [](const TGElement& a, const TGElement& b) {
     return a * b;
@@ -271,27 +242,31 @@ TEST(TGElement, ComposeBetweenInverseJacobians) {
   Eigen::Matrix<double, 18, 18> H1, H2;
 
   Tr::Compose(X, Y, H1, H2);
-  EXPECT(meq(numericalDerivative21(compose, X, Y), H1, 1e-6));
-  EXPECT(meq(numericalDerivative22(compose, X, Y), H2, 1e-6));
+  EXPECT(fixture::meq(numericalDerivative21(compose, X, Y), H1, 1e-6));
+  EXPECT(fixture::meq(numericalDerivative22(compose, X, Y), H2, 1e-6));
 
   Tr::Inverse(X, H1);
-  EXPECT(meq(
+  EXPECT(fixture::meq(
       numericalDerivative11([](const TGElement& a) { return a.inverse(); }, X),
       H1, 1e-6));
 
   Tr::Between(X, Y, H1, H2);
-  EXPECT(meq(numericalDerivative21(between, X, Y), H1, 1e-6));
-  EXPECT(meq(numericalDerivative22(between, X, Y), H2, 1e-6));
+  EXPECT(fixture::meq(numericalDerivative21(between, X, Y), H1, 1e-6));
+  EXPECT(fixture::meq(numericalDerivative22(between, X, Y), H2, 1e-6));
 }
 
-// Must throw rather than silently leave the Jacobian uninitialized.
+// dexp is not implemented; requesting it must throw rather than hand back an
+// uninitialized Jacobian.
 TEST(TGElement, ExpmapLogmapThrowOnJacobianRequest) {
   using Tr = traits<TGElement>;
   Eigen::Matrix<double, 18, 18> H;
-  Eigen::Matrix<double, 18, 1> v = Eigen::Matrix<double, 18, 1>::Zero();
+  const Eigen::Matrix<double, 18, 1> v = Eigen::Matrix<double, 18, 1>::Zero();
   CHECK_EXCEPTION(Tr::Expmap(v, H), std::runtime_error);
   CHECK_EXCEPTION(Tr::Logmap(TGElement::Identity(), H), std::runtime_error);
 }
+
+}  // namespace exponential
+/* ************************************************************************* */
 
 /* ************************************************************************* */
 int main() {

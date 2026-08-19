@@ -114,12 +114,6 @@ Eigen::Matrix<double, 5, 5> TGElement::to_A_matrix() const {
   return A;
 }
 
-void TGElement::A_from_matrix(const Eigen::Matrix<double, 5, 5>& A) {
-  R = gtsam::Rot3(A.block<3, 3>(0, 0));
-  v = A.block<3, 1>(0, 3);
-  p = A.block<3, 1>(0, 4);
-}
-
 TGElement TGElement::retract(const Eigen::Matrix<double, 18, 1>& xi) const {
   return (*this) * Expmap(xi);
 }

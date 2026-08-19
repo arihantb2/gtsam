@@ -48,9 +48,17 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /// user-set bias sigma.
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
 
-  /// Full initial covariance built from the physical-state one, ordered
-  /// [R, v, p, b_w, b_a]. The physical block is used as given; the virtual-bias
-  /// block is kVirtualBiasInitialSigma^2 * I and uncorrelated with the rest.
+  /**
+   * Full initial covariance built from the physical-state one, ordered
+   * [R, v, p, b_w, b_a]. The physical block is used as given; the virtual-bias
+   * block is kVirtualBiasInitialSigma^2 * I and uncorrelated with the rest.
+   *
+   * The v and p entries are read in the State chart, which takes SE_2(3)
+   * logarithm coordinates on the navigation block. They are global-frame
+   * velocity and position variances only when the state they are attached to
+   * has identity rotation; otherwise they are resolved in that state's body
+   * frame and couple to the rotation block.
+   */
   static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
 
   /**

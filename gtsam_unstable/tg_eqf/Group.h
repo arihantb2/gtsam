@@ -49,7 +49,6 @@ struct TGElement {
   Eigen::Matrix<double, 18, 1> localCoordinates(const TGElement& other) const;
 
   Eigen::Matrix<double, 5, 5> to_A_matrix() const;
-  void A_from_matrix(const Eigen::Matrix<double, 5, 5>& A);
 };
 
 }  // namespace tgeqf

@@ -22,7 +22,7 @@ struct DVLMeasurement {
   /**
    * Origin-chart Jacobian C0 in R^{3x18}
    *
-   *   C0 = [ y0^  R0^T  0  0 ],   y0 = R0^T v0
+   *   C0 = [ y0^  I_3  0  0 ],   y0 = R0^T v0
    *
    * The plain origin endpoint, with a second-order linearization error. Kept
    * as a reference point for the order-of-accuracy tests; the filter uses C*.
@@ -33,7 +33,7 @@ struct DVLMeasurement {
    * Equivariant output matrix C*, the body-velocity counterpart of Fornasier
    * et al. Equ. (B.19)
    *
-   *   C* = [ 0.5 (y0 + y_tilde)^  R0^T  0  0 ]
+   *   C* = [ 0.5 (y0 + y_tilde)^  I_3  0  0 ]
    *
    * with y0 = R0^T v0 the origin output and y_tilde = psi_X^{-1}(z) the
    * measurement pulled back to the origin output space. The half is the
@@ -43,9 +43,6 @@ struct DVLMeasurement {
    */
   static Eigen::Matrix<double, 3, 18> jacobian_Cstar(
       const State& xi_ref, const TGElement& g, const Eigen::Vector3d& z_dvl);
-
-  static Eigen::Vector3d innovation(const Eigen::Vector3d& z,
-                                    const State& xi_hat);
 
   /// Output group action psi_X(y) = R_X^T y + R_X^T v_X.
   static Eigen::Vector3d output_action(const TGElement& X,

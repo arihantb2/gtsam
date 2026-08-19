@@ -12,7 +12,7 @@ Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_C0(const State& xi_ref) {
   const Eigen::Vector3d y0 = predict(xi_ref);
   Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
-  C0.block<3, 3>(0, 3) = xi_ref.R.matrix().transpose();
+  C0.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
   return C0;
 }
 
@@ -23,13 +23,8 @@ Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_Cstar(
 
   Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
-  Cstar.block<3, 3>(0, 3) = xi_ref.R.matrix().transpose();
+  Cstar.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
   return Cstar;
-}
-
-Eigen::Vector3d DVLMeasurement::innovation(const Eigen::Vector3d& z,
-                                           const State& xi_hat) {
-  return z - predict(xi_hat);
 }
 
 Eigen::Vector3d DVLMeasurement::output_action(const TGElement& X,
