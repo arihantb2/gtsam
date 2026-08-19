@@ -191,8 +191,7 @@ double halvingRatio(double (*error)(const fixture::Tangent&),
 // Halving the error cuts C*'s linearization error by ~8 and C0's by ~4.
 // Expanding with a = g.p and E = Exp(eps) gives residual - C* eps = 1/12
 // eps^^3 a against residual - C0 eps = 1/2 eps^^2 a. This order gap is the
-// whole point of C*, and the two matrices are equal at convergence, so a test
-// taken there cannot see it.
+// reason C* exists.
 TEST(PositionOutput, CstarIsThirdOrderInAttitudeError) {
   fixture::Tangent d = fixture::Tangent::Zero();
   d.segment<3>(0) = Eigen::Vector3d(0.6, -0.5, 0.62).normalized();
@@ -208,11 +207,9 @@ TEST(PositionOutput, CstarIsThirdOrderInAttitudeError) {
   EXPECT(halvingRatio(errorCstar, d) < 0.20);
 }
 
-// Third order survives a mixed attitude-position error. It does so only in the
-// SE_2(3) logarithm chart: the second-order cross term the left Jacobian of the
-// exponential contributes cancels the one the C* midpoint contributes. A
-// product chart leaves -1/2 (R0^T eps_p) x eps_R behind and the ratio falls
-// back to ~1/4.
+// Third order survives a mixed attitude-position error. This is what the
+// SE_2(3) logarithm chart buys: the second-order cross term the left Jacobian
+// of the exponential contributes cancels the one the C* midpoint contributes.
 TEST(PositionOutput, CstarIsThirdOrderInMixedError) {
   fixture::Tangent d = fixture::Tangent::Zero();
   d.segment<3>(0) = Eigen::Vector3d(0.4, -0.3, 0.5);

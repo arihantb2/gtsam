@@ -66,11 +66,11 @@ se2_3 TGElement::Ad_A_inv(const se2_3& xi) const {
 }
 
 namespace {
-// Xi(tau) = sum_{k>=0} ad_tau^k / (k+1)!, the tangent-group dexp/left-Jacobian
-// that carries the fiber part of the exponential (Expmap below). The series is
-// entire; 16 terms reach machine precision for ||ad_tau|| up to ~5 (measured
-// truncation 2e-15 at ||ad_tau|| = 4.8; 12 terms only gave ~3e-10 there). At
-// filter scale (||tau|| ~ ||Lambda*dt||) far fewer terms already suffice.
+// Xi(tau) = sum_{k>=0} ad_tau^k / (k+1)!, the left Jacobian of the tangent
+// group, which carries the fiber part of the exponential below. The series is
+// entire and truncated at 16 terms, which reaches machine precision for
+// ||ad_tau|| up to about 5. Filter-scale arguments (||tau|| ~ ||Lambda dt||)
+// are far below that.
 Eigen::Matrix<double, 9, 9> Xi(const se2_3& tau) {
   const Eigen::Matrix<double, 9, 9> ad = detail::ad_se23(tau);
   Eigen::Matrix<double, 9, 9> term = Eigen::Matrix<double, 9, 9>::Identity();

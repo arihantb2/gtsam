@@ -29,19 +29,16 @@ struct State {
   gtsam::ExtendedPose3<2> extendedPose() const;
 
   /**
-   * Retract in the origin chart.
-   *
-   * The chart is the one the EqF design is posed in: the SE_2(3) exponential
-   * on the navigation block and the identity on the biases,
+   * Retract in the origin chart: the SE_2(3) exponential on the navigation
+   * block and addition on the biases,
    *
    *   Retract(xi, eps) = (T * Expmap_SE23(eps_T), b + eps_b).
    *
-   * The navigation block is *not* the naive product chart. Its velocity and
-   * position coordinates are SE_2(3) logarithm coordinates, which couple to
-   * the rotation through the left Jacobian and are resolved in the body frame
-   * of T; they coincide with global-frame offsets only when R is the identity.
-   * This is what makes the navigation-state error dynamics exactly linear
-   * rather than linear only to first order.
+   * The velocity and position coordinates are SE_2(3) logarithm coordinates.
+   * They are resolved in the body frame of T and couple to the rotation
+   * through the left Jacobian, so they equal global-frame offsets only when R
+   * is the identity. This is the chart the EqF design is posed in: it makes
+   * the navigation error dynamics exactly linear.
    */
   State retract(const Eigen::Matrix<double, 18, 1>& delta) const;
 

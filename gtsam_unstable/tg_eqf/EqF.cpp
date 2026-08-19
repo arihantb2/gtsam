@@ -142,13 +142,15 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
 
   const Lift lift(u);
   const InputOrbit psi_u(u);
-  // The virtual_bias_Q_ PSD keeps a steady-state floor ~sqrt(Q*R) instead.
+  // Give the virtual bias its own process noise so the b_v = 0 anchor leaves it
+  // a steady-state floor of about sqrt(Q R) instead of driving its covariance
+  // to zero.
   Covariance18 Qc_eff = Qc;
   Qc_eff.block<3, 3>(15, 15) += virtual_bias_Q_;
 
   Base::predict(lift, psi_u, Qc_eff, dt);
 
-  // Keep the unobservable virtual bias pinned at zero (Eq. B.20) if requested.
+  // Pin the unobservable virtual bias at zero unless disabled.
   if (anchor_virtual_bias_) {
     update_virtual_bias(virtual_bias_R_);
   }

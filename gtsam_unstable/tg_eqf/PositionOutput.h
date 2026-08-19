@@ -21,21 +21,22 @@ struct PositionMeasurement {
    *
    *   C0 = [ y0^  0  -I_3  0 ],   y0 = R0^T (pi - p0)
    *
-   * The plain origin endpoint, with a second-order linearization error. Kept
-   * as a reference point for the order-of-accuracy tests; the filter uses C*.
+   * The output differential taken at the origin output alone, so its
+   * linearization error is second order in the state error. The filter uses C*
+   * below; C0 is the baseline the accuracy tests measure against.
    */
   static Eigen::Matrix<double, 3, 18> jacobian_C0(const State& xi_ref,
                                                   const Eigen::Vector3d& pi);
 
   /**
-   * Equivariant output matrix C*, Fornasier et al. Equ. (B.19)
+   * Equivariant output matrix C* in R^{3x18}, in error coordinates
    *
    *   C* = [ 0.5 (y0 + p_X)^  0  -I_3  0 ]
    *
-   * with y0 = R0^T (pi - p0), p_X = g.p. The half is the midpoint of the two
-   * output-action differentials, at the origin output y0 and at the transported
-   * measurement p_X, which buys a third-order linearization error where C0 is
-   * only second order. This is what the filter uses.
+   * with y0 = R0^T (pi - p0) the origin output and p_X = g.p the transported
+   * measurement. Taking the output differential at the midpoint of y0 and p_X
+   * instead of at y0 alone makes the linearization error third order in the
+   * state error, one order better than C0. This is the matrix the filter uses.
    */
   static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const State& xi_ref,
                                                      const TGElement& g,

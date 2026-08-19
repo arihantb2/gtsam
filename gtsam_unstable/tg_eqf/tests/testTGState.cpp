@@ -53,8 +53,8 @@ State leftTranslate(const Rot3& R_s, const Eigen::Vector3d& v_s,
 /* ************************************************************************* */
 namespace equality {
 
-// Equals is the oracle every other test in the suite reads through, so pin that
-// it can actually fail. A vacuous Equals would silently pass everything.
+// Equals is the oracle the rest of the suite reads through, so check that it
+// can fail as well as pass.
 TEST(State, EqualsSeparatesStates) {
   const State a = fixture::makeXi();
   EXPECT(traits<State>::Equals(a, a, fixture::kTol));
@@ -100,8 +100,7 @@ TEST(State, RetractLocalRoundTrip) {
 
 // The defining property of the EqF chart: its coordinates are SE_2(3) logarithm
 // coordinates, so they are invariant under a left translation of the extended
-// pose. A naive product chart (Logmap on R, differences on v and p) fails this
-// as soon as the translating rotation is non-trivial.
+// pose. Coordinates that took plain differences on v and p would not be.
 TEST(State, ChartIsLeftInvariant) {
   const State xi_ref = fixture::makeXi();
   const State xi = traits<State>::Retract(xi_ref, fixture::makeDelta());

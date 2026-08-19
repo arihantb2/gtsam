@@ -96,7 +96,7 @@ Eigen::Matrix<double, 18, 18> diffeoJacobian(const TGElement& X,
 namespace action_axioms {
 
 // phi is a right action: the identity acts trivially and phi(XY, .) is phi(X,.)
-// followed by phi(Y, .). The fiber term is where the order actually bites.
+// followed by phi(Y, .). The fiber term is what makes the order matter.
 TEST(Phi, IsARightAction) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX(), Y = fixture::makeY();
@@ -166,7 +166,7 @@ TEST(Symmetry, JacobiansMatchNumerical) {
 // In the SE_2(3) logarithm chart the orbit map is right translation read in
 // coordinates centred on its own output, so its navigation block is exactly the
 // identity -- at every reference state and every group element, not just at the
-// origin. A product chart carries the output rotation here instead.
+// origin.
 TEST(Orbit, NavigationJacobianIsIdentity) {
   for (const State& xi_ref : {State::identity(), fixture::makeXi()}) {
     for (const TGElement& X : {TGElement::Identity(), fixture::makeX()}) {
@@ -177,8 +177,8 @@ TEST(Orbit, NavigationJacobianIsIdentity) {
 }
 
 // Differentiating phi(X^-1, phi(X, .)) = id gives back the identity, so the two
-// Diffeomorphism Jacobians are mutual inverses. Catches an adjoint used on the
-// wrong side, which no single-point value check would see.
+// Diffeomorphism Jacobians are mutual inverses. This constrains which side the
+// adjoint acts on, which a value check at a single point does not.
 TEST(Diffeomorphism, JacobianInvertsThatOfTheInverseAction) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX();

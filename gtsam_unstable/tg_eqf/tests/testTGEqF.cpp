@@ -110,8 +110,9 @@ TEST(TGEqF, InitializesAtTheReferenceState) {
 
 // Sigma0 is given in the chart at the initial estimate, so the constructor
 // transports it to the origin chart as J^-1 Sigma0 J^-T, the exact inverse of
-// what covariance() applies forward. The transposed congruence is O(1) away, so
-// a direction slip cannot hide in numerical noise.
+// what covariance() applies forward. The last check uses an anisotropic Sigma0
+// so the transposed congruence is O(1) away, which fixes the direction of the
+// transport.
 TEST(TGEqF, ConstructorTransportsCovarianceToTheOriginChart) {
   const State xi_ref = State::identity();
   const TGElement X0 = fixture::rotatedX0();
@@ -141,7 +142,7 @@ TEST(TGEqF, ConstructorTransportsCovarianceToTheOriginChart) {
 namespace propagation {
 
 // The lift carries dp = v, so a moving estimate must advance its position by
-// v*dt. A constant-N lift froze position here while velocity tracked.
+// v*dt.
 TEST(TGEqF, PropagateIntegratesPosition) {
   State xi0 = State::identity();
   xi0.v = Eigen::Vector3d(1.0, -0.5, 0.2);
@@ -247,8 +248,8 @@ namespace away_from_the_reference {
 
 // C0 is stated in the origin output space, so R_X C0 is the chart derivative of
 // eps -> h(phi(X0, Retract(xi_ref, eps))), which reads the measurement in the
-// body frame of the estimate. This is the transport that a Jacobian taken in
-// the chart at the estimate silently gets wrong.
+// body frame of the estimate. The R_X factor is the transport between the two
+// output frames.
 TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
   const State xi_ref = State::identity();
   const TGElement X0 = fixture::rotatedX0();
@@ -268,8 +269,7 @@ TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
 }
 
 // A DVL update at a state rotated 90 degrees from the reference must move the
-// velocity estimate in the correct global direction. The un-transported
-// Jacobian sent the correction into the wrong axes.
+// velocity estimate along the correct global axis.
 TEST(TGEqF, DvlUpdateMovesVelocityInTheGlobalFrame) {
   // The 2 m/s speed makes attitude twice as sensitive as velocity to a body
   // velocity reading, so an isotropic prior would spend the innovation on yaw.
@@ -289,7 +289,7 @@ TEST(TGEqF, DvlUpdateMovesVelocityInTheGlobalFrame) {
   EXPECT(std::abs(dv.z()) < 0.02);
 }
 
-// The same guard on the position channel.
+// The same check on the position channel.
 TEST(TGEqF, PositionUpdateMovesEstimateInTheGlobalFrame) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
@@ -329,8 +329,8 @@ TEST(TGEqF, AnchorRunsInPropagateUnlessDisabled) {
   EXPECT(fixture::veq(xi_ref.b_v, unanchored.bias_vel(), 1e-9));
 }
 
-// Toggling the anchor off and back on must not silently revert a configured
-// noise to the default.
+// Toggling the anchor off and back on keeps the configured noise. Only passing
+// a new R_vb changes it.
 TEST(TGEqF, AnchorNoiseSurvivesAToggle) {
   State xi_ref = State::identity();
   xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
@@ -380,7 +380,7 @@ Eigen::Matrix<double, 18, 18> numericalResetJacobian(const State& xi_ref,
 }
 
 /// A correction large enough that the chart factors are far from the identity.
-/// A 1e-4-sized one makes them identity to 1e-8 and hides a left/right mix-up.
+/// At 1e-4 they are the identity to within 1e-8 and there is nothing to check.
 Vector18 bigDeltaXi() {
   Vector18 delta_xi;
   delta_xi << 0.35, -0.25, 0.4, 0.2, -0.15, 0.1, 0.3, -0.2, 0.15, 0.05, -0.04,
@@ -431,11 +431,11 @@ UpdatePair positionUpdatePair(const TGEqF::Covariance18& Sigma0,
 }
 
 // resetMatrix is the derivative of the exact re-centring map, at a correction
-// large enough for the chart factors to bite, both at the manifold identity and
-// at an off-origin reference. Matched and unmatched (delta_xi, delta_x) pairs
-// are both exercised: the matched pair is what the filter passes, but it
+// large enough for the chart factors to matter, both at the manifold identity
+// and at an off-origin reference. Both matched and unmatched (delta_xi,
+// delta_x) pairs are used: the matched pair is what the filter passes, but it
 // re-centres the error to nearly zero, which leaves the output-side chart
-// factor at ~I and hides a left/right mix-up there.
+// factor at ~I and nothing to check there.
 TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
   for (const State& xi_ref : {State::identity(), offOriginRef()}) {
     TGEqF filter(xi_ref, fixture::defaultSigma());
@@ -450,8 +450,7 @@ TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
     }
 
     // The Jacobian belongs at eps = delta_xi, the post-update mean of the
-    // error, not at eps = 0. Linearizing at zero survives every
-    // small-correction check but is wrong by O(|delta_xi|).
+    // error, not at eps = 0; linearizing at zero is wrong by O(|delta_xi|).
     EXPECT((filter.resetMatrix(Vector18::Zero(), matched) -
             filter.resetMatrix(delta_xi, matched))
                .norm() > 1e-3);
@@ -461,8 +460,8 @@ TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
 // A correction that cannot move the chart leaves the transport at exactly the
 // identity: no correction at all, or one confined to the fiber, where Xd's
 // SE_2(3) part is the identity and both the chart factors and the adjoint
-// collapse. This is why the b_v anchor is free while the bias block is still
-// uncorrelated with navigation.
+// collapse. This is why the b_v anchor costs nothing while the bias block is
+// still uncorrelated with navigation.
 TEST(TGEqF, ResetIsIdentityWhenTheCorrectionCannotMoveTheChart) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, fixture::defaultSigma());
@@ -482,8 +481,8 @@ TEST(TGEqF, ResetIsIdentityWhenTheCorrectionCannotMoveTheChart) {
 }
 
 // The map resetMatrix linearizes is the one the update really applies to the
-// error. Pins the sign of Xd and the side of the group correction together --
-// no derivative oracle can see those, since they all inherit the same Xd.
+// error. This fixes the sign of Xd and the side the group correction acts on,
+// which a derivative check cannot: every oracle there inherits the same Xd.
 TEST(TGEqF, ResetTracksTheGroupCorrectionTheUpdateApplies) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
@@ -518,9 +517,8 @@ TEST(TGEqF, ResetTransportsTheUpdatedCovariance) {
   EXPECT(llt.info() == Eigen::Success);
 }
 
-// The reset is a genuine first-order term in the correction: halving the
-// innovation halves its effect. A test asserting only "small" would pass just
-// as well if the reset were a no-op or O(1).
+// The reset is a first-order term in the correction: halving the innovation
+// halves its effect on the covariance.
 TEST(TGEqF, ResetEffectScalesWithTheCorrection) {
   const UpdatePair full = positionUpdatePair(fixture::defaultSigma(), 1.0);
   const UpdatePair half = positionUpdatePair(fixture::defaultSigma(), 0.5);
@@ -533,9 +531,9 @@ TEST(TGEqF, ResetEffectScalesWithTheCorrection) {
   EXPECT(d_half / d_full < 0.6);
 }
 
-// The anchor fires once per propagate in production, so it goes through the
-// same transport. Once propagation has correlated the bias block with
-// navigation its correction is no longer pure fiber and the reset bites.
+// The anchor fires once per propagate, so its correction goes through the same
+// transport. Once propagation has correlated the bias block with navigation the
+// correction is no longer pure fiber and the reset does move the covariance.
 TEST(TGEqF, ResetAppliesToTheVirtualBiasAnchor) {
   State xi_ref = State::identity();
   xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
@@ -556,8 +554,8 @@ TEST(TGEqF, ResetAppliesToTheVirtualBiasAnchor) {
              .norm() > 1e-12);
 }
 
-// The reset is on unless explicitly switched off. Study configs disable it, so
-// guard the default against a silent flip.
+// The reset is on unless explicitly switched off. Callers can disable it, so
+// the default is worth pinning.
 TEST(TGEqF, ResetStepIsOnByDefault) {
   const State xi_ref = State::identity();
   const TGElement X0 = fixture::rotatedX0();
@@ -619,9 +617,9 @@ TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
 }
 
 // The cached factorization B = input_lift * blkdiag(Ad, Ad) * selector must
-// reproduce a brute-force derivative of Dphi0 * Lambda(xi_ref, psi_{Xhat^-1}(u))
-// at a non-identity group estimate. B is affine in the input, so any u will do
-// as a linearization point -- which the last assertion also pins.
+// reproduce a finite-difference derivative of Dphi0 * Lambda(xi_ref,
+// psi_{Xhat^-1}(u)) at a non-identity group estimate. B is affine in the input,
+// so any u serves as a linearization point; the last assertion checks that.
 TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
@@ -740,8 +738,7 @@ TEST(TGEqF, DepthUpdateShrinksVerticalCovariance) {
   EXPECT(std::abs(before(7, 7) - after(7, 7)) < 0.5 * drop_z);
 }
 
-// update_depth is exactly the pseudo-position update it documents. Guards the
-// delegation against the two drifting apart.
+// update_depth is exactly the pseudo-position update it documents.
 TEST(TGEqF, DepthUpdateMatchesTheEquivalentPositionUpdate) {
   const TGElement X0 = fixture::rotatedX0();
   TGEqF via_depth(State::identity(), fixture::defaultSigma(), X0);
@@ -764,9 +761,9 @@ TEST(TGEqF, DepthUpdateMatchesTheEquivalentPositionUpdate) {
                       (Matrix)via_depth.errorCovariance(), 1e-12));
 }
 
-// The horizontal-variance argument is live, so the default is not silently
-// ignored. Needs a prior that correlates p_x with p_z, giving the depth channel
-// a horizontal path to act through.
+// The horizontal-variance argument changes the update. It needs a prior that
+// correlates p_x with p_z, which gives the depth channel a horizontal path to
+// act through.
 TEST(TGEqF, DepthUpdateRespectsTheHorizontalVariance) {
   TGEqF::Covariance18 Sigma0 = fixture::defaultSigma();
   Sigma0(6, 8) = Sigma0(8, 6) = 0.008;  // 2x2 block stays SPD

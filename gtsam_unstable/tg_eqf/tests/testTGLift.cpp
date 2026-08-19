@@ -94,8 +94,8 @@ Eigen::Matrix<double, 18, 1> liftConditionResidual(const TGElement& X,
 /* ************************************************************************* */
 namespace closed_form {
 
-// Lift::operator() evaluates a closed form. This pins both slots against the
-// literal construction of the paper, Lambda_1 = (W - B + N) + T^-1 (G - N) T and
+// Lift::operator() evaluates a closed form. This checks both slots against the
+// literal definition, Lambda_1 = (W - B + N) + T^-1 (G - N) T and
 // Lambda_2 = [B, Lambda_1] - tau, built here from 5x5 matrices only.
 TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   const State xi = fixture::makeXi();
@@ -121,8 +121,8 @@ TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   EXPECT(fixture::veq(expected_2.vector(), Lambda.tail<9>()));
 }
 
-// The position-rate slot carries dp = v, the coupling a constant-N lift drops.
-// With the virtual input cancelling its bias the slot is exactly R^T v.
+// The position-rate slot carries dp = v. With the virtual input cancelling its
+// bias the slot is exactly R^T v.
 TEST(Lift, PositionRateCarriesBodyVelocity) {
   State xi = fixture::makeXi();
   Input u = fixture::makeU();

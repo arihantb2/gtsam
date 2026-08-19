@@ -165,7 +165,7 @@ TEST(TGElement, InverseIsTwoSided) {
 }
 
 // The semidirect product is associative. This is the axiom the fiber term
-// c + Ad_A[d] has to satisfy, and the one a wrong adjoint side breaks.
+// c + Ad_A[d] has to satisfy.
 TEST(TGElement, ProductIsAssociative) {
   const TGElement X = fixture::makeX(), Y = fixture::makeY(),
                   Z = fixture::makeZ();
@@ -191,8 +191,8 @@ TEST(TGElement, AdjointMapIsAHomomorphism) {
 namespace exponential {
 
 // Exp and Log agree at the identity and invert each other away from it. The
-// fiber leg runs through the Xi(tau) series, so the round trip is the only
-// cheap check that the series and its solve match.
+// fiber leg runs through the Xi(tau) series in Exp and a solve against the same
+// series in Log, so the round trip checks that the two match.
 TEST(TGElement, ExpmapLogmapRoundTrip) {
   EXPECT(traits<TGElement>::Equals(
       TGElement::Expmap(Eigen::Matrix<double, 18, 1>::Zero()),
@@ -205,8 +205,8 @@ TEST(TGElement, ExpmapLogmapRoundTrip) {
                       fixture::kTolL));
 }
 
-// Exp intertwines the adjoint: Exp(Ad_X w) = X Exp(w) X^-1. Holds only for the
-// exact exponential, so it separates the Xi series from a truncation.
+// Exp intertwines the adjoint: Exp(Ad_X w) = X Exp(w) X^-1. This holds only for
+// the exact exponential, so it checks that the Xi series has converged.
 TEST(TGElement, ExpmapIntertwinesTheAdjoint) {
   const TGElement X = fixture::makeX();
   const Eigen::Matrix<double, 18, 1> w =

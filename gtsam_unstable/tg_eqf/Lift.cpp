@@ -32,9 +32,7 @@ Lift::Lift(const Input& u) : u(u) {}
 
 // Closed form (see Lift.h): expanding T^{-1}(G-N)T for T=[R,v,p] leaves only
 // R^T acting on g (in the "a" slot) and on the state velocity v (in the "v"
-// slot); the N/-N homogeneous-row coupling cancels exactly. Verified against
-// the original W-B+N+T^{-1}(G-N)T matrix construction in
-// testTGLift.cpp:ClosedFormMatchesMatrixConstruction.
+// slot); the N/-N homogeneous-row coupling cancels exactly.
 Eigen::Matrix<double, 18, 1> Lift::operator()(
     const State& xi, Eigen::Matrix<double, 18, 18>* D_lift) const {
   const Eigen::Matrix3d Rt = xi.R.transpose();
@@ -52,16 +50,16 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
   result.tail<9>() = Lambda2;
 
   if (D_lift) {
-    // Analytic Jacobian in the State Retract chart
+    // Analytic Jacobian in the State chart
     // [dR(3), dv(3), dp(3), dbw(3), dba(3), dbv(3)]. Only Lambda_1.a and
-    // Lambda_1.v depend on dR (via R^T g, R^T v); only Lambda_1.v depends on
-    // dv; the bias terms are additive (-I on the matching bias columns).
+    // Lambda_1.v depend on dR (through R^T g and R^T v), only Lambda_1.v
+    // depends on dv, and the bias terms are additive (-I on the matching bias
+    // columns). The dv column is the identity because the chart perturbs the
+    // extended pose on the right: v -> v + R dv, and that R cancels the R^T in
+    // R^T v. The dR columns keep their R^T.
+    //
     // Lambda_2 = ad_b[Lambda_1] - tau, so d(Lambda_2) = ad_b d(Lambda_1) -
     // ad_{Lambda_1} db  (using [b,x] = -[x,b]) with db/dxi = [0_9x9 | I_9].
-    //
-    // The dv column of Lambda_1.v is I_3, not R^T: the chart perturbs the
-    // extended pose on the right, v -> v + R dv, and the R^T in R^T v cancels
-    // it. Only the dR columns keep the R^T that appears in the expressions.
     D_lift->setZero();
     D_lift->block<3, 3>(3, 0) = gtsam::skewSymmetric(Rt * u.g_vec);
     D_lift->block<3, 3>(6, 0) = gtsam::skewSymmetric(Rt * xi.v);

@@ -128,8 +128,8 @@ TEST(BodyVelocityOutput, C0MatchesNumerical) {
 }
 
 // At convergence the transported measurement is the origin output itself, so
-// the C* midpoint collapses onto C0. This is why the accuracy fixture below has
-// to work away from convergence to see any difference between them.
+// the C* midpoint collapses onto C0. The accuracy fixture below therefore works
+// away from convergence, where the two differ.
 TEST(BodyVelocityOutput, CstarMeetsC0AtConvergence) {
   const State xi_ref = fixture::makeXi();
   const TGElement g = fixture::makeX();
@@ -189,9 +189,10 @@ double halvingRatio(double (*error)(const fixture::Tangent&),
   return error(0.1 * d) / error(0.2 * d);
 }
 
-// Halving the error cuts C*'s linearization error by ~8 and C0's by ~4. C* is
-// the Cayley secant of the rotation chord the residual traces, which agrees
-// with the tangent to third order where C0 only reaches second.
+// Halving the error cuts C*'s linearization error by ~8 and C0's by ~4. C*
+// takes the output differential at the midpoint of the origin output and the
+// transported measurement, which follows the residual to third order; C0 takes
+// it at the origin output alone and reaches only second.
 TEST(BodyVelocityOutput, CstarIsThirdOrderInAttitudeError) {
   fixture::Tangent d = fixture::Tangent::Zero();
   d.segment<3>(0) = Eigen::Vector3d(0.6, -0.5, 0.62).normalized();
@@ -207,10 +208,9 @@ TEST(BodyVelocityOutput, CstarIsThirdOrderInAttitudeError) {
   EXPECT(halvingRatio(errorCstar, d) < 0.20);
 }
 
-// Third order survives a mixed attitude-velocity error. It does so only in the
-// SE_2(3) logarithm chart: the two second-order cross terms, one from the left
-// Jacobian in the exponential and one from the C* midpoint, cancel. A product
-// chart leaves them and drops the ratio back to ~1/4.
+// Third order survives a mixed attitude-velocity error. This is what the
+// SE_2(3) logarithm chart buys: the second-order cross term the left Jacobian
+// of the exponential contributes cancels the one the C* midpoint contributes.
 TEST(BodyVelocityOutput, CstarIsThirdOrderInMixedError) {
   fixture::Tangent d = fixture::Tangent::Zero();
   d.segment<3>(0) = Eigen::Vector3d(0.4, -0.3, 0.5);

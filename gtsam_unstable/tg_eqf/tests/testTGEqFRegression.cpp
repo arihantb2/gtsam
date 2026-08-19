@@ -1,10 +1,9 @@
 /**
  * @file  testTGEqFRegression.cpp
- * @brief 30 s scenario regressions for the TG-EqF filter (biased IMU with/
+ * @brief 30 s scenario regressions for the TG-EqF filter (biased IMU with and
  * without position aiding).
  *
- * Split out of testTGEqF.cpp to keep unit tests and multi-second scenario
- * regressions in separate files.
+ * Scenario-level accuracy lives here; the unit tests live in testTGEqF.cpp.
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/navigation/Scenario.h>
@@ -27,12 +26,8 @@ static double minEig(const Eigen::MatrixXd& M) {
 // centripetal specific force, which makes yaw and the IMU biases observable
 // from position fixes. IMU samples are synthesized from the closed-form
 // trajectory and corrupted by CONSTANT biases only (no random noise), so the
-// run is fully deterministic and thresholds are stable regression bounds.
-//
-// Ported from the TFG-IEKF regression (testTFGInEKF.cpp). Numbers differ: the
-// TG-EqF is a different estimator (equivariant filter on SE_2(3) x R^9 with a
-// fixed origin chart + reset step), so the thresholds below are calibrated to
-// the measured TG-EqF behaviour, not copied from the IEKF.
+// run is fully deterministic and the thresholds are stable regression bounds
+// calibrated to the measured behaviour.
 // ---------------------------------------------------------------------------
 
 struct RegressionResult {
@@ -60,9 +55,10 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   const int gnss_decim = 10;  // 10 Hz position fixes
   const Eigen::Vector3d g(0.0, 0.0, -9.81);
 
-  // Origin chart = the true initial state, zero bias estimate, X0 = identity
-  // (so the recovered state starts exactly at ground truth). The reset step
-  // keeps the fixed-origin linearisation valid as the vehicle circles away.
+  // The origin chart is the true initial state, with zero bias estimate and
+  // X0 = identity, so the recovered state starts exactly at ground truth. The
+  // reset step keeps the fixed-origin linearization valid as the vehicle
+  // circles away from it.
   const gtsam::NavState gt0 = scenario.navState(0.0);
   State xi0 = State::identity();
   xi0.R = gt0.attitude();
@@ -78,8 +74,8 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   P0.block<3, 3>(15, 15) = Eigen::Matrix3d::Identity() * 1e-4;  // virtual bias
   TGEqF ekf(xi0, P0);
 
-  // Continuous-time process noise (origin-chart densities, P += Qc*dt). Mirrors
-  // the TFG ImuNoise: gyro -> attitude, accel -> velocity, RW -> bias rows.
+  // Continuous-time process noise (origin-chart densities, P += Qc*dt): gyro on
+  // attitude, accel on velocity, random walks on their own bias blocks.
   TGEqF::Covariance18 Qc = TGEqF::Covariance18::Zero();
   Qc.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * 1e-6;    // gyro
   Qc.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * 1e-4;    // accel
@@ -136,29 +132,29 @@ TEST(TGEqF, Regression30sBiasedImuWithPositionUpdates) {
   const RegressionResult r = runBiasedImu30s(/*with_position_updates=*/true);
   printRegression("aided", r);
 
-  // Navigation errors stay small under aiding despite the uncompensated-at-
-  // start biases. Measured (Release, x86-64): pos 2.5e-4 m, vel 5.5e-4 m/s,
-  // att 3.4e-3 rad (~0.19 deg). Position and velocity are pinned by the 5 cm
-  // fixes; attitude rides on the exact navigation-error linearization the
-  // SE_2(3) logarithm chart provides.
+  // Navigation errors stay small under aiding even though the filter starts
+  // with no bias estimate. Measured: pos 2.5e-4 m, vel 5.5e-4 m/s, att 3.4e-3
+  // rad (~0.19 deg). Position and velocity are held by the 5 cm fixes, and
+  // attitude follows from the exact navigation-error linearization the SE_2(3)
+  // logarithm chart gives.
   EXPECT(r.pos_err.norm() < 1e-3);
   EXPECT(r.vel_err.norm() < 2e-3);
   EXPECT(r.att_err.norm() < 0.01);  // ~0.6 deg
 
-  // Gyro bias is recovered well (truth |bg| = 0.023; measured error 9.0e-4).
-  // The accel bias splits by observability: the z component (paired with
-  // gravity) recovers to ~8.7e-4, while the horizontal components stay partly
-  // entangled with the tilt -- the filter's own sigma_ba ~ 0.058 covers this,
-  // i.e. it is consistent, not divergent. Truth |ba| = 0.062; measured total
-  // error 3.0e-2, about half the bias recovered.
+  // Gyro bias is recovered well (truth |bg| = 0.023, measured error 9.0e-4).
+  // The accel bias splits by observability: the z component, which pairs with
+  // gravity, recovers to ~8.7e-4, while the horizontal components stay partly
+  // entangled with the tilt. The filter's own sigma_ba ~ 0.058 covers that
+  // residual, so the estimate is consistent rather than diverging. Truth
+  // |ba| = 0.062, measured total error 3.0e-2.
   EXPECT(r.bg_err.norm() < 2e-3);
-  EXPECT(r.ba_err.norm() < 0.035);         // > 40% recovery overall
-  EXPECT(std::abs(r.ba_err.z()) < 2e-3);   // observable axis: tight
+  EXPECT(r.ba_err.norm() < 0.035);        // > 40% of the bias recovered
+  EXPECT(std::abs(r.ba_err.z()) < 2e-3);  // observable axis
   const double sigma_ba = std::sqrt(r.ba_cov_trace / 3.0);
   EXPECT(r.ba_err.norm() < 3.0 * sigma_ba);  // filter consistency
 
-  // Covariance stays SPD; the gyro-bias block converges well below its prior.
-  // Measured bg_cov_trace 1.3e-5 against a 3e-3 prior.
+  // The covariance stays SPD and the gyro-bias block converges well below its
+  // prior: measured trace 1.3e-5 against a 3e-3 prior.
   EXPECT(r.min_eig > 0.0);
   EXPECT(r.bg_cov_trace < 5e-5);
 }

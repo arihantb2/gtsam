@@ -42,11 +42,11 @@ TGSymmetry::Orbit::Orbit(const State& xi_ref) : xi_ref(xi_ref) {}
 //   [  I_9            |  0_9   ]   delta_T_out
 //   [  ad_se23(b_out) |  -I_9  ]   delta_b_out
 //
-// with b_out = Ad_{A_X^{-1}}(b_xi - a_X). The navigation block is the identity
-// because the action right-translates the extended pose, T_out = T_ref * A, and
-// the State chart takes SE_2(3) logarithm coordinates about T_out: perturbing
+// with b_out = Ad_{A_X^{-1}}(b_xi - a_X). The navigation block is exactly the
+// identity: the action right-translates the extended pose, T_out = T_ref * A,
+// and the State chart reads SE_2(3) logarithm coordinates about T_out, so
 // A -> A Exp(delta_tau) gives Log(T_out^{-1} T_ref A Exp(delta_tau)) =
-// delta_tau exactly, with no first-order truncation.
+// delta_tau.
 State TGSymmetry::Orbit::operator()(const TGElement& X,
                                     Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi_ref);
@@ -75,7 +75,7 @@ TGSymmetry::Diffeomorphism::Diffeomorphism(const TGElement& X) : X(X) {}
 // Both blocks are Ad_{A_X^{-1}} and both are exact. The navigation block is the
 // conjugation Log(A^{-1} Exp(delta_T) A) that right translation induces on
 // SE_2(3) logarithm coordinates; the bias block is the Ad_{A_X^{-1}} of the
-// state action itself, read in the Euclidean bias chart.
+// state action itself, read in the Euclidean bias coordinates.
 State TGSymmetry::Diffeomorphism::operator()(
     const State& xi, Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi);

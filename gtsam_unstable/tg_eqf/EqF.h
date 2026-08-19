@@ -23,12 +23,12 @@ struct ImuNoise {
  * The base class keeps every matrix in **error coordinates**, the tangent space
  * at the fixed reference state xi_ref, so every measurement here supplies an
  * output matrix C* built at that reference state and hands it to
- * updateWithReset(). Each output owns its own C*: Equ. (B.19) for position and
- * DVL, Equ. (B.20) for the virtual bias.
+ * updateWithReset(). Each output owns its own C*: a midpoint form for position
+ * and DVL, an exact one for the virtual bias.
  *
- * A measurement function differentiated in the chart at the current estimate is
- * *not* such a matrix, and the mistake is silent: the two have the same shape
- * and coincide when the group estimate is the identity.
+ * These matrices are derivatives at the reference state, not at the current
+ * estimate. The two have the same shape and agree only when the group estimate
+ * is the identity.
  */
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
@@ -42,10 +42,10 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /// depth update, large enough that the update leaves x and y untouched.
   static constexpr double kDefaultHorizontalVariance = 1e3;
 
-  /// Initial stddev of the virtual bias b_v. The virtual bias has no physical
-  /// counterpart to perturb: it starts at zero, held there by the b_v = 0
-  /// anchor, so its initial uncertainty matches that anchor rather than any
-  /// user-set bias sigma.
+  /// Initial standard deviation of the virtual bias b_v. b_v has no physical
+  /// counterpart to be uncertain about: it starts at zero and the b_v = 0
+  /// anchor holds it there, so it is initialized as effectively known rather
+  /// than with a user-set bias sigma.
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
 
   /**
@@ -56,7 +56,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * The v and p entries are read in the State chart, which takes SE_2(3)
    * logarithm coordinates on the navigation block. They are global-frame
    * velocity and position variances only when the state they are attached to
-   * has identity rotation; otherwise they are resolved in that state's body
+   * has identity rotation. Otherwise they are resolved in that state's body
    * frame and couple to the rotation block.
    */
   static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
@@ -129,7 +129,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * the position output with the horizontal variance inflated so only the
    * vertical direction is corrected. Since the horizontal entries come from the
    * estimate rather than the true state, this update is a second-order
-   * approximation. See Sec. V-B of docs/EqF_design_for_DVL_Depth_aided_INS.pdf.
+   * approximation.
    *
    * @param z_depth              Measured world-frame z position.
    * @param R_depth              Variance of z_depth, as a 1x1 matrix.
@@ -162,8 +162,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    *
    * Cstar must already be in error coordinates, the tangent space at the
    * reference state, and prediction, z and R must share one output frame with
-   * it. A Jacobian taken in the chart at the current estimate is not such a
-   * matrix.
+   * it.
    */
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
