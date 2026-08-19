@@ -492,6 +492,8 @@ class ISAM2Params {
   bool enableDetailedResults;
   bool enablePartialRelinearizationCheck;
   bool findUnusedFactorSlots;
+  bool enableAdaptiveReorder;
+  double adaptiveReorderThreshold;
 
   enum Factorization { CHOLESKY, QR };
   gtsam::ISAM2Params::Factorization factorization;
@@ -517,6 +519,8 @@ class ISAM2Result {
   size_t getVariablesReeliminated() const;
   gtsam::FactorIndices getNewFactorsIndices() const;
   size_t getCliques() const;
+  size_t getTreeNnz() const;
+  bool getBatchReorderTriggered() const;
   double getErrorBefore() const;
   double getErrorAfter() const;
 };
@@ -589,13 +593,15 @@ class ISAM2 {
   const gtsam::Values& getLinearizationPoint() const;
   bool valueExists(gtsam::Key key) const;
   gtsam::Values calculateEstimate() const;
-  template <VALUE = {gtsam::Point2,
+  template <VALUE = {double,
+                     gtsam::Point2,
                      gtsam::Rot2,
                      gtsam::Pose2,
                      gtsam::Point3,
                      gtsam::Gal3,
                      gtsam::Rot3,
                      gtsam::Pose3,
+                     gtsam::NavState,
                      gtsam::SL4,
                      gtsam::Similarity2,
                      gtsam::Similarity3,
@@ -627,6 +633,7 @@ class ISAM2 {
   const gtsam::VariableIndex& getVariableIndex() const;
   const gtsam::KeySet& getFixedVariables() const;
   const gtsam::ISAM2Params& params() const;
+  size_t treeNnz() const;
 
   gtsam::VectorValues gradientAtZero() const;
   std::pair<gtsam::KeySet, bool> predictUpdateInfo(
@@ -1041,9 +1048,11 @@ virtual class BatchFixedLagSmoother : gtsam::FixedLagSmoother {
 
   const gtsam::NonlinearFactorGraph& getFactors() const;
 
-  template <VALUE = {gtsam::Point2, gtsam::Rot2, gtsam::Pose2, gtsam::Point3,
-                     gtsam::Rot3, gtsam::Pose3, gtsam::SL4, gtsam::Similarity2,
+  template <VALUE = {double, gtsam::Point2, gtsam::Rot2, gtsam::Pose2,
+                     gtsam::Point3, gtsam::Rot3, gtsam::Pose3,
+                     gtsam::NavState, gtsam::SL4, gtsam::Similarity2,
                      gtsam::Similarity3, gtsam::Cal3_S2, gtsam::Cal3DS2,
+                     gtsam::imuBias::ConstantBias,
                      gtsam::Vector, gtsam::Matrix}>
   VALUE calculateEstimate(gtsam::Key key) const;
 };
@@ -1061,6 +1070,35 @@ virtual class IncrementalFixedLagSmoother : gtsam::FixedLagSmoother {
   const gtsam::NonlinearFactorGraph& getFactors() const;
   const gtsam::ISAM2& getISAM2() const;
   const gtsam::ISAM2Result& getISAM2Result() const;
+
+  // Mirrors gtsam::ISAM2::calculateEstimate<VALUE>, which this forwards to.
+  template <VALUE = {double,
+                     gtsam::Point2,
+                     gtsam::Rot2,
+                     gtsam::Pose2,
+                     gtsam::Point3,
+                     gtsam::Gal3,
+                     gtsam::Rot3,
+                     gtsam::Pose3,
+                     gtsam::NavState,
+                     gtsam::SL4,
+                     gtsam::Similarity2,
+                     gtsam::Similarity3,
+                     gtsam::Cal3_S2,
+                     gtsam::Cal3DS2,
+                     gtsam::Cal3f,
+                     gtsam::Cal3Bundler,
+                     gtsam::imuBias::ConstantBias,
+                     gtsam::EssentialMatrix,
+                     gtsam::FundamentalMatrix,
+                     gtsam::SimpleFundamentalMatrix,
+                     gtsam::PinholeCamera<gtsam::Cal3_S2>,
+                     gtsam::PinholeCamera<gtsam::Cal3Bundler>,
+                     gtsam::PinholeCamera<gtsam::Cal3Fisheye>,
+                     gtsam::PinholeCamera<gtsam::Cal3Unified>,
+                     gtsam::Vector,
+                     gtsam::Matrix}>
+  VALUE calculateEstimate(gtsam::Key key) const;
 };
 
 #include <gtsam/nonlinear/ExtendedKalmanFilter.h>
