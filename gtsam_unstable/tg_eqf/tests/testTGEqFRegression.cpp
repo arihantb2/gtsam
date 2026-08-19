@@ -137,30 +137,30 @@ TEST(TGEqF, Regression30sBiasedImuWithPositionUpdates) {
   printRegression("aided", r);
 
   // Navigation errors stay small under aiding despite the uncompensated-at-
-  // start biases. Measured (Release, x86-64): pos 2.8e-3 m, vel 6.2e-3 m/s,
-  // att 4.7e-2 rad. Position/velocity are pinned by the 5 cm position fixes;
-  // attitude carries a larger residual (~2.7 deg) than the TFG-IEKF because the
-  // horizontal accel-bias axes stay entangled with the tilt (g * tilt
-  // feedback).
-  EXPECT(r.pos_err.norm() < 0.05);
-  EXPECT(r.vel_err.norm() < 0.05);
-  EXPECT(r.att_err.norm() < 0.06);  // ~3.4 deg
+  // start biases. Measured (Release, x86-64): pos 2.5e-4 m, vel 5.5e-4 m/s,
+  // att 3.4e-3 rad (~0.19 deg). Position and velocity are pinned by the 5 cm
+  // fixes; attitude rides on the exact navigation-error linearization the
+  // SE_2(3) logarithm chart provides.
+  EXPECT(r.pos_err.norm() < 1e-3);
+  EXPECT(r.vel_err.norm() < 2e-3);
+  EXPECT(r.att_err.norm() < 0.01);  // ~0.6 deg
 
-  // Gyro bias is recovered well (truth |bg| = 0.023; measured error 1.7e-3).
+  // Gyro bias is recovered well (truth |bg| = 0.023; measured error 9.0e-4).
   // The accel bias splits by observability: the z component (paired with
-  // gravity) recovers to ~2e-3, while the horizontal components remain
-  // entangled with the few-mrad tilt -- the filter's own sigma_ba ~ 0.057
-  // covers this, i.e. it is consistent, not divergent. Truth |ba| = 0.062;
-  // measured total error 4.1e-2.
-  EXPECT(r.bg_err.norm() < 0.005);
-  EXPECT(r.ba_err.norm() < 0.045);         // > 25% recovery overall
-  EXPECT(std::abs(r.ba_err.z()) < 0.005);  // observable axis: tight
+  // gravity) recovers to ~8.7e-4, while the horizontal components stay partly
+  // entangled with the tilt -- the filter's own sigma_ba ~ 0.058 covers this,
+  // i.e. it is consistent, not divergent. Truth |ba| = 0.062; measured total
+  // error 3.0e-2, about half the bias recovered.
+  EXPECT(r.bg_err.norm() < 2e-3);
+  EXPECT(r.ba_err.norm() < 0.035);         // > 40% recovery overall
+  EXPECT(std::abs(r.ba_err.z()) < 2e-3);   // observable axis: tight
   const double sigma_ba = std::sqrt(r.ba_cov_trace / 3.0);
   EXPECT(r.ba_err.norm() < 3.0 * sigma_ba);  // filter consistency
 
   // Covariance stays SPD; the gyro-bias block converges well below its prior.
+  // Measured bg_cov_trace 1.3e-5 against a 3e-3 prior.
   EXPECT(r.min_eig > 0.0);
-  EXPECT(r.bg_cov_trace < 0.1 * 3e-3);
+  EXPECT(r.bg_cov_trace < 5e-5);
 }
 
 TEST(TGEqF, Regression30sAidedVsImuOnly) {
@@ -172,9 +172,9 @@ TEST(TGEqF, Regression30sAidedVsImuOnly) {
   printRegression("imu_only", imu_only);
 
   // Dead reckoning with a biased IMU drifts far; aiding contains the error to
-  // sub-cm (measured: imu_only ~152 m, aided 2.8e-3 m after 30 s).
+  // sub-mm (measured: imu_only ~152 m, aided 2.5e-4 m after 30 s).
   EXPECT(imu_only.pos_err.norm() > 10.0);
-  EXPECT(aided.pos_err.norm() < 0.01 * imu_only.pos_err.norm());
+  EXPECT(aided.pos_err.norm() < 1e-5 * imu_only.pos_err.norm());
 
   // Without aiding the biases are unobservable: the estimate never moves from
   // its zero initialisation (propagate keeps the physical bias constant).
