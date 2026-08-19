@@ -8,13 +8,26 @@ namespace gtsam {
 namespace tgeqf {
 
 /**
- * Equivariant GNSS position measurement h'(xi) = R^T(pi - p).
+ * Equivariant global position measurement h'(xi) = R^T(pi - p). Used both for
+ * a direct position fix (e.g. USBL) and, stacked with the estimated
+ * horizontal position, as the pseudo-position stand-in for the pressure-
+ * sensor depth update (see TGEqF::update_depth).
  *
  * Both Jacobians below are built at the reference state and are already in
  * **error coordinates**: pass them to TGEqF::updateWithReset() unchanged.
  */
 struct PositionMeasurement {
+  /// General single-state residual R^T(pi - p).
   static Eigen::Vector3d predict(const State& xi, const Eigen::Vector3d& pi);
+
+  /**
+   * Residual between the origin output and the transported measurement,
+   * y0 - g.p, with y0 = R0^T(pi - p0). Equals R0^T(pi - p_hat) because the
+   * estimate satisfies p_hat = R0 * g.p + p0.
+   */
+  static Eigen::Vector3d predictAtOrigin(const State& xi_ref,
+                                         const TGElement& g,
+                                         const Eigen::Vector3d& pi);
 
   /**
    * Origin-chart Jacobian C0 in R^{3x18}

@@ -836,6 +836,9 @@ class InputOrbit {
 class PositionMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi,
                                 const gtsam::Vector3& pi);
+  static gtsam::Vector3 predictAtOrigin(const gtsam::tgeqf::State& xi_ref,
+                                        const gtsam::tgeqf::TGElement& g,
+                                        const gtsam::Vector3& pi);
   static gtsam::Matrix jacobian_C0(const gtsam::tgeqf::State& xi_ref,
                                    const gtsam::Vector3& pi);
   static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
@@ -888,10 +891,7 @@ class TGEqF {
   void propagate(const gtsam::Vector3& w_meas, const gtsam::Vector3& a_meas,
                  const gtsam::Vector3& g_vec, const gtsam::tgeqf::ImuNoise& noise,
                  double dt);
-  gtsam::Matrix inputNoiseCov(const gtsam::Vector3& w_meas,
-                              const gtsam::Vector3& a_meas,
-                              const gtsam::Vector3& g_vec,
-                              const gtsam::tgeqf::ImuNoise& noise) const;
+  gtsam::Matrix inputNoiseCov(const gtsam::tgeqf::ImuNoise& noise) const;
 
   void update_dvl(const gtsam::Vector3& z_dvl, const gtsam::Matrix& R_dvl);
   void update_position(const gtsam::Vector3& pi, const gtsam::Matrix& R_pos);

@@ -114,14 +114,15 @@ void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
                             const Eigen::VectorXd& z,
                             const Eigen::MatrixXd& R) {
   Eigen::Matrix<double, 18, 1> delta_xi = Eigen::Matrix<double, 18, 1>::Zero();
+  Eigen::Matrix<double, 18, 1> delta_x = Eigen::Matrix<double, 18, 1>::Zero();
   Base::updateWithVector(
       prediction, Cstar, z, R, [&](const Eigen::Matrix<double, 18, 1>& dxi) {
         delta_xi = dxi;
-        return Eigen::Matrix<double, 18, 1>(innovation_lift_ * dxi);
+        delta_x = innovation_lift_ * dxi;
+        return delta_x;
       });
 
   if (reset_step_) {
-    const Eigen::Matrix<double, 18, 1> delta_x = innovation_lift_ * delta_xi;
     const Eigen::Matrix<double, 18, 18> J = resetMatrix(delta_xi, delta_x);
     this->P_ = J * this->P_ * J.transpose();
   }
@@ -164,14 +165,10 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
                       const Eigen::Vector3d& g_vec, const ImuNoise& noise,
                       double dt) {
   // Map the IMU noise PSDs through the lift.
-  propagate(w_meas, a_meas, g_vec, inputNoiseCov(w_meas, a_meas, g_vec, noise),
-            dt);
+  propagate(w_meas, a_meas, g_vec, inputNoiseCov(noise), dt);
 }
 
-TGEqF::Covariance18 TGEqF::inputNoiseCov(const Eigen::Vector3d& /*w_meas*/,
-                                         const Eigen::Vector3d& /*a_meas*/,
-                                         const Eigen::Vector3d& /*g_vec*/,
-                                         const ImuNoise& noise) const {
+TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   const Eigen::Matrix<double, 9, 9> Ad_hat = detail::Ad_SE23(groupEstimate());
   Eigen::Matrix<double, 18, 12> AdSel = Eigen::Matrix<double, 18, 12>::Zero();
   AdSel.block<9, 6>(0, 0) = Ad_hat.leftCols<6>();
@@ -224,7 +221,8 @@ void TGEqF::update_position(const Eigen::Vector3d& pi,
   // Both the residual and R_pos are expressed in the reference rotation frame,
   // the origin output space that C* is built in. R_pos arrives in the global
   // frame, one R0 away, so it is conjugated to match.
-  const Eigen::Vector3d prediction = xi_ref.R.unrotate(pi - state().p);
+  const Eigen::Vector3d prediction =
+      PositionMeasurement::predictAtOrigin(xi_ref, groupEstimate(), pi);
   const Eigen::Matrix<double, 3, 18> Cstar =
       PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi);
 

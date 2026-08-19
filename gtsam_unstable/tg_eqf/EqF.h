@@ -9,7 +9,17 @@
 namespace gtsam {
 namespace tgeqf {
 
-// Continuous-time IMU noise PSDs; mapped through lift differential B
+/**
+ * Continuous-time IMU noise power spectral densities, mapped through the
+ * lift differential B into process noise (see inputNoiseCov()). Isotropic:
+ * each density multiplies I_3, so per-axis IMU specs must be pre-averaged or
+ * the largest axis used conservatively.
+ *
+ * Has no gyro/accel channel for the virtual input nu, and no random-walk
+ * channel for its bias b_v, because nu is fixed at zero (EqF.cpp:138) rather
+ * than driven by a noisy measurement; b_v's own process noise instead enters
+ * separately as virtual_bias_Q_ (EqF.cpp:150).
+ */
 struct ImuNoise {
   double gyro = 0.0;
   double accel = 0.0;
@@ -28,7 +38,14 @@ struct ImuNoise {
  *
  * These matrices are derivatives at the reference state, not at the current
  * estimate. The two have the same shape and agree only when the group estimate
- * is the identity.
+ * is the identity. The virtual-bias update is the exception: its prediction is
+ * taken at the current estimate rather than xi_ref (see
+ * VirtualBiasMeasurement::predict), because the map it linearizes is exact
+ * everywhere, not just at xi_ref.
+ *
+ * propagate() runs the b_v = 0 virtual-bias anchor -- a full measurement
+ * update -- immediately after every IMU propagation, on by default. Disable
+ * it with set_virtual_bias_anchor(false) for pure propagation.
  */
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
@@ -86,6 +103,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Analytic derivative, at eps = delta_xi, of the error re-centring map
    * eps -> Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref, eps))) that the
    * group correction applies to the error. J -> I as the correction -> 0.
+   *
+   * @note Goor et al. (Remark VI.1) frame this reset as an optional curvature
+   * correction on top of the base EqF, not a mandatory step -- there is no
+   * single canonical "the" EqF reset. updateWithReset() applies it after
+   * every update unless set_reset_step(false) is called.
    */
   Eigen::Matrix<double, 18, 18> resetMatrix(
       const Eigen::Matrix<double, 18, 1>& delta_xi,
@@ -94,6 +116,10 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * IMU propagation with origin-chart Qc injected directly (P += Qc*dt).
    * Use the ImuNoise overload for lift-mapped process noise instead.
+   *
+   * Also applies the b_v = 0 virtual-bias anchor (a full Kalman update, not
+   * part of the propagation itself) immediately afterward, unless disabled by
+   * set_virtual_bias_anchor(false). See update_virtual_bias().
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
                  const Eigen::Vector3d& g_vec, const Covariance18& Qc,
@@ -102,16 +128,19 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * IMU propagation with Qc_eff = B Sigma B^T from IMU PSDs through the
    * lift differential (origin chart).
+   *
+   * Also applies the b_v = 0 virtual-bias anchor; see the Qc overload above.
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
                  const Eigen::Vector3d& g_vec, const ImuNoise& noise,
                  double dt);
 
   // Qc_eff = B Sigma B^T; discrete covariance is Qc_eff * dt. For testing.
-  Covariance18 inputNoiseCov(const Eigen::Vector3d& w_meas,
-                             const Eigen::Vector3d& a_meas,
-                             const Eigen::Vector3d& g_vec,
-                             const ImuNoise& noise) const;
+  Covariance18 inputNoiseCov(const ImuNoise& noise) const;
+
+  /// Fixed-origin input lift orbit_jacobian0_ * G; identically I_18 (see the
+  /// comment in computeOriginCaches()). For testing.
+  Eigen::Matrix<double, 18, 18> input_lift() const { return input_lift_; }
 
   // DVL body-velocity update via h(xi) = R^T v, using the equivariant C*.
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
@@ -163,6 +192,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Cstar must already be in error coordinates, the tangent space at the
    * reference state, and prediction, z and R must share one output frame with
    * it.
+   *
+   * All four public update_* methods route through this, so the reset above
+   * is applied uniformly; a caller reaching Base::update() or
+   * Base::updateWithVector() directly bypasses it. Keep routing every new
+   * update through here rather than the base class methods.
    */
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,

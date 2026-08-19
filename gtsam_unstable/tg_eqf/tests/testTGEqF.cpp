@@ -670,9 +670,7 @@ ImuNoise makeNoise() {
 TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   const ImuNoise nz = makeNoise();
-  const TGEqF::Covariance18 Q =
-      filter.inputNoiseCov(Eigen::Vector3d(0.1, -0.05, 0.02),
-                           -fixture::kGravity, fixture::kGravity, nz);
+  const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
 
   const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
   EXPECT(
@@ -693,8 +691,9 @@ TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
 
 // The cached factorization B = input_lift * blkdiag(Ad, Ad) * selector must
 // reproduce a finite-difference derivative of Dphi0 * Lambda(xi_ref,
-// psi_{Xhat^-1}(u)) at a non-identity group estimate. B is affine in the input,
-// so any u serves as a linearization point; the last assertion checks that.
+// psi_{Xhat^-1}(u)) at a non-identity group estimate. B is affine in the
+// input, so any u serves as a linearization point; inputNoiseCov() takes none
+// itself, since it depends only on the group estimate and noise densities.
 TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
@@ -731,15 +730,27 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   Sigma.block<3, 3>(6, 6) = nz.gyro_rw * Eigen::Matrix3d::Identity();
   Sigma.block<3, 3>(9, 9) = nz.accel_rw * Eigen::Matrix3d::Identity();
 
-  const TGEqF::Covariance18 Q =
-      filter.inputNoiseCov(omega, accel, fixture::kGravity, nz);
+  const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
   EXPECT(assert_equal((Matrix)(B_num * Sigma * B_num.transpose()), (Matrix)Q,
                       1e-6));
+}
 
-  const TGEqF::Covariance18 Q2 = filter.inputNoiseCov(
-      Eigen::Vector3d(-0.4, 0.9, 0.05), Eigen::Vector3d(1.0, -2.0, 8.0),
-      Eigen::Vector3d(0.1, 0.2, -9.7), nz);
-  EXPECT(assert_equal((Matrix)Q, (Matrix)Q2, 1e-12));
+// input_lift_ = orbit_jacobian0_ * G is claimed to collapse to I_18 because G
+// is an involution that cancels orbit_jacobian0_'s ad_{b_ref} block (see the
+// comment in EqF.cpp's computeOriginCaches()). That cancellation is invisible
+// to InputNoiseCovIsBlockDiagonalAtTheOrigin, which uses b_ref = 0, so the two
+// ad_{b_ref} blocks would still agree even if they were both wrong. Pin it
+// down directly at a reference state with non-zero bias.
+TEST(TGEqF, InputLiftIsIdentityEvenWithNonzeroBiasReference) {
+  State xi_ref = State::identity();
+  xi_ref.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
+  xi_ref.b_a = Eigen::Vector3d(-0.05, 0.04, -0.01);
+  xi_ref.b_v = Eigen::Vector3d(0.02, 0.02, -0.03);
+
+  const TGEqF filter(xi_ref, fixture::defaultSigma());
+  EXPECT(assert_equal(
+      (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
+      (Matrix)filter.input_lift(), 1e-12));
 }
 
 // The ImuNoise overload of propagate is exactly inputNoiseCov followed by the
@@ -758,8 +769,7 @@ TEST(TGEqF, PropagateWithImuNoiseDelegatesToInputNoiseCov) {
 
   TGEqF via_qc(State::identity(), fixture::defaultSigma());
   via_qc.set_virtual_bias_anchor(false);
-  via_qc.propagate(omega, accel, fixture::kGravity,
-                   via_qc.inputNoiseCov(omega, accel, fixture::kGravity, nz),
+  via_qc.propagate(omega, accel, fixture::kGravity, via_qc.inputNoiseCov(nz),
                    dt);
 
   EXPECT(assert_equal(via_qc.errorCovariance(), via_noise.errorCovariance(),

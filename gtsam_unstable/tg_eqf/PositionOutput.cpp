@@ -9,6 +9,12 @@ Eigen::Vector3d PositionMeasurement::predict(const State& xi,
   return xi.R.unrotate(pi - xi.p);
 }
 
+Eigen::Vector3d PositionMeasurement::predictAtOrigin(
+    const State& xi_ref, const TGElement& g, const Eigen::Vector3d& pi) {
+  const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
+  return y0 - g.p;
+}
+
 Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
     const State& xi_ref, const Eigen::Vector3d& pi) {
   const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
