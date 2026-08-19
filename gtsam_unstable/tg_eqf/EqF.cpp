@@ -148,7 +148,9 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
   Covariance18 Qc_eff = Qc;
   Qc_eff.block<3, 3>(15, 15) += virtual_bias_Q_;
 
-  Base::predict(lift, psi_u, Qc_eff, dt);
+  // Discretize with a 4-term truncation of exp(A dt) rather than the Euler
+  // default.
+  Base::predict<4>(lift, psi_u, Qc_eff, dt);
 
   // Pin the unobservable virtual bias at zero unless disabled.
   if (anchor_virtual_bias_) {

@@ -18,6 +18,10 @@
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
+#include <chrono>
+#include <cstdio>
+#include <utility>
+
 using namespace gtsam::tgeqf;
 using namespace gtsam;
 
@@ -140,6 +144,80 @@ TEST(TGEqF, ConstructorTransportsCovarianceToTheOriginChart) {
 
 /* ************************************************************************* */
 namespace propagation {
+
+struct IntegrationResult {
+  State state;
+  TGEqF::Covariance18 covariance;
+};
+
+template <size_t K>
+IntegrationResult runIntegrationComparison() {
+  State xi0 = State::identity();
+  xi0.R = Rot3::Rz(0.35) * Rot3::Ry(-0.2);
+  xi0.v = Eigen::Vector3d(1.2, -0.7, 0.4);
+  xi0.p = Eigen::Vector3d(2.0, -1.0, 0.5);
+  xi0.b_w = Eigen::Vector3d(0.03, -0.02, 0.01);
+  xi0.b_a = Eigen::Vector3d(-0.08, 0.04, 0.06);
+
+  TGEqF filter(xi0, fixture::defaultSigma());
+  filter.set_virtual_bias_anchor(false);
+
+  Input u;
+  u.w = Eigen::Vector3d(0.7, -0.4, 1.1);
+  u.a = Eigen::Vector3d(1.5, -0.8, 0.6);
+  u.g_vec = fixture::kGravity;
+  u.v = Eigen::Vector3d::Zero();
+  u.tau_w = Eigen::Vector3d::Zero();
+  u.tau_a = Eigen::Vector3d::Zero();
+  u.tau_v = Eigen::Vector3d::Zero();
+
+  const double dt = 0.05;
+  for (int step = 0; step < 20; ++step) {
+    filter.predict<K>(Lift(u), InputOrbit(u), fixture::defaultQc(), dt);
+  }
+  return {filter.state(), filter.errorCovariance()};
+}
+
+template <size_t K>
+std::pair<IntegrationResult, double> timedIntegrationComparison() {
+  constexpr int repetitions = 100;
+  const auto start = std::chrono::steady_clock::now();
+  IntegrationResult result = runIntegrationComparison<K>();
+  for (int repetition = 1; repetition < repetitions; ++repetition) {
+    result = runIntegrationComparison<K>();
+  }
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  const double total_microseconds =
+      std::chrono::duration<double, std::micro>(elapsed).count();
+  return {result, total_microseconds};
+}
+
+void printIntegrationResult(const char* label,
+                            const std::pair<IntegrationResult, double>& timed,
+                            int repetitions) {
+  printf(
+      "\n[TGEqF integration diagnostic] %s\n"
+      "  timing: total=%.3f us repetitions=%d average=%.3f us/run "
+      "(%.3f us/predict)\n",
+      label, timed.second, repetitions, timed.second / repetitions,
+      timed.second / repetitions / 20.0);
+}
+
+// Prints each covariance and timing for Euler and the two expm orders.
+TEST_DISABLED(TGEqF, PrintsCovarianceAndTimingByIntegrationOrder) {
+  constexpr int repetitions = 100;
+  const auto euler = timedIntegrationComparison<1>();
+  const auto expm2 = timedIntegrationComparison<2>();
+  const auto expm4 = timedIntegrationComparison<4>();
+
+  printf("\n========== TGEqF K timing/covariance (20 x dt=0.05) ==========");
+  printIntegrationResult("K=1 (Euler)", euler, repetitions);
+  printIntegrationResult("K=2 (expm)", expm2, repetitions);
+  printIntegrationResult("K=4 (expm)", expm4, repetitions);
+  printf("==============================================================\n");
+
+  EXPECT(true);
+}
 
 // The lift carries dp = v, so a moving estimate must advance its position by
 // v*dt.
