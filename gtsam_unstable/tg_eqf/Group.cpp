@@ -67,16 +67,16 @@ se2_3 TGElement::Ad_A_inv(const se2_3& xi) const {
 
 namespace {
 // Xi(tau) = sum_{k>=0} ad_tau^k / (k+1)!, the left Jacobian of the tangent
-// group, which carries the fiber part of the exponential below. The series is
-// entire and truncated at 16 terms, which reaches machine precision for
-// ||ad_tau|| up to about 5. Filter-scale arguments (||tau|| ~ ||Lambda dt||)
-// are far below that.
+// group, which carries the fiber part of the exponential below. The series
+// is entire; its convergence rate is set by the rotation angle ||tau.w||
+// alone (ad_se23 is nilpotent on its translation blocks), so 28 terms reach
+// machine precision up to the full [-pi, pi] range Logmap can return.
 Eigen::Matrix<double, 9, 9> Xi(const se2_3& tau) {
   const Eigen::Matrix<double, 9, 9> ad = detail::ad_se23(tau);
   Eigen::Matrix<double, 9, 9> term = Eigen::Matrix<double, 9, 9>::Identity();
   Eigen::Matrix<double, 9, 9> sum = Eigen::Matrix<double, 9, 9>::Zero();
   double fact = 1.0;
-  for (int k = 0; k < 16; ++k) {
+  for (int k = 0; k < 28; ++k) {
     fact *= (k + 1);
     sum += term / fact;
     term = term * ad;

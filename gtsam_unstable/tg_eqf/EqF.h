@@ -16,9 +16,9 @@ namespace tgeqf {
  * the largest axis used conservatively.
  *
  * Has no gyro/accel channel for the virtual input nu, and no random-walk
- * channel for its bias b_v, because nu is fixed at zero (EqF.cpp:138) rather
- * than driven by a noisy measurement; b_v's own process noise instead enters
- * separately as virtual_bias_Q_ (EqF.cpp:150).
+ * channel for its bias b_v: nu is held at zero rather than driven by a noisy
+ * measurement, and b_v's own process noise instead enters separately as
+ * virtual_bias_Q_.
  */
 struct ImuNoise {
   double gyro = 0.0;
@@ -36,12 +36,11 @@ struct ImuNoise {
  * updateWithReset(). Each output owns its own C*: a midpoint form for position
  * and DVL, an exact one for the virtual bias.
  *
- * These matrices are derivatives at the reference state, not at the current
- * estimate. The two have the same shape and agree only when the group estimate
- * is the identity. The virtual-bias update is the exception: its prediction is
- * taken at the current estimate rather than xi_ref (see
- * VirtualBiasMeasurement::predict), because the map it linearizes is exact
- * everywhere, not just at xi_ref.
+ * Each C* is a derivative in error coordinates, d(output)/d(eps) at eps = 0,
+ * and generally depends on both xi_ref and the current group estimate. The
+ * virtual-bias update is the exception: its prediction is taken at the
+ * current estimate rather than xi_ref (see VirtualBiasMeasurement::predict),
+ * because the map it linearizes is exact everywhere, not just at xi_ref.
  *
  * propagate() runs the b_v = 0 virtual-bias anchor -- a full measurement
  * update -- immediately after every IMU propagation, on by default. Disable
@@ -135,8 +134,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Qc_eff = B Sigma B^T; discrete covariance is Qc_eff * dt. For testing.
   Covariance18 inputNoiseCov(const ImuNoise& noise) const;
 
-  /// Fixed-origin input lift orbit_jacobian0_ * G; identically I_18 (see the
-  /// comment in computeOriginCaches()). For testing.
+  /// Fixed-origin input lift orbit_jacobian0_ * G; reduces to G itself since
+  /// orbit_jacobian0_ is always I_18. For testing.
   Eigen::Matrix<double, 18, 18> input_lift() const { return input_lift_; }
 
   // DVL body-velocity update via h(xi) = R^T v, using the equivariant C*.

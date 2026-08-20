@@ -1,4 +1,3 @@
-#include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
@@ -76,22 +75,21 @@ void TGEqF::computeOriginCaches() {
 Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
     const Eigen::Matrix<double, 18, 1>& delta_xi,
     const Eigen::Matrix<double, 18, 1>& delta_x) const {
-  const TGElement Xd = TGElement::Expmap(-delta_x);
-  const State& xi_ref = referenceState();
-
   // r(eps) = Local(xi_ref, phi(Xd, Retract(xi_ref, eps))) reduces to
-  // Logmap(Expmap(eps) . Xd). No closed form exists for its derivative away
-  // from eps = 0, so differentiate numerically; cheap, once per update.
-  const auto recentre =
-      [&](const Eigen::Matrix<double, 18, 1>& eps)
-      -> Eigen::Matrix<double, 18, 1> {
-    return gtsam::traits<State>::Local(
-        xi_ref, phi(Xd, gtsam::traits<State>::Retract(xi_ref, eps)));
-  };
+  // Logmap(Expmap(eps) . Xd), whose derivative has a closed form in terms of
+  // the group's own left/right Jacobians:
+  //
+  //   J(eps) = J_r(r(eps))^{-1} Ad_{Xd^{-1}} J_r(eps),   J_r(w) = J_l(-w).
+  const TGElement Xd = TGElement::Expmap(-delta_x);
+  const Eigen::Matrix<double, 18, 18> Ad_Xd_inv =
+      gtsam::traits<TGElement>::AdjointMap(Xd.inverse());
+  const Eigen::Matrix<double, 18, 18> Jr_eps = detail::LeftJacobianG(-delta_xi);
 
-  return gtsam::numericalDerivative11<Eigen::Matrix<double, 18, 1>,
-                                      Eigen::Matrix<double, 18, 1>>(recentre,
-                                                                     delta_xi);
+  const Eigen::Matrix<double, 18, 1> r =
+      (TGElement::Expmap(delta_xi) * Xd).Logmap();
+  const Eigen::Matrix<double, 18, 18> Jr_r = detail::LeftJacobianG(-r);
+
+  return Jr_r.partialPivLu().solve(Ad_Xd_inv * Jr_eps);
 }
 
 void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
@@ -154,6 +152,11 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
 }
 
 TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
+  // B is d/du [Dphi0 * Lambda(xi_ref, psi_{Xhat^-1}(u))] restricted to the
+  // gyro/accel/bias-RW channels of u. psi_{Xhat^-1} carries its own
+  // Ad_{Xhat^-1} factor, which cancels one power of Ad_hat by lift
+  // equivariance, leaving the single Ad_hat below rather than the two an
+  // Ad_hat * G * Ad_hat chain would suggest.
   const Eigen::Matrix<double, 9, 9> Ad_hat = detail::Ad_SE23(groupEstimate());
   Eigen::Matrix<double, 18, 12> AdSel = Eigen::Matrix<double, 18, 12>::Zero();
   AdSel.block<9, 6>(0, 0) = Ad_hat.leftCols<6>();

@@ -204,7 +204,7 @@ inline Eigen::Matrix<double, 18, 18> LeftJacobianG(
   Eigen::Matrix<double, 18, 18> term = Eigen::Matrix<double, 18, 18>::Identity();
   Eigen::Matrix<double, 18, 18> sum = Eigen::Matrix<double, 18, 18>::Zero();
   double fact = 1.0;
-  for (int k = 0; k < 16; ++k) {
+  for (int k = 0; k < 28; ++k) {
     fact *= (k + 1);
     sum += term / fact;
     term = term * ad;

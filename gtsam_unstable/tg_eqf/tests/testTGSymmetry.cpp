@@ -147,15 +147,20 @@ TEST(Symmetry, FunctorsAgreeWithPhi) {
   EXPECT(fixture::seq(diffeo(xi), phi(X, xi)));
 }
 
-// Both analytic Jacobians are the true derivatives in the State chart.
-TEST(Symmetry, JacobiansMatchNumerical) {
+// Diffeomorphism's Jacobian is AdjointMap(X^-1), a genuinely computed value,
+// so check it against an independent finite difference of phi.
+//
+// Orbit's Jacobian is not checked this way: phi(Exp(dx), y0) is, by the
+// chart's own definition (Local = Log . phiInverse, with phiInverse the exact
+// inverse of phi in its group argument), always exactly dx away from y0 in
+// State's own chart, for every X and xi -- not approximately. A finite
+// difference against phi would reproduce Identity regardless of what
+// Orbit::operator() returns, so it cannot distinguish a correct
+// implementation from a broken one; see PhiInverse.InvertsTheOrbitMap above
+// for the underlying axiom.
+TEST(Diffeomorphism, JacobianMatchesNumerical) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX();
-
-  const Eigen::Matrix<double, 18, 18> orbit_num =
-      numericalDerivative11<State, TGElement>(
-          [&xi](const TGElement& x) { return phi(x, xi); }, X);
-  EXPECT(fixture::meq(fixture::orbitJacobian(X, xi), orbit_num, 1e-5));
 
   const Eigen::Matrix<double, 18, 18> diffeo_num =
       numericalDerivative11<State, State>(
@@ -163,15 +168,13 @@ TEST(Symmetry, JacobiansMatchNumerical) {
   EXPECT(fixture::meq(fixture::diffeoJacobian(X, xi), diffeo_num, 1e-5));
 }
 
-// In the SE_2(3) logarithm chart the orbit map is right translation read in
-// coordinates centred on its own output, so its navigation block is exactly the
-// identity -- at every reference state and every group element, not just at the
-// origin.
-TEST(Orbit, NavigationJacobianIsIdentity) {
+// Orbit::operator() returns the hardcoded Identity for H; check it directly
+// rather than through a numerical derivative (see the comment above).
+TEST(Orbit, JacobianIsIdentity) {
   for (const State& xi_ref : {State::identity(), fixture::makeXi()}) {
     for (const TGElement& X : {TGElement::Identity(), fixture::makeX()}) {
-      EXPECT(fixture::meq(fixture::orbitJacobian(X, xi_ref).block<9, 9>(0, 0),
-                          Eigen::Matrix<double, 9, 9>::Identity()));
+      EXPECT(fixture::meq(fixture::orbitJacobian(X, xi_ref),
+                          Eigen::Matrix<double, 18, 18>::Identity()));
     }
   }
 }
