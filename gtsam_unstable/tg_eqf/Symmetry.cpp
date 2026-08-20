@@ -36,29 +36,15 @@ TGElement phiInverse(const State& xi_ref, const State& xi_est) {
 
 TGSymmetry::Orbit::Orbit(const State& xi_ref) : xi_ref(xi_ref) {}
 
-// phi(X, xi_ref) with optional Jacobian d(phi)/dX. Columns = tangent of X =
-// [delta_tau(9); delta_sigma(9)]:
-//
-//   [  I_9            |  0_9   ]   delta_T_out
-//   [  ad_se23(b_out) |  -I_9  ]   delta_b_out
-//
-// with b_out = Ad_{A_X^{-1}}(b_xi - a_X). The navigation block is exactly the
-// identity: the action right-translates the extended pose, T_out = T_ref * A,
-// and the State chart reads SE_2(3) logarithm coordinates about T_out, so
-// A -> A Exp(delta_tau) gives Log(T_out^{-1} T_ref A Exp(delta_tau)) =
-// delta_tau.
+// phi(X, xi_ref) with optional Jacobian d(phi)/dX, in the origin chart
+// theta = log_G . phi_xi_ref^-1. By freeness of phi this Jacobian is the
+// identity at every X and every xi_ref, exactly.
 State TGSymmetry::Orbit::operator()(const TGElement& X,
                                     Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi_ref);
 
   if (H) {
-    H->setZero();
-
-    H->block<9, 9>(0, 0).setIdentity();
-
-    const se2_3 b_out = {result.b_w, result.b_a, result.b_v};
-    H->block<9, 9>(9, 0) = detail::ad_se23(b_out);
-    H->block<9, 9>(9, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
+    H->setIdentity();
   }
 
   return result;
@@ -66,26 +52,15 @@ State TGSymmetry::Orbit::operator()(const TGElement& X,
 
 TGSymmetry::Diffeomorphism::Diffeomorphism(const TGElement& X) : X(X) {}
 
-// phi(X, xi) with optional Jacobian d(phi)/dxi. Columns = tangent of xi =
-// [delta_T(9); delta_b(9)]:
-//
-//   [  Ad_SE23_inv(X) |  0_9            ]   delta_T_out
-//   [  0_9            |  Ad_SE23_inv(X) ]   delta_b_out
-//
-// Both blocks are Ad_{A_X^{-1}} and both are exact. The navigation block is the
-// conjugation Log(A^{-1} Exp(delta_T) A) that right translation induces on
-// SE_2(3) logarithm coordinates; the bias block is the Ad_{A_X^{-1}} of the
-// state action itself, read in the Euclidean bias coordinates.
+// phi(X, xi) with optional Jacobian d(phi)/dxi, in the origin chart
+// theta = log_G . phi_xi^-1. By the right-action axiom and freeness this
+// Jacobian is the full group Adjoint Ad_{X^{-1}}, exactly.
 State TGSymmetry::Diffeomorphism::operator()(
     const State& xi, Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi);
 
   if (H) {
-    H->setZero();
-
-    const Eigen::Matrix<double, 9, 9> Ad_A_inv = detail::Ad_SE23_inv(X);
-    H->block<9, 9>(0, 0) = Ad_A_inv;
-    H->block<9, 9>(9, 9) = Ad_A_inv;
+    *H = gtsam::traits<TGElement>::AdjointMap(X.inverse());
   }
 
   return result;

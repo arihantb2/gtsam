@@ -100,14 +100,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
    *
-   * Analytic derivative, at eps = delta_xi, of the error re-centring map
+   * Numerical derivative, at eps = delta_xi, of the error re-centring map
    * eps -> Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref, eps))) that the
    * group correction applies to the error. J -> I as the correction -> 0.
-   *
-   * @note Goor et al. (Remark VI.1) frame this reset as an optional curvature
-   * correction on top of the base EqF, not a mandatory step -- there is no
-   * single canonical "the" EqF reset. updateWithReset() applies it after
-   * every update unless set_reset_step(false) is called.
+   * Optional curvature correction, not a mandatory step; updateWithReset()
+   * applies it after every update unless set_reset_step(false) is called.
    */
   Eigen::Matrix<double, 18, 18> resetMatrix(
       const Eigen::Matrix<double, 18, 1>& delta_xi,

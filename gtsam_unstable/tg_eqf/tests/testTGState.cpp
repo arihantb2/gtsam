@@ -1,11 +1,6 @@
 /**
  * @file  testTGState.cpp
  * @brief Chart axioms for the State manifold.
- *
- * State carries the EqF chart: the SE_2(3) logarithm on the navigation block
- * and the identity on the biases. Everything above this file -- the symmetry
- * Jacobians, the lift differential, the output matrices, the reset -- is
- * differentiated in this chart, so the axioms here are the base of the suite.
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
@@ -117,15 +112,15 @@ TEST(State, ChartIsLeftInvariant) {
                       1e-9));
 }
 
-// The bias block is Euclidean and uncoupled from the navigation block: shifting
-// a bias moves only its own coordinates.
-TEST(State, BiasBlockIsEuclidean) {
+// At zero navigation-block displacement, the bias block is exactly linear in
+// the raw bias difference, but negated.
+TEST(State, BiasBlockIsLinearAtZeroNavigationDisplacement) {
   const State xi_ref = fixture::makeXi();
   State xi = xi_ref;
   xi.b_a += Eigen::Vector3d(0.3, -0.2, 0.1);
 
   Eigen::Matrix<double, 18, 1> expected = Eigen::Matrix<double, 18, 1>::Zero();
-  expected.segment<3>(12) = Eigen::Vector3d(0.3, -0.2, 0.1);
+  expected.segment<3>(12) = -Eigen::Vector3d(0.3, -0.2, 0.1);
 
   EXPECT(assert_equal((Vector)expected,
                       (Vector)traits<State>::Local(xi_ref, xi), fixture::kTol));

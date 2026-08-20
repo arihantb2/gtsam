@@ -9,14 +9,19 @@ Eigen::Vector3d VirtualBiasMeasurement::predict(const State& xi) {
 }
 
 Eigen::Matrix<double, 3, 18> VirtualBiasMeasurement::jacobian_Cstar(
-    const TGElement& g) {
-  // The b_v row of Ad_{A_X^{-1}}, placed in the b_w and b_v columns of the
-  // [R, v, p, b_w, b_a, b_v] error chart.
+    const State& xi_ref, const TGElement& g) {
+  // The b_v row of Ad_{A_X^{-1}}, placed in the b_w and b_v columns.
   const Eigen::Matrix3d Rt = g.R.matrix().transpose();
 
+  Eigen::Matrix<double, 3, 9> M = Eigen::Matrix<double, 3, 9>::Zero();
+  M.block<3, 3>(0, 0) = -Rt * gtsam::skewSymmetric(g.p);
+  M.block<3, 3>(0, 6) = Rt;
+
+  const se2_3 b_ref = {xi_ref.b_w, xi_ref.b_a, xi_ref.b_v};
+
   Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
-  Cstar.block<3, 3>(0, 9) = -Rt * gtsam::skewSymmetric(g.p);
-  Cstar.block<3, 3>(0, 15) = Rt;
+  Cstar.block<3, 9>(0, 0) = M * detail::ad_se23(b_ref);
+  Cstar.block<3, 9>(0, 9) = -M;
   return Cstar;
 }
 

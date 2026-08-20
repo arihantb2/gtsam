@@ -532,26 +532,35 @@ TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
   }
 }
 
-// A correction that cannot move the chart leaves the transport at exactly the
-// identity: no correction at all, or one confined to the fiber, where Xd's
-// SE_2(3) part is the identity and both the chart factors and the adjoint
-// collapse. This is why the b_v anchor costs nothing while the bias block is
-// still uncorrelated with navigation.
-TEST(TGEqF, ResetIsIdentityWhenTheCorrectionCannotMoveTheChart) {
+// A zero correction leaves the transport at exactly the identity.
+TEST(TGEqF, ResetAtZeroCorrectionIsIdentity) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, fixture::defaultSigma());
 
   EXPECT(assert_equal(
       (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
       (Matrix)filter.resetMatrix(Vector18::Zero(), Vector18::Zero()), 1e-12));
+}
+
+// A pure-fiber correction's reset transport is I_18 plus a
+// 0.5 ad_se23(z0) coupling block, not the identity.
+TEST(TGEqF, ResetAtPureFiberCorrectionHasAdCoupling) {
+  const State xi_ref = State::identity();
+  TGEqF filter(xi_ref, fixture::defaultSigma());
 
   Vector18 fiber_only = Vector18::Zero();
   fiber_only.tail<9>() << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01, 0.03;
-  EXPECT(assert_equal(
-      (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
-      (Matrix)filter.resetMatrix(fixture::orbitJacobian0(xi_ref) * fiber_only,
-                                 fiber_only),
-      1e-12));
+  // orbitJacobian0(xi_ref) is I_18 in this chart, so delta_xi = delta_x here.
+  const Eigen::Matrix<double, 18, 18> J =
+      filter.resetMatrix(fixture::orbitJacobian0(xi_ref) * fiber_only,
+                         fiber_only);
+
+  Eigen::Matrix<double, 18, 18> expected =
+      Eigen::Matrix<double, 18, 18>::Identity();
+  const se2_3 z0 = se2_3::from_vector(fiber_only.tail<9>());
+  expected.block<9, 9>(9, 0) = 0.5 * detail::ad_se23(z0);
+
+  EXPECT(assert_equal((Matrix)expected, (Matrix)J, 1e-6));
 }
 
 // The map resetMatrix linearizes is the one the update really applies to the
@@ -735,22 +744,22 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
                       1e-6));
 }
 
-// input_lift_ = orbit_jacobian0_ * G is claimed to collapse to I_18 because G
-// is an involution that cancels orbit_jacobian0_'s ad_{b_ref} block (see the
-// comment in EqF.cpp's computeOriginCaches()). That cancellation is invisible
-// to InputNoiseCovIsBlockDiagonalAtTheOrigin, which uses b_ref = 0, so the two
-// ad_{b_ref} blocks would still agree even if they were both wrong. Pin it
-// down directly at a reference state with non-zero bias.
-TEST(TGEqF, InputLiftIsIdentityEvenWithNonzeroBiasReference) {
+// input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart.
+TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
   State xi_ref = State::identity();
   xi_ref.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
   xi_ref.b_a = Eigen::Vector3d(-0.05, 0.04, -0.01);
   xi_ref.b_v = Eigen::Vector3d(0.02, 0.02, -0.03);
 
   const TGEqF filter(xi_ref, fixture::defaultSigma());
-  EXPECT(assert_equal(
-      (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
-      (Matrix)filter.input_lift(), 1e-12));
+
+  const se2_3 b_ref = {xi_ref.b_w, xi_ref.b_a, xi_ref.b_v};
+  Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
+  G.block<9, 9>(0, 0).setIdentity();
+  G.block<9, 9>(9, 0) = detail::ad_se23(b_ref);
+  G.block<9, 9>(9, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
+
+  EXPECT(assert_equal((Matrix)G, (Matrix)filter.input_lift(), 1e-12));
 }
 
 // The ImuNoise overload of propagate is exactly inputNoiseCov followed by the

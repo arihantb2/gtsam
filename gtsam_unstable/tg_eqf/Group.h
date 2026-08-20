@@ -181,6 +181,37 @@ inline Eigen::Matrix<double, 9, 9> ad_se23(const tgeqf::se2_3& a) {
   return M;
 }
 
+// Algebra adjoint ad_gamma of the full group G = SE_2(3) (x) se_2(3), gamma =
+// (eta, zeta) in R^18. Not the group adjoint Ad_X of AdjointMap() below.
+inline Eigen::Matrix<double, 18, 18> ad_G(
+    const Eigen::Matrix<double, 18, 1>& gamma) {
+  const tgeqf::se2_3 eta = tgeqf::se2_3::from_vector(gamma.head<9>());
+  const tgeqf::se2_3 zeta = tgeqf::se2_3::from_vector(gamma.tail<9>());
+  const Eigen::Matrix<double, 9, 9> ad_eta = ad_se23(eta);
+
+  Eigen::Matrix<double, 18, 18> M = Eigen::Matrix<double, 18, 18>::Zero();
+  M.block<9, 9>(0, 0) = ad_eta;
+  M.block<9, 9>(9, 0) = ad_se23(zeta);
+  M.block<9, 9>(9, 9) = ad_eta;
+  return M;
+}
+
+// Left Jacobian of G, J_l(gamma) = sum_{k>=0} ad_gamma^k / (k+1)!; the 18x18
+// analogue of Xi(tau) above.
+inline Eigen::Matrix<double, 18, 18> LeftJacobianG(
+    const Eigen::Matrix<double, 18, 1>& gamma) {
+  const Eigen::Matrix<double, 18, 18> ad = ad_G(gamma);
+  Eigen::Matrix<double, 18, 18> term = Eigen::Matrix<double, 18, 18>::Identity();
+  Eigen::Matrix<double, 18, 18> sum = Eigen::Matrix<double, 18, 18>::Zero();
+  double fact = 1.0;
+  for (int k = 0; k < 16; ++k) {
+    fact *= (k + 1);
+    sum += term / fact;
+    term = term * ad;
+  }
+  return sum;
+}
+
 }  // namespace detail
 }  // namespace tgeqf
 }  // namespace gtsam

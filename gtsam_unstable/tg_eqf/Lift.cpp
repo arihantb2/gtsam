@@ -51,23 +51,24 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
 
   if (D_lift) {
     // Analytic Jacobian in the State chart
-    // [dR(3), dv(3), dp(3), dbw(3), dba(3), dbv(3)]. Only Lambda_1.a and
-    // Lambda_1.v depend on dR (through R^T g and R^T v), only Lambda_1.v
-    // depends on dv, and the bias terms are additive (-I on the matching bias
-    // columns). The dv column is the identity because the chart perturbs the
-    // extended pose on the right: v -> v + R dv, and that R cancels the R^T in
-    // R^T v. The dR columns keep their R^T.
-    //
-    // Lambda_2 = ad_b[Lambda_1] - tau, so d(Lambda_2) = ad_b d(Lambda_1) -
-    // ad_{Lambda_1} db  (using [b,x] = -[x,b]) with db/dxi = [0_9x9 | I_9].
+    // [dR(3), dv(3), dp(3), dbw(3), dba(3), dbv(3)]. db/d(eps_tau) =
+    // ad_se23(b), db/d(eps_b) = -I_9. Lambda_2 = ad_b[Lambda_1] - tau, so
+    // d(Lambda_2) = ad_b d(Lambda_1) - ad_{Lambda_1} db.
+    const Eigen::Matrix<double, 9, 9> db_deps_tau = detail::ad_se23(b);
+    const Eigen::Matrix<double, 9, 9> db_deps_b =
+        -Eigen::Matrix<double, 9, 9>::Identity();
+    const Eigen::Matrix<double, 9, 9> ad_Lambda1 = detail::ad_se23(Lambda1);
+
     D_lift->setZero();
     D_lift->block<3, 3>(3, 0) = gtsam::skewSymmetric(Rt * u.g_vec);
     D_lift->block<3, 3>(6, 0) = gtsam::skewSymmetric(Rt * xi.v);
     D_lift->block<3, 3>(6, 3) = Eigen::Matrix3d::Identity();
-    D_lift->block<9, 9>(0, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
+    D_lift->block<9, 9>(0, 0) -= db_deps_tau;
+    D_lift->block<9, 9>(0, 9) = -db_deps_b;
 
     D_lift->block<9, 18>(9, 0) = ad_b * D_lift->block<9, 18>(0, 0);
-    D_lift->block<9, 9>(9, 9) -= detail::ad_se23(Lambda1);
+    D_lift->block<9, 9>(9, 0) -= ad_Lambda1 * db_deps_tau;
+    D_lift->block<9, 9>(9, 9) -= ad_Lambda1 * db_deps_b;
   }
 
   return result;

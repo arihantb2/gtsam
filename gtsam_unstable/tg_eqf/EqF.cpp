@@ -1,3 +1,4 @@
+#include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
@@ -27,9 +28,8 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
   const TGSymmetry::Diffeomorphism phi_X0(X0);
   phi_X0(xi_ref, &J);
 
-  // J is block diagonal, diag(Ad_SE23_inv(X), Ad_SE23_inv(X)), so the solve is
-  // always well posed. Sigma0 is symmetric, hence (J^-1 Sigma0)^T = Sigma0 J^-T
-  // and a second solve completes the congruence.
+  // J = Ad_{X0^-1} is always invertible; Sigma0 symmetric lets the second
+  // solve complete the congruence.
   const Eigen::PartialPivLU<Eigen::Matrix<double, 18, 18>> lu =
       J.partialPivLu();
   const Eigen::Matrix<double, 18, 18> half = lu.solve(Sigma0).transpose();
@@ -79,34 +79,19 @@ Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
   const TGElement Xd = TGElement::Expmap(-delta_x);
   const State& xi_ref = referenceState();
 
-  // The re-centring map is
-  //   r(eps) = Local(xi_ref, phi(Xd, Retract(xi_ref, eps))),
-  // so its derivative at eps = delta_xi is the chain of three factors below.
-  // Only the navigation slot of the chart is non-trivial (Retract composes
-  // T * Expmap_SE23(delta_T) and Local takes Logmap_SE23), so the two chart
-  // factors are the SE_2(3) right Jacobian and its inverse acting on the
-  // leading 9 columns and rows; the bias block is Euclidean and contributes
-  // the identity.
-  const State xi_delta = gtsam::traits<State>::Retract(xi_ref, delta_xi);
-  const State xi_plus = phi(Xd, xi_delta);
-  const Eigen::Matrix<double, 18, 1> eps_plus =
-      gtsam::traits<State>::Local(xi_ref, xi_plus);
+  // r(eps) = Local(xi_ref, phi(Xd, Retract(xi_ref, eps))) reduces to
+  // Logmap(Expmap(eps) . Xd). No closed form exists for its derivative away
+  // from eps = 0, so differentiate numerically; cheap, once per update.
+  const auto recentre =
+      [&](const Eigen::Matrix<double, 18, 1>& eps)
+      -> Eigen::Matrix<double, 18, 1> {
+    return gtsam::traits<State>::Local(
+        xi_ref, phi(Xd, gtsam::traits<State>::Retract(xi_ref, eps)));
+  };
 
-  Eigen::Matrix<double, 18, 18> J;
-  const TGSymmetry::Diffeomorphism phi_Xd(Xd);
-  phi_Xd(xi_delta, &J);
-
-  // d Retract(xi_ref, .)|_{delta_xi} on the input side, ...
-  const Eigen::Matrix<double, 9, 9> dexp =
-      detail::Se23::ExpmapDerivative(delta_xi.head<9>());
-  J.leftCols<9>() = (J.leftCols<9>() * dexp).eval();
-
-  // ... and d Local(xi_ref, .)|_{xi_plus} on the output side.
-  const Eigen::Matrix<double, 9, 9> dlog =
-      detail::Se23::LogmapDerivative(eps_plus.head<9>());
-  J.topRows<9>() = (dlog * J.topRows<9>()).eval();
-
-  return J;
+  return gtsam::numericalDerivative11<Eigen::Matrix<double, 18, 1>,
+                                      Eigen::Matrix<double, 18, 1>>(recentre,
+                                                                     delta_xi);
 }
 
 void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
@@ -252,7 +237,7 @@ void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
 
   const Eigen::Matrix<double, 3, 18> Cstar =
-      VirtualBiasMeasurement::jacobian_Cstar(groupEstimate());
+      VirtualBiasMeasurement::jacobian_Cstar(referenceState(), groupEstimate());
   updateWithReset(prediction, Cstar, z, R_vb);
 }
 

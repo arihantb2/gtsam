@@ -16,14 +16,15 @@ struct VirtualBiasMeasurement {
   /**
    * Output matrix C* in R^{3x18}, in error coordinates
    *
-   *   C* = [ 0  0  0  -R_X^T p_X^  0  R_X^T ]
+   *   C* = [ 0  0  0  R_X^T p_X^  0  -R_X^T ]
    *
-   * The bias block of the state action is b = Ad_{A_X^{-1}}(b_ref + eps_b -
-   * a_X), so b_v depends on the error affinely, through the b_w and b_v blocks
-   * only. This matrix is therefore exact at any error magnitude. There is no
-   * linearization to improve on, so this output has no C0/C* distinction.
+   * This chart folds eps_b through the fiber exponential Xi(eps_tau) rather
+   * than a plain vector difference (State.h), so this is a first-order
+   * linearization only, and it depends on xi_ref's bias too, via the
+   * chart's nav-to-bias coupling.
    */
-  static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const TGElement& g);
+  static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const State& xi_ref,
+                                                     const TGElement& g);
 };
 
 }  // namespace tgeqf

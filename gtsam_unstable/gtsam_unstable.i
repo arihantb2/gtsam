@@ -862,7 +862,8 @@ class DVLMeasurement {
 
 class VirtualBiasMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::TGElement& g);
+  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
+                                      const gtsam::tgeqf::TGElement& g);
 };
 
 class ImuNoise {

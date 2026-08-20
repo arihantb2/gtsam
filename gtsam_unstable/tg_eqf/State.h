@@ -29,16 +29,14 @@ struct State {
   gtsam::ExtendedPose3<2> extendedPose() const;
 
   /**
-   * Retract in the origin chart: the SE_2(3) exponential on the navigation
-   * block and addition on the biases,
+   * Retract in the origin chart: theta = log_G . phi_xi^-1, i.e.
    *
-   *   Retract(xi, eps) = (T * Expmap_SE23(eps_T), b + eps_b).
+   *   Retract(xi, eps) = phi(Expmap_G(eps), xi).
    *
-   * The velocity and position coordinates are SE_2(3) logarithm coordinates.
-   * They are resolved in the body frame of T and couple to the rotation
-   * through the left Jacobian, so they equal global-frame offsets only when R
-   * is the identity. This is the chart the EqF design is posed in: it makes
-   * the navigation error dynamics exactly linear.
+   * The navigation block reads SE_2(3) logarithm coordinates, resolved in
+   * the body frame of T. The bias block is folded through TGElement's own
+   * fiber exponential (Group.cpp's Xi(tau)) rather than a plain vector
+   * difference.
    */
   State retract(const Eigen::Matrix<double, 18, 1>& delta) const;
 
