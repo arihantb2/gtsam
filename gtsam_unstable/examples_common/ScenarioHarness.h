@@ -67,9 +67,11 @@ struct RunOptions {
 
   double aiding_start_time = 0.0;  // delay before aiding updates start (s)
 
-  // TG-EqF only: enable the covariance transport (reset) step after each
-  // measurement update. Other filter adapters ignore this field.
+  // TG-EqF only: the covariance transport (reset) step after each measurement
+  // update, and the depth output model -- equivariant pseudo-position (the
+  // default) or the direct scalar one. Other filter adapters ignore both.
   bool tg_eqf_reset_step = true;
+  bool tg_eqf_depth_direct = false;
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -156,6 +158,15 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         throw std::runtime_error("--reset-step requires 0 or 1");
       }
       opts.tg_eqf_reset_step = (flag != 0);
+    } else if (arg == "--depth-model") {
+      const std::string model = value();
+      if (model == "pseudo") {
+        opts.tg_eqf_depth_direct = false;
+      } else if (model == "direct") {
+        opts.tg_eqf_depth_direct = true;
+      } else {
+        throw std::runtime_error("--depth-model requires 'pseudo' or 'direct'");
+      }
     } else {
       std::cerr << "warning: ignoring unrecognized argument '" << arg << "'\n";
     }

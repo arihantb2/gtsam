@@ -770,6 +770,7 @@ virtual class LocalOrientedPlane3Factor : gtsam::NoiseModelFactor {
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
 #include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
+#include <gtsam_unstable/tg_eqf/DepthOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 namespace tgeqf {
 
@@ -865,6 +866,12 @@ class VirtualBiasMeasurement {
   static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::TGElement& g);
 };
 
+class DepthMeasurement {
+  static double predict(const gtsam::tgeqf::State& xi);
+  static gtsam::Matrix jacobian_C(const gtsam::tgeqf::State& xi_ref,
+                                  const gtsam::tgeqf::TGElement& g);
+};
+
 class ImuNoise {
   ImuNoise();
   double gyro;
@@ -897,6 +904,7 @@ class TGEqF {
   void update_position(const gtsam::Vector3& pi, const gtsam::Matrix& R_pos);
   void update_depth(double z_depth, const gtsam::Matrix& R_depth,
                     double horizontal_variance);
+  void update_depth_direct(double z_depth, const gtsam::Matrix& R_depth);
   void update_virtual_bias(const gtsam::Matrix& R_vb);
 
   gtsam::tgeqf::State errorState(const gtsam::tgeqf::State& xi_true) const;

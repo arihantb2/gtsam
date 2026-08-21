@@ -1,4 +1,5 @@
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
+#include <gtsam_unstable/tg_eqf/DepthOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
@@ -242,6 +243,19 @@ void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
   R_pseudo(2, 2) = R_depth(0, 0);
 
   update_position(pseudo_position, R_pseudo);
+}
+
+void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
+  // No output action exists for h(xi) = e_3^T p, so the innovation is formed
+  // in the raw sensor space: the prediction is taken at the estimate and
+  // R_depth needs no transport.
+  Covariance1 prediction, z;
+  prediction(0, 0) = DepthMeasurement::predict(state());
+  z(0, 0) = z_depth;
+
+  const Eigen::Matrix<double, 1, 18> C =
+      DepthMeasurement::jacobian_C(referenceState(), groupEstimate());
+  updateWithReset(prediction, C, z, R_depth);
 }
 
 void TGEqF::update_virtual_bias(const Covariance3& R_vb) {

@@ -862,6 +862,58 @@ TEST(TGEqF, DepthUpdateRespectsTheHorizontalVariance) {
   EXPECT((inflated.position() - pinned.position()).norm() > 1e-3);
 }
 
+// The scalar model informs the vertical position covariance too.
+TEST(TGEqF, DirectDepthUpdateShrinksVerticalCovariance) {
+  TGEqF filter(State::identity(), fixture::defaultSigma());
+  filter.set_reset_step(false);
+
+  const Eigen::Matrix<double, 18, 18> before = filter.errorCovariance();
+  filter.update_depth_direct(-0.8, depthNoise(0.01));
+  const Eigen::Matrix<double, 18, 18> after = filter.errorCovariance();
+
+  const double drop_z = before(8, 8) - after(8, 8);
+  EXPECT(drop_z > 0.0);
+  EXPECT(std::abs(before(6, 6) - after(6, 6)) < 0.5 * drop_z);
+  EXPECT(std::abs(before(7, 7) - after(7, 7)) < 0.5 * drop_z);
+}
+
+// At xi_ref = identity the pseudo-position C* row for depth is exactly the
+// negation of the direct C, and so is its innovation, so the two updates
+// coincide as sigma_xy^2 -> infinity. The tolerance is loose because the
+// neglected terms fall off only as 1/sigma_xy^2.
+TEST(TGEqF, DirectDepthUpdateMatchesThePseudoPositionUpdateInTheInflatedLimit) {
+  const TGElement X0 = fixture::rotatedX0();
+  TGEqF via_pseudo(State::identity(), fixture::defaultSigma(), X0);
+  TGEqF via_direct(State::identity(), fixture::defaultSigma(), X0);
+
+  const double z_depth = 0.4;
+  const double sigma_z = 0.02;
+  via_pseudo.update_depth(z_depth, depthNoise(sigma_z),
+                          /*horizontal_variance=*/1e12);
+  via_direct.update_depth_direct(z_depth, depthNoise(sigma_z));
+
+  EXPECT(traits<State>::Equals(via_pseudo.state(), via_direct.state(), 1e-7));
+  EXPECT(assert_equal((Matrix)via_pseudo.errorCovariance(),
+                      (Matrix)via_direct.errorCovariance(), 1e-7));
+}
+
+// That equivalence needs the horizontal channel stripped of weight. With a
+// prior correlating p_x with p_z and horizontal_variance pinned at 1e-6
+// instead, the two are genuinely different models.
+TEST(TGEqF, DirectDepthUpdateDiffersWhenTheHorizontalChannelIsActive) {
+  TGEqF::Covariance18 Sigma0 = fixture::defaultSigma();
+  Sigma0(6, 8) = Sigma0(8, 6) = 0.008;  // 2x2 block stays SPD
+
+  TGEqF via_pseudo(State::identity(), Sigma0);
+  TGEqF via_direct(State::identity(), Sigma0);
+
+  via_pseudo.update_depth(-0.8, depthNoise(0.01),
+                          /*horizontal_variance=*/1e-6);
+  via_direct.update_depth_direct(-0.8, depthNoise(0.01));
+
+  EXPECT((via_pseudo.position() - via_direct.position()).norm() > 1e-3);
+}
+
 }  // namespace depth_update
 /* ************************************************************************* */
 
