@@ -57,7 +57,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /// Default variance (m^2) given to the pseudo-measured horizontal axes of a
   /// depth update, large enough that the update leaves x and y untouched.
-  static constexpr double kDefaultHorizontalVariance = 1e3;
+  static constexpr double kDefaultHorizontalVariance = 1e6;
 
   /// Initial standard deviation of the virtual bias b_v. b_v has no physical
   /// counterpart to be uncertain about: it starts at zero and the b_v = 0
