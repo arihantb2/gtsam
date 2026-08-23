@@ -154,7 +154,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * the position output with the horizontal variance inflated so only the
    * vertical direction is corrected. Since the horizontal entries come from the
    * estimate rather than the true state, this update is a second-order
-   * approximation.
+   * approximation. See update_depth_direct() for the scalar model this
+   * construction replaces.
    *
    * @param z_depth              Measured world-frame z position.
    * @param R_depth              Variance of z_depth, as a 1x1 matrix.
@@ -163,6 +164,18 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    */
   void update_depth(double z_depth, const Covariance1& R_depth,
                     double horizontal_variance = kDefaultHorizontalVariance);
+
+  /**
+   * Pressure-sensor depth update through the non-equivariant scalar model
+   * h(xi) = e_3^T p (see DepthOutput.h). With no output action the innovation
+   * is formed in the raw sensor space: the prediction is taken at the current
+   * estimate and R_depth is used unconjugated. Second order in the state
+   * error, one worse than the pseudo-position update's C*.
+   *
+   * @param z_depth  Measured world-frame z position.
+   * @param R_depth  Variance of z_depth, as a 1x1 matrix.
+   */
+  void update_depth_direct(double z_depth, const Covariance1& R_depth);
 
   // Virtual-bias anchor b_v = 0 pseudo-measurement.
   void update_virtual_bias(const Covariance3& R_vb);
