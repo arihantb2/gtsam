@@ -14,10 +14,10 @@ struct se2_3 {
   Eigen::Vector3d a = Eigen::Vector3d::Zero();
   Eigen::Vector3d v = Eigen::Vector3d::Zero();
 
-  Eigen::Matrix<double, 9, 1> vector() const;
-  static se2_3 from_vector(const Eigen::Matrix<double, 9, 1>& v);
-  Eigen::Matrix<double, 5, 5> wedge() const;
-  static se2_3 vee(const Eigen::Matrix<double, 5, 5>& mat);
+  Vector9 vector() const;
+  static se2_3 from_vector(const Vector9& v);
+  Matrix5 wedge() const;
+  static se2_3 vee(const Matrix5& mat);
 };
 
 /// Group element X = [A, a] of G = SE_2(3) ⋉ se_2(3).
@@ -29,6 +29,9 @@ struct TGElement {
 
   static constexpr int dimension = 18;
 
+  /// Tangent vector of G, in the right chart.
+  using TangentVector = Eigen::Matrix<double, 18, 1>;
+
   static TGElement Identity() { return {}; }
 
   TGElement operator*(const TGElement& Y) const;
@@ -37,18 +40,18 @@ struct TGElement {
   se2_3 Ad_A_inv(const se2_3& xi) const;
 
   /// Exponential map; fiber part uses Xi(tau) series (see Group.cpp).
-  static TGElement Expmap(const Eigen::Matrix<double, 18, 1>& xi);
+  static TGElement Expmap(const TangentVector& xi);
 
   /// Logarithm map; exact inverse of Expmap.
-  Eigen::Matrix<double, 18, 1> Logmap() const;
+  TangentVector Logmap() const;
 
   /// Right retract: Compose(*this, Expmap(xi)).
-  TGElement retract(const Eigen::Matrix<double, 18, 1>& xi) const;
+  TGElement retract(const TangentVector& xi) const;
 
   /// Right local coordinates: Logmap(inverse() * other).
-  Eigen::Matrix<double, 18, 1> localCoordinates(const TGElement& other) const;
+  TangentVector localCoordinates(const TGElement& other) const;
 
-  Eigen::Matrix<double, 5, 5> to_A_matrix() const;
+  Matrix5 to_A_matrix() const;
 };
 
 }  // namespace tgeqf
@@ -59,7 +62,7 @@ namespace gtsam {
 template <>
 struct traits<tgeqf::TGElement> {
   using ManifoldType = tgeqf::TGElement;
-  using TangentVector = Eigen::Matrix<double, 18, 1>;
+  using TangentVector = tgeqf::TGElement::TangentVector;
   using structure_category = lie_group_tag;
   using group_flavor = multiplicative_group_tag;
   using ChartJacobian = OptionalJacobian<18, 18>;

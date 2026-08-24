@@ -20,10 +20,13 @@ struct State {
 
   static constexpr int dimension = 18;
 
+  /// Tangent vector of the state manifold, in the origin chart.
+  using TangentVector = Eigen::Matrix<double, 18, 1>;
+
   static State identity() { return {}; }
 
-  Eigen::Matrix<double, 5, 5> T_matrix() const;
-  Eigen::Matrix<double, 9, 1> bias_vector() const;
+  Matrix5 T_matrix() const;
+  Vector9 bias_vector() const;
 
   /// Extended pose T = [R, v, p] as an SE_2(3) group element.
   gtsam::ExtendedPose3<2> extendedPose() const;
@@ -38,10 +41,10 @@ struct State {
    * fiber exponential (Group.cpp's Xi(tau)) rather than a plain vector
    * difference.
    */
-  State retract(const Eigen::Matrix<double, 18, 1>& delta) const;
+  State retract(const TangentVector& delta) const;
 
   /// Local coordinates in the origin chart; inverse of retract.
-  Eigen::Matrix<double, 18, 1> localCoordinates(const State& other) const;
+  TangentVector localCoordinates(const State& other) const;
 };
 
 }  // namespace tgeqf
@@ -52,7 +55,7 @@ namespace gtsam {
 template <>
 struct traits<tgeqf::State> {
   using ManifoldType = tgeqf::State;
-  using TangentVector = Eigen::Matrix<double, 18, 1>;
+  using TangentVector = tgeqf::State::TangentVector;
   using Jacobian = Eigen::Matrix<double, 18, 18>;
   using structure_category = manifold_tag;
 

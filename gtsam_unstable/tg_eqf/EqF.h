@@ -105,9 +105,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Optional curvature correction, not a mandatory step; updateWithReset()
    * applies it after every update unless set_reset_step(false) is called.
    */
-  Eigen::Matrix<double, 18, 18> resetMatrix(
-      const Eigen::Matrix<double, 18, 1>& delta_xi,
-      const Eigen::Matrix<double, 18, 1>& delta_x) const;
+  MatrixM resetMatrix(const TangentVector& delta_xi,
+                      const TangentVector& delta_x) const;
 
   /**
    * IMU propagation with origin-chart Qc injected directly (P += Qc*dt).
@@ -136,7 +135,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /// Fixed-origin input lift orbit_jacobian0_ * G; reduces to G itself since
   /// orbit_jacobian0_ is always I_18. For testing.
-  Eigen::Matrix<double, 18, 18> input_lift() const { return input_lift_; }
+  MatrixM input_lift() const { return input_lift_; }
 
   // DVL body-velocity update via h(xi) = R^T v, using the equivariant C*.
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);

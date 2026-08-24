@@ -16,6 +16,9 @@ namespace tgeqf {
  * no output_action or predictAtOrigin here: their absence is the point.
  */
 struct DepthMeasurement {
+  /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
+  using Jacobian = Eigen::Matrix<double, 1, 18>;
+
   /// Vertical position e_3^T p.
   static double predict(const State& xi);
 
@@ -30,8 +33,7 @@ struct DepthMeasurement {
    * whose position slot is R0 (Exp_SO3(eps_R) g.p + J_l(eps_R) eps_p) + p0.
    * Differentiating at eps = 0 leaves the two blocks above.
    */
-  static Eigen::Matrix<double, 1, 18> jacobian_C(const State& xi_ref,
-                                                 const TGElement& g);
+  static Jacobian jacobian_C(const State& xi_ref, const TGElement& g);
 };
 
 }  // namespace tgeqf

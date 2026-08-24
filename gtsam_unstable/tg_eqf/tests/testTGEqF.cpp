@@ -160,7 +160,6 @@ IntegrationResult runIntegrationComparison() {
   xi0.b_a = Eigen::Vector3d(-0.08, 0.04, 0.06);
 
   TGEqF filter(xi0, fixture::defaultSigma());
-  filter.set_virtual_bias_anchor(false);
 
   Input u;
   u.w = Eigen::Vector3d(0.7, -0.4, 1.1);
@@ -225,7 +224,6 @@ TEST(TGEqF, PropagateIntegratesPosition) {
   State xi0 = State::identity();
   xi0.v = Eigen::Vector3d(1.0, -0.5, 0.2);
   TGEqF filter(xi0, fixture::defaultSigma());
-  filter.set_virtual_bias_anchor(false);
 
   const double dt = 0.01;
   const Eigen::Vector3d p_before = filter.position();
@@ -246,7 +244,6 @@ TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
   const double dt = 0.05;
 
   TGEqF via_propagate(xi_ref, fixture::defaultSigma());
-  via_propagate.set_virtual_bias_anchor(false);
   via_propagate.propagate(omega, accel, fixture::kGravity, fixture::defaultQc(),
                           dt);
 
@@ -255,7 +252,6 @@ TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
   u.a = accel;
   u.g_vec = fixture::kGravity;
   TGEqF via_lift(xi_ref, fixture::defaultSigma());
-  via_lift.set_virtual_bias_anchor(false);
   via_lift.predict<1>(Lift(u), InputOrbit(u), fixture::defaultQc(), dt);
 
   EXPECT(traits<TGElement>::Equals(via_propagate.groupEstimate(),
@@ -380,57 +376,6 @@ TEST(TGEqF, PositionUpdateMovesEstimateInTheGlobalFrame) {
 }
 
 }  // namespace away_from_the_reference
-/* ************************************************************************* */
-
-/* ************************************************************************* */
-namespace virtual_bias_anchor {
-
-// The anchor fires once per propagate unless it is switched off. Disabled, b_v
-// is untouched by propagation: bdot = 0 and nu = 0.
-TEST(TGEqF, AnchorRunsInPropagateUnlessDisabled) {
-  State xi_ref = State::identity();
-  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
-
-  TGEqF anchored(xi_ref, fixture::defaultSigma());
-  TGEqF unanchored(xi_ref, fixture::defaultSigma());
-  unanchored.set_virtual_bias_anchor(false);
-
-  anchored.propagate(Eigen::Vector3d::Zero(), -fixture::kGravity,
-                     fixture::kGravity, fixture::defaultQc(), 0.01);
-  unanchored.propagate(Eigen::Vector3d::Zero(), -fixture::kGravity,
-                       fixture::kGravity, fixture::defaultQc(), 0.01);
-
-  EXPECT(anchored.bias_vel().norm() < 0.5 * xi_ref.b_v.norm());
-  EXPECT(fixture::veq(xi_ref.b_v, unanchored.bias_vel(), 1e-9));
-}
-
-// Toggling the anchor off and back on keeps the configured noise. Only passing
-// a new R_vb changes it.
-TEST(TGEqF, AnchorNoiseSurvivesAToggle) {
-  State xi_ref = State::identity();
-  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
-  const TGEqF::Covariance3 tight = 1e-6 * TGEqF::Covariance3::Identity();
-
-  TGEqF toggled(xi_ref, fixture::defaultSigma());
-  toggled.set_virtual_bias_anchor(true, tight);
-  toggled.set_virtual_bias_anchor(false);
-  toggled.set_virtual_bias_anchor(true);
-
-  TGEqF direct(xi_ref, fixture::defaultSigma());
-  direct.set_virtual_bias_anchor(true, tight);
-
-  toggled.propagate(Eigen::Vector3d::Zero(), -fixture::kGravity,
-                    fixture::kGravity, fixture::defaultQc(), 0.01);
-  direct.propagate(Eigen::Vector3d::Zero(), -fixture::kGravity,
-                   fixture::kGravity, fixture::defaultQc(), 0.01);
-
-  EXPECT(traits<TGElement>::Equals(direct.groupEstimate(),
-                                   toggled.groupEstimate(), 1e-12));
-  EXPECT(
-      assert_equal(direct.errorCovariance(), toggled.errorCovariance(), 1e-12));
-}
-
-}  // namespace virtual_bias_anchor
 /* ************************************************************************* */
 
 /* ************************************************************************* */
@@ -614,30 +559,6 @@ TEST(TGEqF, ResetEffectScalesWithTheCorrection) {
   EXPECT(d_half / d_full < 0.6);
 }
 
-// The anchor fires once per propagate, so its correction goes through the same
-// transport. Once propagation has correlated the bias block with navigation the
-// correction is no longer pure fiber and the reset does move the covariance.
-TEST(TGEqF, ResetAppliesToTheVirtualBiasAnchor) {
-  State xi_ref = State::identity();
-  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
-  TGEqF with_reset(xi_ref, fixture::defaultSigma());
-  TGEqF without_reset(xi_ref, fixture::defaultSigma());
-  without_reset.set_reset_step(false);
-
-  const Eigen::Vector3d omega(0.05, -0.02, 0.01);
-  const Eigen::Vector3d accel(0.1, -0.2, 0.05);
-  for (int k = 0; k < 10; ++k) {
-    with_reset.propagate(omega, accel, fixture::kGravity, fixture::defaultQc(),
-                         0.01);
-    without_reset.propagate(omega, accel, fixture::kGravity,
-                            fixture::defaultQc(), 0.01);
-  }
-
-  EXPECT(
-      (with_reset.errorCovariance() - without_reset.errorCovariance()).norm() >
-      1e-12);
-}
-
 // The reset is on unless explicitly switched off. Callers can disable it, so
 // the default is worth pinning.
 TEST(TGEqF, ResetStepIsOnByDefault) {
@@ -771,13 +692,11 @@ TEST(TGEqF, PropagateWithImuNoiseDelegatesToInputNoiseCov) {
   const double dt = 0.05;
 
   TGEqF via_noise(State::identity(), fixture::defaultSigma());
-  via_noise.set_virtual_bias_anchor(false);
   const double trace_before = via_noise.errorCovariance().trace();
   via_noise.propagate(omega, accel, fixture::kGravity, nz, dt);
   EXPECT(via_noise.errorCovariance().trace() > trace_before);
 
   TGEqF via_qc(State::identity(), fixture::defaultSigma());
-  via_qc.set_virtual_bias_anchor(false);
   via_qc.propagate(omega, accel, fixture::kGravity, via_qc.inputNoiseCov(nz),
                    dt);
 

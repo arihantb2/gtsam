@@ -17,6 +17,9 @@ namespace tgeqf {
  * **error coordinates**: pass them to TGEqF::updateWithReset() unchanged.
  */
 struct PositionMeasurement {
+  /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
+  using Jacobian = Eigen::Matrix<double, 3, 18>;
+
   /// General single-state residual R^T(pi - p).
   static Eigen::Vector3d predict(const State& xi, const Eigen::Vector3d& pi);
 
@@ -38,8 +41,7 @@ struct PositionMeasurement {
    * linearization error is second order in the state error. The filter uses C*
    * below; C0 is the baseline the accuracy tests measure against.
    */
-  static Eigen::Matrix<double, 3, 18> jacobian_C0(const State& xi_ref,
-                                                  const Eigen::Vector3d& pi);
+  static Jacobian jacobian_C0(const State& xi_ref, const Eigen::Vector3d& pi);
 
   /**
    * Equivariant output matrix C* in R^{3x18}, in error coordinates
@@ -51,9 +53,8 @@ struct PositionMeasurement {
    * instead of at y0 alone makes the linearization error third order in the
    * state error, one order better than C0. This is the matrix the filter uses.
    */
-  static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const State& xi_ref,
-                                                     const TGElement& g,
-                                                     const Eigen::Vector3d& pi);
+  static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
+                                 const Eigen::Vector3d& pi);
 
   /// Output group action psi_X(y) = R_X^T (y - p_X).
   static Eigen::Vector3d output_action(const TGElement& X,

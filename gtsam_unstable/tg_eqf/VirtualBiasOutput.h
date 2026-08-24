@@ -11,6 +11,9 @@ namespace tgeqf {
  * Virtual-velocity-bias pseudo-measurement h(xi) = b_v = 0.
  */
 struct VirtualBiasMeasurement {
+  /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
+  using Jacobian = Eigen::Matrix<double, 3, 18>;
+
   static Eigen::Vector3d predict(const State& xi);
 
   /**
@@ -24,8 +27,7 @@ struct VirtualBiasMeasurement {
    * first-order linearization only. The ad(b_ref) term is the chart's
    * nav-to-bias coupling and vanishes only when xi_ref's bias is zero.
    */
-  static Eigen::Matrix<double, 3, 18> jacobian_Cstar(const State& xi_ref,
-                                                     const TGElement& g);
+  static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g);
 };
 
 }  // namespace tgeqf

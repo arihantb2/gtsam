@@ -661,10 +661,12 @@ class State {
   gtsam::Vector3 b_a;
   gtsam::Vector3 b_v;
   static gtsam::tgeqf::State identity();
-  gtsam::Matrix T_matrix() const;
-  gtsam::Vector bias_vector() const;
-  gtsam::tgeqf::State retract(gtsam::Vector delta) const;
-  gtsam::Vector localCoordinates(const gtsam::tgeqf::State& other) const;
+  gtsam::Matrix5 T_matrix() const;
+  gtsam::Vector9 bias_vector() const;
+  gtsam::tgeqf::State retract(
+      const gtsam::tgeqf::State::TangentVector& delta) const;
+  gtsam::tgeqf::State::TangentVector localCoordinates(
+      const gtsam::tgeqf::State& other) const;
 };
 
 class TGElement {
@@ -675,11 +677,14 @@ class TGElement {
   static gtsam::tgeqf::TGElement Identity();
   gtsam::tgeqf::TGElement operator*(const gtsam::tgeqf::TGElement& Y) const;
   gtsam::tgeqf::TGElement inverse() const;
-  static gtsam::tgeqf::TGElement Expmap(gtsam::Vector xi);
-  gtsam::Vector Logmap() const;
-  gtsam::tgeqf::TGElement retract(gtsam::Vector xi) const;
-  gtsam::Vector localCoordinates(const gtsam::tgeqf::TGElement& other) const;
-  gtsam::Matrix to_A_matrix() const;
+  static gtsam::tgeqf::TGElement Expmap(
+      const gtsam::tgeqf::TGElement::TangentVector& xi);
+  gtsam::tgeqf::TGElement::TangentVector Logmap() const;
+  gtsam::tgeqf::TGElement retract(
+      const gtsam::tgeqf::TGElement::TangentVector& xi) const;
+  gtsam::tgeqf::TGElement::TangentVector localCoordinates(
+      const gtsam::tgeqf::TGElement& other) const;
+  gtsam::Matrix5 to_A_matrix() const;
 };
 
 gtsam::tgeqf::State phi(const gtsam::tgeqf::TGElement& X,
@@ -696,14 +701,16 @@ class Input {
   gtsam::Vector3 tau_a;
   gtsam::Vector3 tau_v;
   gtsam::Vector3 g_vec;
-  gtsam::Vector vector() const;
-  static gtsam::tgeqf::Input from_vector(gtsam::Vector v);
+  gtsam::tgeqf::Input::Vector21 vector() const;
+  static gtsam::tgeqf::Input from_vector(
+      const gtsam::tgeqf::Input::Vector21& v);
 };
 
 class Lift {
   Lift(const gtsam::tgeqf::Input& u);
-  
-  gtsam::Vector operator()(const gtsam::tgeqf::State& xi) const;
+
+  gtsam::tgeqf::State::TangentVector operator()(
+      const gtsam::tgeqf::State& xi) const;
 };
 
 class InputOrbit {
@@ -718,21 +725,22 @@ class PositionMeasurement {
   static gtsam::Vector3 predictAtOrigin(const gtsam::tgeqf::State& xi_ref,
                                         const gtsam::tgeqf::TGElement& g,
                                         const gtsam::Vector3& pi);
-  static gtsam::Matrix jacobian_C0(const gtsam::tgeqf::State& xi_ref,
-                                   const gtsam::Vector3& pi);
-  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
-                                      const gtsam::tgeqf::TGElement& g,
-                                      const gtsam::Vector3& pi);
+  static gtsam::tgeqf::PositionMeasurement::Jacobian jacobian_C0(
+      const gtsam::tgeqf::State& xi_ref, const gtsam::Vector3& pi);
+  static gtsam::tgeqf::PositionMeasurement::Jacobian jacobian_Cstar(
+      const gtsam::tgeqf::State& xi_ref, const gtsam::tgeqf::TGElement& g,
+      const gtsam::Vector3& pi);
   static gtsam::Vector3 output_action(const gtsam::tgeqf::TGElement& X,
                                       const gtsam::Vector3& y);
 };
 
 class DVLMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix jacobian_C0(const gtsam::tgeqf::State& xi_ref);
-  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
-                                      const gtsam::tgeqf::TGElement& g,
-                                      const gtsam::Vector3& z_dvl);
+  static gtsam::tgeqf::DVLMeasurement::Jacobian jacobian_C0(
+      const gtsam::tgeqf::State& xi_ref);
+  static gtsam::tgeqf::DVLMeasurement::Jacobian jacobian_Cstar(
+      const gtsam::tgeqf::State& xi_ref, const gtsam::tgeqf::TGElement& g,
+      const gtsam::Vector3& z_dvl);
   static gtsam::Vector3 output_action(const gtsam::tgeqf::TGElement& X,
                                       const gtsam::Vector3& y);
   static gtsam::Vector3 inverse_output_action(const gtsam::tgeqf::TGElement& X,
@@ -741,14 +749,14 @@ class DVLMeasurement {
 
 class VirtualBiasMeasurement {
   static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix jacobian_Cstar(const gtsam::tgeqf::State& xi_ref,
-                                      const gtsam::tgeqf::TGElement& g);
+  static gtsam::tgeqf::VirtualBiasMeasurement::Jacobian jacobian_Cstar(
+      const gtsam::tgeqf::State& xi_ref, const gtsam::tgeqf::TGElement& g);
 };
 
 class DepthMeasurement {
   static double predict(const gtsam::tgeqf::State& xi);
-  static gtsam::Matrix jacobian_C(const gtsam::tgeqf::State& xi_ref,
-                                  const gtsam::tgeqf::TGElement& g);
+  static gtsam::tgeqf::DepthMeasurement::Jacobian jacobian_C(
+      const gtsam::tgeqf::State& xi_ref, const gtsam::tgeqf::TGElement& g);
 };
 
 class ImuNoise {
@@ -760,34 +768,46 @@ class ImuNoise {
 };
 
 class TGEqF {
-  static gtsam::Matrix initialCovariance(const gtsam::Matrix& Sigma_physical);
+  static gtsam::tgeqf::TGEqF::Covariance18 initialCovariance(
+      const gtsam::tgeqf::TGEqF::Covariance15& Sigma_physical);
 
-  TGEqF(const gtsam::tgeqf::State& xi_ref, const gtsam::Matrix& Sigma0);
-  TGEqF(const gtsam::tgeqf::State& xi_ref, const gtsam::Matrix& Sigma0,
-       const gtsam::tgeqf::TGElement& X0);
+  TGEqF(const gtsam::tgeqf::State& xi_ref,
+        const gtsam::tgeqf::TGEqF::Covariance18& Sigma0);
+  TGEqF(const gtsam::tgeqf::State& xi_ref,
+        const gtsam::tgeqf::TGEqF::Covariance18& Sigma0,
+        const gtsam::tgeqf::TGElement& X0);
 
   void set_reset_step(bool enable);
   void set_virtual_bias_anchor(
       bool enable, const std::optional<gtsam::Matrix3>& R_vb = std::nullopt);
 
-  gtsam::Matrix resetMatrix(gtsam::Vector delta_xi, gtsam::Vector delta_x) const;
+  gtsam::tgeqf::TGEqF::MatrixM resetMatrix(
+      const gtsam::tgeqf::TGEqF::TangentVector& delta_xi,
+      const gtsam::tgeqf::TGEqF::TangentVector& delta_x) const;
 
   void propagate(const gtsam::Vector3& w_meas, const gtsam::Vector3& a_meas,
-                 const gtsam::Vector3& g_vec, const gtsam::Matrix& Qc, double dt);
+                 const gtsam::Vector3& g_vec,
+                 const gtsam::tgeqf::TGEqF::Covariance18& Qc, double dt);
   void propagate(const gtsam::Vector3& w_meas, const gtsam::Vector3& a_meas,
                  const gtsam::Vector3& g_vec, const gtsam::tgeqf::ImuNoise& noise,
                  double dt);
-  gtsam::Matrix inputNoiseCov(const gtsam::tgeqf::ImuNoise& noise) const;
+  gtsam::tgeqf::TGEqF::Covariance18 inputNoiseCov(
+      const gtsam::tgeqf::ImuNoise& noise) const;
 
-  void update_dvl(const gtsam::Vector3& z_dvl, const gtsam::Matrix& R_dvl);
-  void update_position(const gtsam::Vector3& pi, const gtsam::Matrix& R_pos);
-  void update_depth(double z_depth, const gtsam::Matrix& R_depth,
+  void update_dvl(const gtsam::Vector3& z_dvl,
+                  const gtsam::tgeqf::TGEqF::Covariance3& R_dvl);
+  void update_position(const gtsam::Vector3& pi,
+                       const gtsam::tgeqf::TGEqF::Covariance3& R_pos);
+  void update_depth(double z_depth,
+                    const gtsam::tgeqf::TGEqF::Covariance1& R_depth,
                     double horizontal_variance);
-  void update_depth_direct(double z_depth, const gtsam::Matrix& R_depth);
-  void update_virtual_bias(const gtsam::Matrix& R_vb);
+  void update_depth_direct(double z_depth,
+                           const gtsam::tgeqf::TGEqF::Covariance1& R_depth);
+  void update_virtual_bias(const gtsam::tgeqf::TGEqF::Covariance3& R_vb);
 
   gtsam::tgeqf::State errorState(const gtsam::tgeqf::State& xi_true) const;
-  gtsam::Vector errorStateVector(const gtsam::tgeqf::State& xi_true) const;
+  gtsam::tgeqf::TGEqF::TangentVector errorStateVector(
+      const gtsam::tgeqf::State& xi_true) const;
 
   gtsam::Rot3 attitude() const;
   gtsam::Vector3 velocity() const;
@@ -798,10 +818,10 @@ class TGEqF {
 
   // Inherited from gtsam::EquivariantFilter<State, TGSymmetry>.
   const gtsam::tgeqf::State& state() const;
-  gtsam::Matrix covariance() const;
-  gtsam::Matrix errorCovariance() const;
+  gtsam::tgeqf::TGEqF::CovarianceM covariance() const;
+  const gtsam::tgeqf::TGEqF::CovarianceM& errorCovariance() const;
   const gtsam::tgeqf::TGElement& groupEstimate() const;
-  gtsam::Matrix actionDifferential() const;
+  gtsam::tgeqf::TGEqF::MatrixM actionDifferential() const;
 };
 
 }  // namespace tgeqf

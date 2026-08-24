@@ -17,8 +17,11 @@ struct Input {
   Eigen::Vector3d tau_v = Eigen::Vector3d::Zero();
   Eigen::Vector3d g_vec = Eigen::Vector3d::Zero();
 
-  Eigen::Matrix<double, 21, 1> vector() const;
-  static Input from_vector(const Eigen::Matrix<double, 21, 1>& v);
+  /// Coefficient vector of the extended input.
+  using Vector21 = Eigen::Matrix<double, 21, 1>;
+
+  Vector21 vector() const;
+  static Input from_vector(const Vector21& v);
 };
 
 /**
