@@ -13,6 +13,11 @@ struct ImuInput {
   Eigen::Vector3d accel;
   Eigen::Vector3d tau_omega = Eigen::Vector3d::Zero();
   Eigen::Vector3d tau_accel = Eigen::Vector3d::Zero();
+
+  /// Gravity vector in the global frame {G}. The filter is frame-agnostic: the
+  /// caller's choice of sign is what fixes which way +z points (Z-down/NED
+  /// gives +g on z, Z-up/ENU gives -g). Defaults to zero, i.e. no gravity.
+  Eigen::Vector3d g_vec = Eigen::Vector3d::Zero();
 };
 
 /// Continuous-time IMU noise PSDs (per-axis, isotropic per channel).
@@ -22,12 +27,6 @@ struct ImuNoise {
   double gyro_rw = 0.0;
   double accel_rw = 0.0;
 };
-
-/// Gravity magnitude (m/s^2); shared by gravity() and example simulators.
-inline constexpr double kGravity = 9.81;
-
-/// Gravity in the global frame {G}, default -z.
-Eigen::Vector3d gravity();
 
 /// Right group action phi(X, xi) = xi * X (state space M = G_TF).
 TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi);

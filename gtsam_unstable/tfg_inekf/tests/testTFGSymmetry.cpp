@@ -32,12 +32,17 @@ static TwoFrameGroup makeXi() {
       Eigen::Vector3d(0.1, -0.1, 0.2));
 }
 
+// The symmetry is frame-agnostic -- gravity arrives in ImuInput::g_vec -- so
+// these tests pick a convention of their own: Z-up (ENU), gravity along -z.
+static const Eigen::Vector3d kTestGravity(0.0, 0.0, -9.81);
+
 static ImuInput zeroInput() {
   ImuInput u;
   u.omega = Eigen::Vector3d::Zero();
   u.accel = Eigen::Vector3d::Zero();
   u.tau_omega = Eigen::Vector3d::Zero();
   u.tau_accel = Eigen::Vector3d::Zero();
+  u.g_vec = kTestGravity;
   return u;
 }
 
@@ -99,7 +104,7 @@ TEST(Lift, GravityAtIdentity) {
   // d_theta = 0 (no rotation)
   EXPECT(veq(lam.segment<3>(0), Eigen::Vector3d::Zero(), kTolL));
   // d_v = g_vec = (0, 0, -9.81)  (gravity in velocity rate)
-  EXPECT(veq(lam.segment<3>(3), gravity(), kTolL));
+  EXPECT(veq(lam.segment<3>(3), kTestGravity, kTolL));
   // d_p = v = 0  (no velocity at identity)
   EXPECT(veq(lam.segment<3>(6), Eigen::Vector3d::Zero(), kTolL));
   // d_gw, d_ga = 0  (zero biases, zero rates)
@@ -193,7 +198,7 @@ TEST(Lift, NavigationBlocksMatchClosedForm) {
   ImuInput u = makeInput();
   Tangent lam = lift(X, u);
 
-  const Eigen::Vector3d g = gravity();
+  const Eigen::Vector3d g = kTestGravity;
   EXPECT(veq(lam.segment<3>(0), u.omega - bw, kTolL));  // theta
   EXPECT(veq(lam.segment<3>(3), (u.accel - ba) + R.unrotate(g), kTolL));  // d_v
   EXPECT(veq(lam.segment<3>(6), R.unrotate(v), kTolL));                   // d_p
@@ -216,7 +221,7 @@ TEST(Lift, PredictStepMatchesWorldDynamics) {
 
   auto X1 = X * increment(X, u, dt);
 
-  const Eigen::Vector3d g = gravity();
+  const Eigen::Vector3d g = kTestGravity;
   Rot3 R1_ref = R * Rot3::Expmap((u.omega - bw) * dt);
   Eigen::Vector3d v1_ref = v + (R * (u.accel - ba) + g) * dt;
   Eigen::Vector3d p1_ref = p + v * dt;
@@ -300,7 +305,7 @@ TEST(Increment, GravityIntegration) {
   auto Xi_1 = Xi * U;  // predict step
 
   // Velocity should have increased by g * dt
-  EXPECT(veq(Xi_1.v, gravity() * dt, kTolL));
+  EXPECT(veq(Xi_1.v, kTestGravity * dt, kTolL));
 }
 
 /* ************************************************************************* */

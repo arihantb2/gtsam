@@ -2,7 +2,7 @@
 
 // Strapdown mean (forward Euler):
 //   R+ = R * Exp((omega - b_gyro) dt)
-//   v+ = v + (R (accel - b_accel) + g) dt
+//   v+ = v + (R (accel - b_accel) + g) dt   (g = u.g_vec, caller's frame)
 //   p+ = p + v dt
 // F: finite-diff of discrete map in local coords, re-evaluated each step.
 
@@ -10,15 +10,13 @@ namespace mekf {
 
 using Vec3 = Eigen::Vector3d;
 
-Eigen::Vector3d gravity() { return {0.0, 0.0, -9.81}; }
-
 MekfState propagateMean(const MekfState& X, const ImuInput& u, double dt) {
   const Vec3 gyro_corr = u.omega - X.b_gyro;
   const Vec3 acc_corr = u.accel - X.b_accel;
 
   MekfState Xn;
   Xn.R = X.R * gtsam::Rot3::Expmap(gyro_corr * dt);
-  Xn.v = X.v + (X.R.rotate(acc_corr) + gravity()) * dt;
+  Xn.v = X.v + (X.R.rotate(acc_corr) + u.g_vec) * dt;
   Xn.p = X.p + X.v * dt;
   Xn.b_gyro = X.b_gyro;
   Xn.b_accel = X.b_accel;

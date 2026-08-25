@@ -10,7 +10,6 @@
 #pragma once
 
 #include <gtsam/navigation/NavState.h>
-#include <gtsam/navigation/PreintegrationParams.h>
 #include <gtsam/navigation/Scenario.h>
 #include <gtsam_unstable/examples_common/FilterScenarioRunner.h>
 #include <gtsam_unstable/examples_common/ImuProcessNoise.h>
@@ -41,9 +40,7 @@ class ScenarioAdapter {
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
             imu_scenarios::resolvedProcessNoise(opts))),
-        gravity_(
-            gtsam::PreintegrationParams::MakeSharedU(imu_scenarios::kGravity)
-                ->n_gravity),
+        gravity_(imu_scenarios::navGravity()),
         reset_step_(opts.tg_eqf_reset_step),
         depth_direct_(opts.tg_eqf_depth_direct) {}
 

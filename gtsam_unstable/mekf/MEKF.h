@@ -36,12 +36,15 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
   MultiplicativeEKF(const MekfState& X0, const Covariance& P0);
 
   /// Strapdown predict + finite-diff F; P <- F P F^T + Qc dt.
+  /// @param g_vec  Nav-frame gravity vector; its sign fixes the frame
+  ///               convention (Z-down/NED: +g on z).
   void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
-                 const Covariance& Qc, double dt);
+                 const Eigen::Vector3d& g_vec, const Covariance& Qc, double dt);
 
   /// Same predict with diagonal Qc from ImuNoise PSDs.
   void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
-                 const ImuNoise& noise, double dt);
+                 const Eigen::Vector3d& g_vec, const ImuNoise& noise,
+                 double dt);
 
   /// GNSS position update (h = p, world-frame R_pos).
   void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos);

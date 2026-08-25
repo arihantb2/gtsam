@@ -10,10 +10,12 @@ MultiplicativeEKF::MultiplicativeEKF(const MekfState& X0, const Covariance& P0)
 
 void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
                                   const Eigen::Vector3d& accel,
+                                  const Eigen::Vector3d& g_vec,
                                   const Covariance& Qc, double dt) {
   ImuInput u;
   u.omega = omega;
   u.accel = accel;
+  u.g_vec = g_vec;
 
   const MekfState X_next = propagateMean(this->state(), u, dt);
   const Jacobian F = transitionJacobian(this->state(), u, dt);
@@ -22,6 +24,7 @@ void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
 
 void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
                                   const Eigen::Vector3d& accel,
+                                  const Eigen::Vector3d& g_vec,
                                   const ImuNoise& noise, double dt) {
   const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
   Covariance Qc = Covariance::Zero();
@@ -37,7 +40,7 @@ void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
   if (noise.accel_rw > 0.0) {
     Qc.block<3, 3>(12, 12) = noise.accel_rw * I3;
   }
-  propagate(omega, accel, Qc, dt);
+  propagate(omega, accel, g_vec, Qc, dt);
 }
 
 void MultiplicativeEKF::update_position(const Eigen::Vector3d& pi,

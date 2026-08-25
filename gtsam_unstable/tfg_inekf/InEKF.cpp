@@ -9,10 +9,12 @@ TfgInEKF::TfgInEKF(const TwoFrameGroup& X0, const Covariance& P0)
     : Base(X0, P0) {}
 
 namespace {
-ImuInput makeInput(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel) {
+ImuInput makeInput(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
+                   const Eigen::Vector3d& g_vec) {
   ImuInput u;
   u.omega = omega;
   u.accel = accel;
+  u.g_vec = g_vec;
   return u;
 }
 
@@ -28,9 +30,10 @@ void transition(const TwoFrameGroup& X, const ImuInput& u, double dt,
 }  // namespace
 
 void TfgInEKF::propagate(const Eigen::Vector3d& omega,
-                         const Eigen::Vector3d& accel, const Covariance& Qc,
+                         const Eigen::Vector3d& accel,
+                         const Eigen::Vector3d& g_vec, const Covariance& Qc,
                          double dt) {
-  const ImuInput u = makeInput(omega, accel);
+  const ImuInput u = makeInput(omega, accel, g_vec);
   TwoFrameGroup X_next;
   Covariance F;
   transition(this->state(), u, dt, X_next, F);
@@ -38,9 +41,10 @@ void TfgInEKF::propagate(const Eigen::Vector3d& omega,
 }
 
 void TfgInEKF::propagate(const Eigen::Vector3d& omega,
-                         const Eigen::Vector3d& accel, const ImuNoise& noise,
+                         const Eigen::Vector3d& accel,
+                         const Eigen::Vector3d& g_vec, const ImuNoise& noise,
                          double dt) {
-  const ImuInput u = makeInput(omega, accel);
+  const ImuInput u = makeInput(omega, accel, g_vec);
   const Covariance Qd = inputNoiseCov(this->state(), noise, dt);
   TwoFrameGroup X_next;
   Covariance F;

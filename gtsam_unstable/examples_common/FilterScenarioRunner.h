@@ -43,6 +43,7 @@
 #include <cmath>
 #include <cstddef>
 #include <fstream>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -64,7 +65,7 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
   }
   csv << adapter.csvHeader();
 
-  auto params = gtsam::PreintegrationParams::MakeSharedU(kGravity);
+  auto params = std::make_shared<gtsam::PreintegrationParams>(navGravity());
   std::mt19937 rng(opts.seed);
 
   // Ground truth is the clean scenario: `scenario` is what the IMU is driven

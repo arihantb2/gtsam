@@ -27,12 +27,15 @@ class TfgInEKF : public gtsam::InvariantEKF<TwoFrameGroup> {
   TfgInEKF(const TwoFrameGroup& X0, const Covariance& P0);
 
   /// IMU predict with lifted tangent process noise Qc (scaled by dt).
+  /// @param g_vec  Global-frame gravity vector; its sign fixes the frame
+  ///               convention (Z-down/NED: +g on z).
   void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
-                 const Covariance& Qc, double dt);
+                 const Eigen::Vector3d& g_vec, const Covariance& Qc, double dt);
 
   /// IMU predict; builds Qd = B diag(sigma^2) B^T dt from ImuNoise PSDs.
   void propagate(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
-                 const ImuNoise& noise, double dt);
+                 const Eigen::Vector3d& g_vec, const ImuNoise& noise,
+                 double dt);
 
   /// Position update: h = R^T(pi - p).
   void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos,

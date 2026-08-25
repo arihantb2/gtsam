@@ -27,6 +27,14 @@ namespace imu_scenarios {
 /// Gravity magnitude the examples integrate against (m/s^2).
 inline constexpr double kGravity = 9.81;
 
+/// Nav-frame gravity vector. The examples run in a Z-down (NED) navigation
+/// frame: +z points down, so gravity is +kGravity on z and a vehicle's z
+/// coordinate grows as it descends. This is the only place the examples commit
+/// to a frame -- the IMU simulator and all three filters take gravity from
+/// here, so the truth-side and filter-side gravity cannot disagree. Equivalent
+/// to gtsam::PreintegrationParams::MakeSharedD(kGravity)->n_gravity.
+inline Eigen::Vector3d navGravity() { return {0.0, 0.0, kGravity}; }
+
 struct RunOptions {
   double duration = 30.0;
   double dt = 0.01;
@@ -281,7 +289,8 @@ struct DvlMeasurement {
   Eigen::Matrix3d covariance;
 };
 
-/// Noisy pressure-sensor measurement of the world-frame z position.
+/// Noisy pressure-sensor measurement of the world-frame z position, which in
+/// the examples' Z-down (NED) frame is depth below the surface (positive down).
 struct DepthMeasurement {
   double depth;
   Eigen::Matrix<double, 1, 1> covariance;
@@ -330,7 +339,8 @@ class ImuSimulator {
     return {body_vel + draw(sigma), isotropic(sigma)};
   }
 
-  /// Pressure-sensor measurement of the world-frame z position. Draws a single
+  /// Pressure-sensor measurement of the world-frame z position -- depth below
+  /// the surface, since the examples' nav frame is Z-down. Draws a single
   /// normal, since the sensor reports one channel.
   DepthMeasurement sampleDepth(const gtsam::NavState& gt, double sigma) {
     Eigen::Matrix<double, 1, 1> covariance;

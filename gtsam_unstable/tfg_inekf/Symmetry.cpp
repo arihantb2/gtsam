@@ -8,8 +8,6 @@ using Matrix3 = Eigen::Matrix3d;
 
 static inline Matrix3 skew(const Vec3& x) { return gtsam::skewSymmetric(x); }
 
-Eigen::Vector3d gravity() { return {0.0, 0.0, -kGravity}; }
-
 TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi) {
   return xi * X;
 }
@@ -21,7 +19,7 @@ Tangent lift(const TwoFrameGroup& X, const ImuInput& u) {
 
   Tangent xi;
   xi.segment<3>(0) = gyro_err;
-  xi.segment<3>(3) = (u.accel - b_accel) + X.R.unrotate(gravity());
+  xi.segment<3>(3) = (u.accel - b_accel) + X.R.unrotate(u.g_vec);
   xi.segment<3>(6) = X.R.unrotate(X.v);
   xi.segment<3>(9) = b_omega.cross(gyro_err) - u.tau_omega;
   xi.segment<3>(12) = b_accel.cross(gyro_err) - u.tau_accel;
@@ -40,7 +38,7 @@ Eigen::Matrix<double, 15, 15> liftJacobian(const TwoFrameGroup& X,
   const Vec3 b_omega = X.bias_omega();
   const Vec3 b_accel = X.bias_accel();
   const Vec3 w_hat = u.omega - b_omega;
-  const Vec3 Rt_g = X.R.unrotate(gravity());
+  const Vec3 Rt_g = X.R.unrotate(u.g_vec);
   const Vec3 Rt_v = X.R.unrotate(X.v);
   const Matrix3 I3 = Matrix3::Identity();
 

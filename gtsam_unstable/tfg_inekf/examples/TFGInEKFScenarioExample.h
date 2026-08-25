@@ -35,7 +35,8 @@ class ScenarioAdapter {
 
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
-            imu_scenarios::resolvedProcessNoise(opts))) {}
+            imu_scenarios::resolvedProcessNoise(opts))),
+        gravity_(imu_scenarios::navGravity()) {}
 
   std::string csvHeader() const {
     return imu_scenarios::trajectoryCsvHeader({"v", "p", "bg", "ba"},
@@ -61,7 +62,7 @@ class ScenarioAdapter {
 
   void propagate(Filter& filter, const imu_scenarios::ImuMeasurement& imu,
                  double dt) const {
-    filter.propagate(imu.omega, imu.accel, noise_, dt);
+    filter.propagate(imu.omega, imu.accel, gravity_, noise_, dt);
   }
 
   void updatePosition(Filter& filter,
@@ -101,6 +102,7 @@ class ScenarioAdapter {
 
  private:
   ImuNoise noise_;
+  Eigen::Vector3d gravity_;
 };
 
 inline RunSummary runScenario(const gtsam::Scenario& scenario,
