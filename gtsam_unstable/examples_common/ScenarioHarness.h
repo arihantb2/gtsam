@@ -241,8 +241,8 @@ inline InitialEstimate sampleInitialEstimate(Rng& rng, const RunOptions& opts,
   InitialEstimate initial;
   initial.nav = gtsam::NavState(dR * truth.attitude(), truth.position() + dp,
                                 truth.velocity() + dv);
-  initial.bias_gyro = opts.gyro_bias + draw3(opts.init_bias_sigma);
-  initial.bias_accel = opts.accel_bias + draw3(opts.init_bias_sigma);
+  initial.bias_gyro = draw3(opts.init_bias_sigma);
+  initial.bias_accel = draw3(opts.init_bias_sigma);
   return initial;
 }
 
