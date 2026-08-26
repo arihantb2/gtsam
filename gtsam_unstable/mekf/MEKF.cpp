@@ -26,19 +26,18 @@ void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
                                   const Eigen::Vector3d& accel,
                                   const Eigen::Vector3d& g_vec,
                                   const ImuNoise& noise, double dt) {
-  const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
   Covariance Qc = Covariance::Zero();
-  if (noise.gyro > 0.0) {
-    Qc.block<3, 3>(0, 0) = noise.gyro * I3;
+  if ((noise.gyro.array() > 0.0).any()) {
+    Qc.block<3, 3>(0, 0) = noise.gyro.asDiagonal();
   }
-  if (noise.accel > 0.0) {
-    Qc.block<3, 3>(3, 3) = noise.accel * I3;
+  if ((noise.accel.array() > 0.0).any()) {
+    Qc.block<3, 3>(3, 3) = noise.accel.asDiagonal();
   }
-  if (noise.gyro_rw > 0.0) {
-    Qc.block<3, 3>(9, 9) = noise.gyro_rw * I3;
+  if ((noise.gyro_rw.array() > 0.0).any()) {
+    Qc.block<3, 3>(9, 9) = noise.gyro_rw.asDiagonal();
   }
-  if (noise.accel_rw > 0.0) {
-    Qc.block<3, 3>(12, 12) = noise.accel_rw * I3;
+  if ((noise.accel_rw.array() > 0.0).any()) {
+    Qc.block<3, 3>(12, 12) = noise.accel_rw.asDiagonal();
   }
   propagate(omega, accel, g_vec, Qc, dt);
 }

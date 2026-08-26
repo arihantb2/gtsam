@@ -761,10 +761,10 @@ class DepthMeasurement {
 
 class ImuNoise {
   ImuNoise();
-  double gyro;
-  double accel;
-  double gyro_rw;
-  double accel_rw;
+  gtsam::Vector3 gyro;
+  gtsam::Vector3 accel;
+  gtsam::Vector3 gyro_rw;
+  gtsam::Vector3 accel_rw;
 };
 
 class TGEqF {

@@ -586,10 +586,10 @@ namespace process_noise {
 
 ImuNoise makeNoise() {
   ImuNoise nz;
-  nz.gyro = 2e-4;
-  nz.accel = 3e-3;
-  nz.gyro_rw = 1e-6;
-  nz.accel_rw = 5e-5;
+  nz.gyro = Eigen::Vector3d::Constant(2e-4);
+  nz.accel = Eigen::Vector3d::Constant(3e-3);
+  nz.gyro_rw = Eigen::Vector3d::Constant(1e-6);
+  nz.accel_rw = Eigen::Vector3d::Constant(5e-5);
   return nz;
 }
 
@@ -602,15 +602,14 @@ TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
   const ImuNoise nz = makeNoise();
   const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
 
-  const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
-  EXPECT(
-      assert_equal((Matrix)(nz.gyro * I3), (Matrix)Q.block<3, 3>(0, 0), 1e-6));
-  EXPECT(
-      assert_equal((Matrix)(nz.accel * I3), (Matrix)Q.block<3, 3>(3, 3), 1e-6));
-  EXPECT(assert_equal((Matrix)(nz.gyro_rw * I3), (Matrix)Q.block<3, 3>(9, 9),
+  EXPECT(assert_equal((Matrix)nz.gyro.asDiagonal(), (Matrix)Q.block<3, 3>(0, 0),
                       1e-6));
-  EXPECT(assert_equal((Matrix)(nz.accel_rw * I3), (Matrix)Q.block<3, 3>(12, 12),
+  EXPECT(assert_equal((Matrix)nz.accel.asDiagonal(), (Matrix)Q.block<3, 3>(3, 3),
                       1e-6));
+  EXPECT(assert_equal((Matrix)nz.gyro_rw.asDiagonal(),
+                      (Matrix)Q.block<3, 3>(9, 9), 1e-6));
+  EXPECT(assert_equal((Matrix)nz.accel_rw.asDiagonal(),
+                      (Matrix)Q.block<3, 3>(12, 12), 1e-6));
   EXPECT(assert_equal((Matrix)Eigen::Matrix3d::Zero(),
                       (Matrix)Q.block<3, 3>(6, 6), 1e-6));
   EXPECT(assert_equal((Matrix)Eigen::Matrix3d::Zero(),
@@ -655,10 +654,10 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   }
 
   Eigen::Matrix<double, 12, 12> Sigma = Eigen::Matrix<double, 12, 12>::Zero();
-  Sigma.block<3, 3>(0, 0) = nz.gyro * Eigen::Matrix3d::Identity();
-  Sigma.block<3, 3>(3, 3) = nz.accel * Eigen::Matrix3d::Identity();
-  Sigma.block<3, 3>(6, 6) = nz.gyro_rw * Eigen::Matrix3d::Identity();
-  Sigma.block<3, 3>(9, 9) = nz.accel_rw * Eigen::Matrix3d::Identity();
+  Sigma.block<3, 3>(0, 0) = nz.gyro.asDiagonal();
+  Sigma.block<3, 3>(3, 3) = nz.accel.asDiagonal();
+  Sigma.block<3, 3>(6, 6) = nz.gyro_rw.asDiagonal();
+  Sigma.block<3, 3>(9, 9) = nz.accel_rw.asDiagonal();
 
   const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
   EXPECT(assert_equal((Matrix)(B_num * Sigma * B_num.transpose()), (Matrix)Q,

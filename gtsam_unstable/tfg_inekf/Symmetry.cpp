@@ -75,10 +75,10 @@ Eigen::Matrix<double, 15, 15> inputNoiseCov(const TwoFrameGroup& X,
   B.block<3, 3>(12, 9) = -I3;
 
   Eigen::Matrix<double, 12, 1> sig;
-  sig.segment<3>(0).setConstant(noise.gyro);
-  sig.segment<3>(3).setConstant(noise.accel);
-  sig.segment<3>(6).setConstant(noise.gyro_rw);
-  sig.segment<3>(9).setConstant(noise.accel_rw);
+  sig.segment<3>(0) = noise.gyro;
+  sig.segment<3>(3) = noise.accel;
+  sig.segment<3>(6) = noise.gyro_rw;
+  sig.segment<3>(9) = noise.accel_rw;
 
   return (B * sig.asDiagonal() * B.transpose() * dt).eval();
 }

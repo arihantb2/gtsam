@@ -11,9 +11,9 @@ namespace tgeqf {
 
 /**
  * Continuous-time IMU noise power spectral densities, mapped through the
- * lift differential B into process noise (see inputNoiseCov()). Isotropic:
- * each density multiplies I_3, so per-axis IMU specs must be pre-averaged or
- * the largest axis used conservatively.
+ * lift differential B into process noise (see inputNoiseCov()). Per-axis
+ * (diagonal, not isotropic): each density is a Vector3 of per-channel PSDs,
+ * matching an IMU's independently-characterized x/y/z axes.
  *
  * Has no gyro/accel channel for the virtual input nu, and no random-walk
  * channel for its bias b_v: nu is held at zero rather than driven by a noisy
@@ -21,10 +21,10 @@ namespace tgeqf {
  * virtual_bias_Q_.
  */
 struct ImuNoise {
-  double gyro = 0.0;
-  double accel = 0.0;
-  double gyro_rw = 0.0;
-  double accel_rw = 0.0;
+  Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel = Eigen::Vector3d::Zero();
+  Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();
 };
 
 /**

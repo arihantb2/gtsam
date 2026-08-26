@@ -359,7 +359,7 @@ TEST(TfgInEKF, InputNoiseCouplesIntoBiasRows) {
       Eigen::Vector3d(0.5, -0.5, 0.1), Eigen::Vector3d(0.02, -0.01, 0.0),
       Eigen::Vector3d(0.0, 0.03, -0.02));
   tfg::ImuNoise noise;
-  noise.gyro = 1e-2;  // gyro noise only
+  noise.gyro = Eigen::Vector3d::Constant(1e-2);  // gyro noise only
   const Cov15 Qd = tfg::inputNoiseCov(X, noise, 0.01);
 
   const double gw = Qd.block<3, 3>(9, 9).norm();     // gyro-bias rows driven
@@ -421,10 +421,10 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   TfgInEKF ekf(X0, P0);
 
   tfg::ImuNoise noise;
-  noise.gyro = 1e-6;   // (0.001 rad/s/sqrt(Hz))^2
-  noise.accel = 1e-4;  // (0.01 m/s^2/sqrt(Hz))^2
-  noise.gyro_rw = 1e-9;
-  noise.accel_rw = 1e-8;
+  noise.gyro = Eigen::Vector3d::Constant(1e-6);   // (0.001 rad/s/sqrt(Hz))^2
+  noise.accel = Eigen::Vector3d::Constant(1e-4);  // (0.01 m/s^2/sqrt(Hz))^2
+  noise.gyro_rw = Eigen::Vector3d::Constant(1e-9);
+  noise.accel_rw = Eigen::Vector3d::Constant(1e-8);
   const Cov3 R_pos = Cov3::Identity() * (0.05 * 0.05);
 
   double t = 0.0;

@@ -41,34 +41,48 @@ struct RunOptions {
   std::string output_path;
 
   // IMU error model. Defaults describe an ideal IMU (no bias, no noise) so the
-  // clean dead-reckoning baseline is reproduced exactly.
+  // clean dead-reckoning baseline is reproduced exactly. Per-channel (x, y, z)
+  // rather than one isotropic value, like the init-*-sigma block below.
   Eigen::Vector3d gyro_bias = Eigen::Vector3d::Zero();   // rad/s (initial)
   Eigen::Vector3d accel_bias = Eigen::Vector3d::Zero();  // m/s^2 (initial)
-  double gyro_noise_sigma = 0.0;                         // rad/s/sqrt(Hz)
-  double accel_noise_sigma = 0.0;                        // m/s^2/sqrt(Hz)
-  double gyro_bias_rw = 0.0;   // gyro bias random-walk rate (rad/s/sqrt(s))
-  double accel_bias_rw = 0.0;  // accel bias random-walk rate (m/s^2/sqrt(s))
+  Eigen::Vector3d gyro_noise_sigma =
+      Eigen::Vector3d::Zero();  // rad/s/sqrt(Hz)
+  Eigen::Vector3d accel_noise_sigma =
+      Eigen::Vector3d::Zero();  // m/s^2/sqrt(Hz)
+  Eigen::Vector3d gyro_bias_rw =
+      Eigen::Vector3d::Zero();  // gyro bias random-walk rate (rad/s/sqrt(s))
+  Eigen::Vector3d accel_bias_rw =
+      Eigen::Vector3d::Zero();  // accel bias random-walk rate (m/s^2/sqrt(s))
 
-  // Per-group initial stddevs for the physical state, forming the
+  // Per-channel initial stddevs for the physical state, forming the
   // block-diagonal P0 and (via sampleInitialEstimate) the matching offset of
   // the filter's initial belief from the truth, so eps(0) ~ N(0, P0) holds.
-  // The gyro and accel bias blocks share one value. States a filter estimates
-  // without a physical counterpart (the TG-EqF virtual bias) are not covered
-  // here: the filter initializes those itself.
-  double init_att_sigma = 0.1;   // initial attitude stddev (rad)
-  double init_vel_sigma = 0.1;   // initial velocity stddev (m/s)
-  double init_pos_sigma = 0.1;   // initial position stddev (m)
-  double init_bias_sigma = 0.1;  // initial gyro/accel bias stddev
+  // Each block gets its own per-axis (x, y, z) stddev rather than one
+  // isotropic value. States a filter estimates without a physical
+  // counterpart (the TG-EqF virtual bias) are not covered here: the filter
+  // initializes those itself.
+  Eigen::Vector3d init_att_sigma =
+      Eigen::Vector3d::Constant(0.1);  // initial attitude stddev (rad)
+  Eigen::Vector3d init_vel_sigma =
+      Eigen::Vector3d::Constant(0.1);  // initial velocity stddev (m/s)
+  Eigen::Vector3d init_pos_sigma =
+      Eigen::Vector3d::Constant(0.1);  // initial position stddev (m)
+  Eigen::Vector3d init_gyro_bias_sigma =
+      Eigen::Vector3d::Constant(0.1);  // initial gyro bias stddev
+  Eigen::Vector3d init_accel_bias_sigma =
+      Eigen::Vector3d::Constant(0.1);  // initial accel bias stddev
 
   unsigned seed = 42;  // RNG seed for noise (vary it for Monte Carlo)
 
   int log_decim = 1;  // log every Nth step (1 = every step)
 
-  double pos_rate = 0.0;         // GNSS position update rate in Hz (0 = off)
-  double pos_noise_sigma = 0.1;  // position measurement noise stddev (m)
+  double pos_rate = 0.0;  // GNSS position update rate in Hz (0 = off)
+  Eigen::Vector3d pos_noise_sigma =
+      Eigen::Vector3d::Constant(0.1);  // position measurement noise stddev (m)
 
   double dvl_rate = 0.0;  // DVL body-velocity update rate in Hz (0 = off)
-  double dvl_noise_sigma = 0.02;  // DVL measurement noise stddev (m/s)
+  Eigen::Vector3d dvl_noise_sigma = Eigen::Vector3d::Constant(
+      0.02);  // DVL measurement noise stddev (m/s)
 
   double depth_rate = 0.0;  // pressure-sensor depth update rate in Hz (0 = off)
   double depth_noise_sigma = 0.05;  // depth measurement noise stddev (m)
@@ -135,21 +149,23 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     } else if (arg == "--accel-bias") {
       opts.accel_bias = parseVector3(value());
     } else if (arg == "--gyro-noise") {
-      opts.gyro_noise_sigma = std::stod(value());
+      opts.gyro_noise_sigma = parseVector3(value());
     } else if (arg == "--accel-noise") {
-      opts.accel_noise_sigma = std::stod(value());
+      opts.accel_noise_sigma = parseVector3(value());
     } else if (arg == "--gyro-bias-rw") {
-      opts.gyro_bias_rw = std::stod(value());
+      opts.gyro_bias_rw = parseVector3(value());
     } else if (arg == "--accel-bias-rw") {
-      opts.accel_bias_rw = std::stod(value());
+      opts.accel_bias_rw = parseVector3(value());
     } else if (arg == "--init-att-sigma") {
-      opts.init_att_sigma = std::stod(value());
+      opts.init_att_sigma = parseVector3(value());
     } else if (arg == "--init-vel-sigma") {
-      opts.init_vel_sigma = std::stod(value());
+      opts.init_vel_sigma = parseVector3(value());
     } else if (arg == "--init-pos-sigma") {
-      opts.init_pos_sigma = std::stod(value());
-    } else if (arg == "--init-bias-sigma") {
-      opts.init_bias_sigma = std::stod(value());
+      opts.init_pos_sigma = parseVector3(value());
+    } else if (arg == "--init-gyro-bias-sigma") {
+      opts.init_gyro_bias_sigma = parseVector3(value());
+    } else if (arg == "--init-accel-bias-sigma") {
+      opts.init_accel_bias_sigma = parseVector3(value());
     } else if (arg == "--seed") {
       opts.seed = static_cast<unsigned>(std::stoul(value()));
     } else if (arg == "--log-decim") {
@@ -157,11 +173,11 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     } else if (arg == "--pos-rate") {
       opts.pos_rate = std::stod(value());
     } else if (arg == "--pos-noise") {
-      opts.pos_noise_sigma = std::stod(value());
+      opts.pos_noise_sigma = parseVector3(value());
     } else if (arg == "--dvl-rate") {
       opts.dvl_rate = std::stod(value());
     } else if (arg == "--dvl-noise") {
-      opts.dvl_noise_sigma = std::stod(value());
+      opts.dvl_noise_sigma = parseVector3(value());
     } else if (arg == "--depth-rate") {
       opts.depth_rate = std::stod(value());
     } else if (arg == "--depth-noise") {
@@ -199,15 +215,15 @@ inline void validateRunOptions(const RunOptions& opts) {
   if (opts.dt <= 0.0) {
     throw std::runtime_error("dt must be > 0");
   }
-  if (opts.pos_rate > 0.0 && opts.pos_noise_sigma <= 0.0) {
+  if (opts.pos_rate > 0.0 && (opts.pos_noise_sigma.array() <= 0.0).any()) {
     throw std::runtime_error(
-        "pos_noise_sigma must be > 0 when position updates are enabled "
-        "(pos_rate > 0)");
+        "pos_noise_sigma must be > 0 on every axis when position updates are "
+        "enabled (pos_rate > 0)");
   }
-  if (opts.dvl_rate > 0.0 && opts.dvl_noise_sigma <= 0.0) {
+  if (opts.dvl_rate > 0.0 && (opts.dvl_noise_sigma.array() <= 0.0).any()) {
     throw std::runtime_error(
-        "dvl_noise_sigma must be > 0 when DVL updates are enabled "
-        "(dvl_rate > 0)");
+        "dvl_noise_sigma must be > 0 on every axis when DVL updates are "
+        "enabled (dvl_rate > 0)");
   }
   if (opts.depth_rate > 0.0 && opts.depth_noise_sigma <= 0.0) {
     throw std::runtime_error(
@@ -226,11 +242,11 @@ using PhysicalStateCovariance = Eigen::Matrix<double, 15, 15>;
 /// none of the init-*-sigma options describe those.
 inline PhysicalStateCovariance initialCovariance(const RunOptions& opts) {
   Eigen::Matrix<double, 15, 1> sd;
-  sd.segment<3>(0).setConstant(opts.init_att_sigma);
-  sd.segment<3>(3).setConstant(opts.init_vel_sigma);
-  sd.segment<3>(6).setConstant(opts.init_pos_sigma);
-  sd.segment<3>(9).setConstant(opts.init_bias_sigma);
-  sd.segment<3>(12).setConstant(opts.init_bias_sigma);
+  sd.segment<3>(0) = opts.init_att_sigma;
+  sd.segment<3>(3) = opts.init_vel_sigma;
+  sd.segment<3>(6) = opts.init_pos_sigma;
+  sd.segment<3>(9) = opts.init_gyro_bias_sigma;
+  sd.segment<3>(12) = opts.init_accel_bias_sigma;
   return sd.array().square().matrix().asDiagonal();
 }
 
@@ -250,9 +266,9 @@ template <typename Rng>
 inline InitialEstimate sampleInitialEstimate(Rng& rng, const RunOptions& opts,
                                              const gtsam::NavState& truth) {
   std::normal_distribution<double> normal(0.0, 1.0);
-  auto draw3 = [&](double sigma) {
-    return Eigen::Vector3d(sigma * normal(rng), sigma * normal(rng),
-                           sigma * normal(rng));
+  auto draw3 = [&](const Eigen::Vector3d& sigma) {
+    return Eigen::Vector3d(sigma.x() * normal(rng), sigma.y() * normal(rng),
+                           sigma.z() * normal(rng));
   };
   const gtsam::Rot3 dR = gtsam::Rot3::Expmap(draw3(opts.init_att_sigma));
   const Eigen::Vector3d dv = draw3(opts.init_vel_sigma);
@@ -261,8 +277,8 @@ inline InitialEstimate sampleInitialEstimate(Rng& rng, const RunOptions& opts,
   InitialEstimate initial;
   initial.nav = gtsam::NavState(dR * truth.attitude(), truth.position() + dp,
                                 truth.velocity() + dv);
-  initial.bias_gyro = draw3(opts.init_bias_sigma);
-  initial.bias_accel = draw3(opts.init_bias_sigma);
+  initial.bias_gyro = draw3(opts.init_gyro_bias_sigma);
+  initial.bias_accel = draw3(opts.init_accel_bias_sigma);
   return initial;
 }
 
@@ -341,14 +357,16 @@ class ImuSimulator {
   }
 
   /// GNSS-style position measurement in the world frame.
-  PositionMeasurement samplePosition(const gtsam::NavState& gt, double sigma) {
-    return {gt.position() + draw(sigma), isotropic(sigma)};
+  PositionMeasurement samplePosition(const gtsam::NavState& gt,
+                                     const Eigen::Vector3d& sigma) {
+    return {gt.position() + draw(sigma), diagonal(sigma)};
   }
 
   /// DVL measurement of the body-frame velocity, h(xi) = R^T v.
-  DvlMeasurement sampleDvl(const gtsam::NavState& gt, double sigma) {
+  DvlMeasurement sampleDvl(const gtsam::NavState& gt,
+                           const Eigen::Vector3d& sigma) {
     const Eigen::Vector3d body_vel = gt.attitude().unrotate(gt.velocity());
-    return {body_vel + draw(sigma), isotropic(sigma)};
+    return {body_vel + draw(sigma), diagonal(sigma)};
   }
 
   /// Pressure-sensor measurement of the world-frame z position -- depth below
@@ -362,10 +380,10 @@ class ImuSimulator {
 
   /// Advance the true biases by one random-walk step (no-op at zero rate).
   void randomWalkBias() {
-    if (gyro_rw_step_ > 0.0) {
+    if (gyro_rw_step_.squaredNorm() > 0.0) {
       gyro_bias_ += draw(gyro_rw_step_);
     }
-    if (accel_rw_step_ > 0.0) {
+    if (accel_rw_step_.squaredNorm() > 0.0) {
       accel_bias_ += draw(accel_rw_step_);
     }
   }
@@ -374,22 +392,22 @@ class ImuSimulator {
   const Eigen::Vector3d& accelBias() const { return accel_bias_; }
 
  private:
-  Eigen::Vector3d draw(double sd) {
-    return Eigen::Vector3d(sd * normal_(rng_), sd * normal_(rng_),
-                           sd * normal_(rng_));
+  Eigen::Vector3d draw(const Eigen::Vector3d& sd) {
+    return Eigen::Vector3d(sd.x() * normal_(rng_), sd.y() * normal_(rng_),
+                           sd.z() * normal_(rng_));
   }
-  static Eigen::Matrix3d isotropic(double sigma) {
-    return sigma * sigma * Eigen::Matrix3d::Identity();
+  static Eigen::Matrix3d diagonal(const Eigen::Vector3d& sigma) {
+    return sigma.array().square().matrix().asDiagonal();
   }
 
   std::mt19937& rng_;
   std::normal_distribution<double> normal_{0.0, 1.0};
   Eigen::Vector3d gyro_bias_;
   Eigen::Vector3d accel_bias_;
-  double gyro_sd_;
-  double accel_sd_;
-  double gyro_rw_step_;
-  double accel_rw_step_;
+  Eigen::Vector3d gyro_sd_;
+  Eigen::Vector3d accel_sd_;
+  Eigen::Vector3d gyro_rw_step_;
+  Eigen::Vector3d accel_rw_step_;
 };
 
 struct RunSummary {

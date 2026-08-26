@@ -13,13 +13,13 @@
 
 namespace mekf {
 
-/// Continuous-time IMU noise PSDs. Same convention as tfg::ImuNoise /
-/// gtsam::tgeqf::ImuNoise.
+/// Continuous-time IMU noise PSDs, per-axis (diagonal, not isotropic). Same
+/// convention as tfg::ImuNoise / gtsam::tgeqf::ImuNoise.
 struct ImuNoise {
-  double gyro = 0.0;
-  double accel = 0.0;
-  double gyro_rw = 0.0;
-  double accel_rw = 0.0;
+  Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel = Eigen::Vector3d::Zero();
+  Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();
 };
 
 class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {

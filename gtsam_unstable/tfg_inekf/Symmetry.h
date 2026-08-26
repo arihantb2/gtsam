@@ -20,12 +20,12 @@ struct ImuInput {
   Eigen::Vector3d g_vec = Eigen::Vector3d::Zero();
 };
 
-/// Continuous-time IMU noise PSDs (per-axis, isotropic per channel).
+/// Continuous-time IMU noise PSDs, per-axis (diagonal, not isotropic).
 struct ImuNoise {
-  double gyro = 0.0;
-  double accel = 0.0;
-  double gyro_rw = 0.0;
-  double accel_rw = 0.0;
+  Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel = Eigen::Vector3d::Zero();
+  Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();
+  Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();
 };
 
 /// Right group action phi(X, xi) = xi * X (state space M = G_TF).

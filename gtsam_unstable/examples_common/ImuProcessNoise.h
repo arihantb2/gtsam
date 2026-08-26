@@ -10,68 +10,59 @@
  */
 #pragma once
 
+#include <Eigen/Dense>
 #include <cmath>
 
 namespace imu_scenarios {
 
-/// Continuous-time IMU noise PSDs (per-axis variances), isotropic per channel.
+/// Continuous-time IMU noise PSDs, per-axis (diagonal, not isotropic).
 struct ImuNoisePSD {
-  double gyro = 0.0;      ///< gyro white-noise PSD      (rad^2/s)
-  double accel = 0.0;     ///< accelerometer white-noise PSD (m^2/s^3)
-  double gyro_rw = 0.0;   ///< gyro bias random-walk PSD   (rad^2/s^3)
-  double accel_rw = 0.0;  ///< accel bias random-walk PSD  (m^2/s^5)
+  Eigen::Vector3d gyro = Eigen::Vector3d::Zero();      ///< gyro white-noise PSD      (rad^2/s)
+  Eigen::Vector3d accel = Eigen::Vector3d::Zero();     ///< accelerometer white-noise PSD (m^2/s^3)
+  Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();   ///< gyro bias random-walk PSD   (rad^2/s^3)
+  Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();  ///< accel bias random-walk PSD  (m^2/s^5)
 };
 
-/// Build PSDs from continuous noise densities: PSD = sigma^2 when sigma > 0.
+/// Build PSDs from continuous noise densities: PSD = sigma^2, per axis.
 template <typename RunOptions>
 inline ImuNoisePSD imuNoiseFromOptions(const RunOptions& opts) {
   ImuNoisePSD n;
-  if (opts.gyro_noise_sigma > 0.0) {
-    n.gyro = opts.gyro_noise_sigma * opts.gyro_noise_sigma;
-  }
-  if (opts.accel_noise_sigma > 0.0) {
-    n.accel = opts.accel_noise_sigma * opts.accel_noise_sigma;
-  }
-  if (opts.gyro_bias_rw > 0.0) {
-    n.gyro_rw = opts.gyro_bias_rw * opts.gyro_bias_rw;
-  }
-  if (opts.accel_bias_rw > 0.0) {
-    n.accel_rw = opts.accel_bias_rw * opts.accel_bias_rw;
-  }
+  n.gyro = opts.gyro_noise_sigma.array().square();
+  n.accel = opts.accel_noise_sigma.array().square();
+  n.gyro_rw = opts.gyro_bias_rw.array().square();
+  n.accel_rw = opts.accel_bias_rw.array().square();
   return n;
 }
 
 inline bool isZeroProcessNoise(const ImuNoisePSD& n) {
-  return n.gyro == 0.0 && n.accel == 0.0 && n.gyro_rw == 0.0 &&
-         n.accel_rw == 0.0;
+  return n.gyro.isZero() && n.accel.isZero() && n.gyro_rw.isZero() &&
+         n.accel_rw.isZero();
 }
 
 /// Small continuous-time floor used when the simulated IMU is ideal (all CLI
 /// sigmas zero) so covariance propagation stays numerically regularized.
 inline ImuNoisePSD defaultProcessNoiseFloor() {
   ImuNoisePSD n;
-  n.gyro = 1e-4;
-  n.accel = 1e-3;
-  n.gyro_rw = 1e-6;
-  n.accel_rw = 1e-5;
+  n.gyro = Eigen::Vector3d::Constant(1e-4);
+  n.accel = Eigen::Vector3d::Constant(1e-3);
+  n.gyro_rw = Eigen::Vector3d::Constant(1e-6);
+  n.accel_rw = Eigen::Vector3d::Constant(1e-5);
   return n;
 }
 
+/// Per-axis: a channel's floor is applied to whichever of its own axes are
+/// exactly zero, not to the whole 3-vector at once.
 inline ImuNoisePSD applyProcessNoiseFloor(const ImuNoisePSD& psd,
                                           const ImuNoisePSD& floor) {
-  ImuNoisePSD out = psd;
-  if (out.gyro == 0.0) {
-    out.gyro = floor.gyro;
-  }
-  if (out.accel == 0.0) {
-    out.accel = floor.accel;
-  }
-  if (out.gyro_rw == 0.0) {
-    out.gyro_rw = floor.gyro_rw;
-  }
-  if (out.accel_rw == 0.0) {
-    out.accel_rw = floor.accel_rw;
-  }
+  auto floorAxes = [](const Eigen::Vector3d& v, const Eigen::Vector3d& f) {
+    return Eigen::Vector3d(
+        (v.array() == 0.0).select(f.array(), v.array()));
+  };
+  ImuNoisePSD out;
+  out.gyro = floorAxes(psd.gyro, floor.gyro);
+  out.accel = floorAxes(psd.accel, floor.accel);
+  out.gyro_rw = floorAxes(psd.gyro_rw, floor.gyro_rw);
+  out.accel_rw = floorAxes(psd.accel_rw, floor.accel_rw);
   return out;
 }
 

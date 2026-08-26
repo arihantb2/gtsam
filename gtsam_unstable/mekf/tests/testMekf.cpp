@@ -101,10 +101,10 @@ TEST(Mekf, PredictInflatesCovariance) {
 // ImuNoise overload must match propagate with the equivalent diagonal Qc.
 TEST(Mekf, PropagateImuNoiseMatchesDiagonalQc) {
   ImuNoise nz;
-  nz.gyro = 1e-4;
-  nz.accel = 1e-3;
-  nz.gyro_rw = 1e-6;
-  nz.accel_rw = 1e-5;
+  nz.gyro = Eigen::Vector3d::Constant(1e-4);
+  nz.accel = Eigen::Vector3d::Constant(1e-3);
+  nz.gyro_rw = Eigen::Vector3d::Constant(1e-6);
+  nz.accel_rw = Eigen::Vector3d::Constant(1e-5);
   const Eigen::Vector3d omega(0.05, -0.02, 0.01);
   const Eigen::Vector3d accel(0.1, -0.2, 9.85);
   const double dt = 0.01;
@@ -112,12 +112,11 @@ TEST(Mekf, PropagateImuNoiseMatchesDiagonalQc) {
   MultiplicativeEKF f1(MekfState::identity(), Cov15::Identity() * 0.1);
   MultiplicativeEKF f2(MekfState::identity(), Cov15::Identity() * 0.1);
 
-  const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
   Cov15 Qc = Cov15::Zero();
-  Qc.block<3, 3>(0, 0) = nz.gyro * I3;
-  Qc.block<3, 3>(3, 3) = nz.accel * I3;
-  Qc.block<3, 3>(9, 9) = nz.gyro_rw * I3;
-  Qc.block<3, 3>(12, 12) = nz.accel_rw * I3;
+  Qc.block<3, 3>(0, 0) = nz.gyro.asDiagonal();
+  Qc.block<3, 3>(3, 3) = nz.accel.asDiagonal();
+  Qc.block<3, 3>(9, 9) = nz.gyro_rw.asDiagonal();
+  Qc.block<3, 3>(12, 12) = nz.accel_rw.asDiagonal();
 
   f1.propagate(omega, accel, kTestGravity, nz, dt);
   f2.propagate(omega, accel, kTestGravity, Qc, dt);

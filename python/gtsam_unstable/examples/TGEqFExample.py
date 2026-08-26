@@ -37,10 +37,10 @@ def main():
     w_meas = np.array([0.0, 0.0, 0.0])
     a_meas = -g_vec
     noise = tgeqf.ImuNoise()
-    noise.gyro = 1e-4
-    noise.accel = 1e-3
-    noise.gyro_rw = 1e-6
-    noise.accel_rw = 1e-5
+    noise.gyro = np.full(3, 1e-4)
+    noise.accel = np.full(3, 1e-3)
+    noise.gyro_rw = np.full(3, 1e-6)
+    noise.accel_rw = np.full(3, 1e-5)
     dt = 0.01
 
     for _ in range(100):

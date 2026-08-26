@@ -172,11 +172,10 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   const Eigen::Matrix<double, 18, 12> B = input_lift_ * AdSel;
 
   Eigen::Matrix<double, 12, 12> Sigma = Eigen::Matrix<double, 12, 12>::Zero();
-  const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
-  Sigma.block<3, 3>(0, 0) = noise.gyro * I3;
-  Sigma.block<3, 3>(3, 3) = noise.accel * I3;
-  Sigma.block<3, 3>(6, 6) = noise.gyro_rw * I3;
-  Sigma.block<3, 3>(9, 9) = noise.accel_rw * I3;
+  Sigma.block<3, 3>(0, 0) = noise.gyro.asDiagonal();
+  Sigma.block<3, 3>(3, 3) = noise.accel.asDiagonal();
+  Sigma.block<3, 3>(6, 6) = noise.gyro_rw.asDiagonal();
+  Sigma.block<3, 3>(9, 9) = noise.accel_rw.asDiagonal();
 
   auto Qc = B * Sigma * B.transpose();
 
