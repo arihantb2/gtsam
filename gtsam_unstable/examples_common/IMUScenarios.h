@@ -31,6 +31,7 @@
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/navigation/Scenario.h>
+#include <gtsam_unstable/examples_common/SamoaWaypoints.h>
 
 #include <algorithm>
 #include <cmath>
@@ -56,12 +57,19 @@ inline constexpr double kSplinePathDuration =
            // (u:0->1). Sized > the default 30 s --duration so a default run
            // never reaches the final-waypoint clamp; see SplineScenario.
 
-// Every scenario is required to start at rest (R=I, p=0, v=0) so filters can be
-// initialized at an identity/zero state. Vertical is an AcceleratingScenario
-// that already ramps velocity linearly from v0, so setting its initial-speed
-// constant to 0 above suffices. TypicalNavigation and WaypointSpline instead
-// have a constant (nonzero) cruise speed by construction, so they reach it via
-// a smooth spin-up over kRampDuration; see evalRamp below.
+inline constexpr double kSamoaPathDuration =
+    300.0;  // SamoaSurvey: warped-time seconds to traverse the real-trajectory
+            // waypoint list, matching the ~300 s of real data they were
+            // extracted from (see SamoaWaypoints.h).
+
+// Every scenario is required to start at rest (v=0, a=0) so filters can be
+// initialized at the scenario's true initial belief, offset by the configured
+// init sigmas (see sampleInitialEstimate in ScenarioHarness.h) rather than a
+// hand-tuned one. Vertical is an AcceleratingScenario that already ramps
+// velocity linearly from v0, so setting its initial-speed constant to 0 above
+// suffices. TypicalNavigation and WaypointSpline instead have a constant
+// (nonzero) cruise speed by construction, so they reach it via a smooth
+// spin-up over kRampDuration; see evalRamp below.
 inline constexpr double kRampDuration = 2.0;  // s, shared spin-up duration
 
 /// Smooth spin-up profile shared by every constant-speed scenario. `S(t)` is an
@@ -101,13 +109,13 @@ inline RampProfile evalRamp(double t, double T) {
 /// matching the rest-start invariant every other factory obeys. Attitude is
 /// held at identity, so omega_b = 0 and the accelerometer sees the path's
 /// nav-frame specific force; rotation is exercised by the typical-navigation
-/// factory instead. Past the final waypoint (u >= 1) the pose is clamped and
-/// held at rest; size pathDuration so a run stays within the path (the
-/// default does).
+/// factory instead. Past the final waypoint (u >= 1) the
+/// pose is clamped and held at rest; size pathDuration so a run stays within
+/// the path (the default does).
 class SplineScenario : public gtsam::Scenario {
  public:
-  /// @param waypoints  >= 2 nav-frame positions; the path is auto-translated so
-  ///                   pose(0) sits at the origin (rest-start invariant).
+  /// @param waypoints  >= 2 nav-frame positions; the path is auto-translated
+  ///                   so pose(0) sits at the origin.
   /// @param pathDuration  warped-time seconds to traverse waypoints.front() ->
   ///                   waypoints.back() (spline parameter u: 0 -> 1). Must be
   ///                   > 0. Larger => slower traversal.
@@ -357,6 +365,18 @@ inline SplineScenario waypointSpline(
     const std::vector<gtsam::Vector3>& waypoints = defaultSplineWaypoints(),
     double pathDuration = kSplinePathDuration) {
   return SplineScenario(waypoints, pathDuration);
+}
+
+/// Samoa survey: a waypoint spline through the first 300 s of a real AUV
+/// survey trajectory (see SamoaWaypoints.h), spun up from rest via the shared
+/// evalRamp profile like every other scenario. The waypoints are generated
+/// already moved into the inertial frame -- first waypoint at the origin,
+/// initial direction of travel along nav +x, gravity axis untouched -- so
+/// this starts at rest at the origin like every other factory. Fixed
+/// duration: past the last waypoint the path clamps and holds at rest
+/// (SplineScenario), so a longer --duration run just idles after 300 s.
+inline SplineScenario samoaSurvey() {
+  return SplineScenario(samoaSurveyWaypoints(), kSamoaPathDuration);
 }
 
 /// Typical navigation: rest -> cruise, straight legs with two occasional

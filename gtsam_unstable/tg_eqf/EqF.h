@@ -33,18 +33,7 @@ struct ImuNoise {
  * The base class keeps every matrix in **error coordinates**, the tangent space
  * at the fixed reference state xi_ref, so every measurement here supplies an
  * output matrix C* built at that reference state and hands it to
- * updateWithReset(). Each output owns its own C*: a midpoint form for position
- * and DVL, an exact one for the virtual bias.
- *
- * Each C* is a derivative in error coordinates, d(output)/d(eps) at eps = 0,
- * and generally depends on both xi_ref and the current group estimate. The
- * virtual-bias update is the exception: its prediction is taken at the
- * current estimate rather than xi_ref (see VirtualBiasMeasurement::predict),
- * because the map it linearizes is exact everywhere, not just at xi_ref.
- *
- * propagate() runs the b_v = 0 virtual-bias anchor -- a full measurement
- * update -- immediately after every IMU propagation, on by default. Disable
- * it with set_virtual_bias_anchor(false) for pure propagation.
+ * updateWithReset().
  */
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
@@ -58,11 +47,9 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /// depth update, large enough that the update leaves x and y untouched.
   static constexpr double kDefaultHorizontalVariance = 1e6;
 
-  /// Initial standard deviation of the virtual bias b_v. b_v has no physical
-  /// counterpart to be uncertain about: it starts at zero and the b_v = 0
-  /// anchor holds it there, so it is initialized as effectively known rather
-  /// than with a user-set bias sigma.
+  /// Initial standard deviation of the virtual bias b_v.
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
+  static constexpr double kBiasSigma = 1e-3;
 
   /**
    * Full initial covariance built from the physical-state one, ordered
@@ -99,8 +86,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * Filter-only process noise on the physical bias states, as continuous-time
    * PSDs (variance units), added to Qc's b_w and b_a blocks by propagate().
-   * Both default to zero. See gyro_bias_Q_ for what this is for and what it is
-   * not.
    */
   void set_bias_process_noise(double gyro_psd, double accel_psd);
 
@@ -225,19 +210,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   Covariance3 virtual_bias_Q_ = 1e-6 * Covariance3::Identity();
 
   /**
-   * Filter-only process noise on b_w and b_a. Off by default.
-   *
-   * This is **not** a physical bias random walk -- that enters through
-   * ImuNoise::gyro_rw / accel_rw, is transported by the lift, and is matched by
-   * a drifting true bias in the simulator. This is linearization compensation.
-   * The lift's bias component Lambda_2 = ad_b[Lambda_1] - tau is bilinear in
-   * (bias, navigation), so the error transport linearized at xi_ref -- where
-   * b_ref = 0, killing the ad_b coupling in A's bias rows -- leaves a residual
-   * that is second order in the error and concentrated in the bias blocks.
-   * B's bias rows are exactly zero (correctly so: IMU white noise does not
-   * reach the bias directions of this chart), so with no bias random walk
-   * nothing re-inflates the bias covariance and the unmodelled residual
-   * accumulates without bound.
+   * Process noise on b_w and b_a. Off by default
    */
   Covariance3 gyro_bias_Q_ = Covariance3::Zero();
   Covariance3 accel_bias_Q_ = Covariance3::Zero();
