@@ -49,6 +49,9 @@ TGEqF::Covariance18 TGEqF::initialCovariance(
   return Sigma0;
 }
 
+TGEqF::TGEqF(const TGElement& X0, const Covariance18& P0)
+    : TGEqF(State::identity(), P0, X0) {}
+
 TGEqF::TGEqF(const State& xi_ref, const Covariance18& Sigma0,
              const TGElement& X0)
     : Base(xi_ref, toOriginChart(xi_ref, Sigma0, X0), X0) {
@@ -99,12 +102,12 @@ void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
                             const Eigen::MatrixXd& R) {
   Eigen::Matrix<double, 18, 1> delta_xi = Eigen::Matrix<double, 18, 1>::Zero();
   Eigen::Matrix<double, 18, 1> delta_x = Eigen::Matrix<double, 18, 1>::Zero();
-  Base::updateWithVector(
-      prediction, Cstar, z, R, [&](const Eigen::Matrix<double, 18, 1>& dxi) {
-        delta_xi = dxi;
-        delta_x = innovation_lift_ * dxi;
-        return delta_x;
-      });
+  Base::updateWithVector(prediction, Cstar, z, R,
+                         [&](const Eigen::Matrix<double, 18, 1>& dxi) {
+                           delta_xi = dxi;
+                           delta_x = innovation_lift_ * dxi;
+                           return delta_x;
+                         });
 
   if (reset_step_) {
     const Eigen::Matrix<double, 18, 18> J = resetMatrix(delta_xi, delta_x);

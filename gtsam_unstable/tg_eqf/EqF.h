@@ -65,8 +65,20 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
 
   /**
-   * @param xi_ref  Fixed origin state (typically identity).
-   * @param Sigma0  Initial covariance of the initial estimate phi(X0, xi_ref),
+   * Construct at the identity origin (xi_ref = identity). This is the
+   * interface examples should use, matching TfgInEKF and MEKF.
+   *
+   * @param X0  Initial group estimate; state is X0.
+   * @param P0  Initial covariance of X0, expressed in the tangent chart at X0.
+   */
+  explicit TGEqF(const TGElement& X0, const Covariance18& P0);
+
+  /**
+   * Construct at an arbitrary reference state xi_ref. Exposed for testing;
+   * examples should use the identity-origin constructor above.
+   *
+   * @param xi_ref  Fixed origin state.
+   * @param P0      Initial covariance of the initial estimate phi(X0, xi_ref),
    *                expressed in the tangent chart at that estimate. It is
    *                transported internally to the origin chart at xi_ref, so
    *                covariance() returns Sigma0 unchanged right after
@@ -74,7 +86,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    *                identity.
    * @param X0      Initial group estimate; state is phi(X0, xi_ref).
    */
-  explicit TGEqF(const State& xi_ref, const Covariance18& Sigma0,
+  explicit TGEqF(const State& xi_ref, const Covariance18& P0,
                  const TGElement& X0 = TGElement::Identity());
 
   // Enable/disable covariance reset after each update.
@@ -91,12 +103,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
-   *
-   * Numerical derivative, at eps = delta_xi, of the error re-centring map
-   * eps -> Local(xi_ref, phi(Exp(-delta_x), Retract(xi_ref, eps))) that the
-   * group correction applies to the error. J -> I as the correction -> 0.
-   * Optional curvature correction, not a mandatory step; updateWithReset()
-   * applies it after every update unless set_reset_step(false) is called.
    */
   MatrixM resetMatrix(const TangentVector& delta_xi,
                       const TangentVector& delta_x) const;
@@ -104,10 +110,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * IMU propagation with origin-chart Qc injected directly (P += Qc*dt).
    * Use the ImuNoise overload for lift-mapped process noise instead.
-   *
-   * Also applies the b_v = 0 virtual-bias anchor (a full Kalman update, not
-   * part of the propagation itself) immediately afterward, unless disabled by
-   * set_virtual_bias_anchor(false). See update_virtual_bias().
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
                  const Eigen::Vector3d& g_vec, const Covariance18& Qc,
@@ -116,8 +118,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /**
    * IMU propagation with Qc_eff = B Sigma B^T from IMU PSDs through the
    * lift differential (origin chart).
-   *
-   * Also applies the b_v = 0 virtual-bias anchor; see the Qc overload above.
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
                  const Eigen::Vector3d& g_vec, const ImuNoise& noise,
@@ -137,17 +137,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos);
 
   /**
-   * Pressure-sensor depth update from the world-frame z position.
-   *
-   * The scalar model h(xi) = e_3^T p is not equivariant: under the state action
-   * it picks up a term e_3^T R p_A that no output action can reproduce. The
-   * depth is therefore stacked onto the estimated horizontal position to form
-   * the pseudo-position p_tilde = [p_x, p_y, z_depth]^T, which is fed through
-   * the position output with the horizontal variance inflated so only the
-   * vertical direction is corrected. Since the horizontal entries come from the
-   * estimate rather than the true state, this update is a second-order
-   * approximation. See update_depth_direct() for the scalar model this
-   * construction replaces.
+   * Pressure-sensor depth update from the world-frame z position using the
+   * right error pseudo position output.
    *
    * @param z_depth              Measured world-frame z position.
    * @param R_depth              Variance of z_depth, as a 1x1 matrix.
@@ -159,10 +150,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /**
    * Pressure-sensor depth update through the non-equivariant scalar model
-   * h(xi) = e_3^T p (see DepthOutput.h). With no output action the innovation
-   * is formed in the raw sensor space: the prediction is taken at the current
-   * estimate and R_depth is used unconjugated. Second order in the state
-   * error, one worse than the pseudo-position update's C*.
+   * h(xi) = e_3^T p (see DepthOutput.h).
    *
    * @param z_depth  Measured world-frame z position.
    * @param R_depth  Variance of z_depth, as a 1x1 matrix.
@@ -172,9 +160,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Virtual-bias anchor b_v = 0 pseudo-measurement.
   void update_virtual_bias(const Covariance3& R_vb);
 
+  // Error state and vector in the fixed-origin chart.
   State errorState(const State& xi_true) const;
   TangentVector errorStateVector(const State& xi_true) const;
 
+  // State accessors.
   gtsam::Rot3 attitude() const;
   Eigen::Vector3d velocity() const;
   Eigen::Vector3d position() const;
@@ -189,15 +179,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /**
    * Measurement update followed by the covariance reset.
-   *
-   * Cstar must already be in error coordinates, the tangent space at the
-   * reference state, and prediction, z and R must share one output frame with
-   * it.
-   *
-   * All four public update_* methods route through this, so the reset above
-   * is applied uniformly; a caller reaching Base::update() or
-   * Base::updateWithVector() directly bypasses it. Keep routing every new
-   * update through here rather than the base class methods.
    */
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,

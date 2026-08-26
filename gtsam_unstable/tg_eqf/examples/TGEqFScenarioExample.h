@@ -70,8 +70,8 @@ class ScenarioAdapter {
     xi_hat0.b_w = initial.bias_gyro;
     xi_hat0.b_a = initial.bias_accel;
     // b_v stays zero: the virtual bias has no physical truth to perturb.
-    const State xi0 = State::identity();
-    Filter filter(xi0, Filter::initialCovariance(P0), phiInverse(xi0, xi_hat0));
+    Filter filter(phiInverse(State::identity(), xi_hat0),
+                  Filter::initialCovariance(P0));
     filter.set_reset_step(reset_step_);
     filter.set_bias_process_noise(gyro_bias_q_, accel_bias_q_);
     return filter;
