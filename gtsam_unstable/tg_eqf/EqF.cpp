@@ -133,6 +133,10 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
   // to zero.
   Covariance18 Qc_eff = Qc;
   Qc_eff.block<3, 3>(15, 15) += virtual_bias_Q_;
+  // Filter-only bias process noise; both blocks are zero unless
+  // set_bias_process_noise() turned them on.
+  Qc_eff.block<3, 3>(9, 9) += gyro_bias_Q_;
+  Qc_eff.block<3, 3>(12, 12) += accel_bias_Q_;
 
   // Discretize with a 4-term truncation of exp(A dt) rather than the Euler
   // default.
@@ -184,6 +188,11 @@ void TGEqF::set_virtual_bias_anchor(bool enable,
   if (R_vb) {
     virtual_bias_R_ = *R_vb;
   }
+}
+
+void TGEqF::set_bias_process_noise(double gyro_psd, double accel_psd) {
+  gyro_bias_Q_ = gyro_psd * Covariance3::Identity();
+  accel_bias_Q_ = accel_psd * Covariance3::Identity();
 }
 
 void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {

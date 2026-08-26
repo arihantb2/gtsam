@@ -97,6 +97,14 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
       bool enable, const std::optional<Covariance3>& R_vb = std::nullopt);
 
   /**
+   * Filter-only process noise on the physical bias states, as continuous-time
+   * PSDs (variance units), added to Qc's b_w and b_a blocks by propagate().
+   * Both default to zero. See gyro_bias_Q_ for what this is for and what it is
+   * not.
+   */
+  void set_bias_process_noise(double gyro_psd, double accel_psd);
+
+  /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
    *
    * Numerical derivative, at eps = delta_xi, of the error re-centring map
@@ -215,6 +223,24 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Process noise and measurement noise for the virtual-bias state.
   Covariance3 virtual_bias_R_ = 1e-6 * Covariance3::Identity();
   Covariance3 virtual_bias_Q_ = 1e-6 * Covariance3::Identity();
+
+  /**
+   * Filter-only process noise on b_w and b_a. Off by default.
+   *
+   * This is **not** a physical bias random walk -- that enters through
+   * ImuNoise::gyro_rw / accel_rw, is transported by the lift, and is matched by
+   * a drifting true bias in the simulator. This is linearization compensation.
+   * The lift's bias component Lambda_2 = ad_b[Lambda_1] - tau is bilinear in
+   * (bias, navigation), so the error transport linearized at xi_ref -- where
+   * b_ref = 0, killing the ad_b coupling in A's bias rows -- leaves a residual
+   * that is second order in the error and concentrated in the bias blocks.
+   * B's bias rows are exactly zero (correctly so: IMU white noise does not
+   * reach the bias directions of this chart), so with no bias random walk
+   * nothing re-inflates the bias covariance and the unmodelled residual
+   * accumulates without bound.
+   */
+  Covariance3 gyro_bias_Q_ = Covariance3::Zero();
+  Covariance3 accel_bias_Q_ = Covariance3::Zero();
 
   bool reset_step_ = true;
 

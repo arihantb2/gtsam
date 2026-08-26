@@ -42,7 +42,12 @@ class ScenarioAdapter {
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(imu_scenarios::navGravity()),
         reset_step_(opts.tg_eqf_reset_step),
-        depth_direct_(opts.tg_eqf_depth_direct) {}
+        depth_direct_(opts.tg_eqf_depth_direct),
+        // CLI carries sigmas; the filter wants PSDs (variances).
+        gyro_bias_q_(opts.tg_eqf_gyro_bias_q_sigma *
+                     opts.tg_eqf_gyro_bias_q_sigma),
+        accel_bias_q_(opts.tg_eqf_accel_bias_q_sigma *
+                      opts.tg_eqf_accel_bias_q_sigma) {}
 
   /// The virtual bias bv is estimate-only: it has no ground-truth counterpart.
   std::string csvHeader() const {
@@ -68,6 +73,7 @@ class ScenarioAdapter {
     const State xi0 = State::identity();
     Filter filter(xi0, Filter::initialCovariance(P0), phiInverse(xi0, xi_hat0));
     filter.set_reset_step(reset_step_);
+    filter.set_bias_process_noise(gyro_bias_q_, accel_bias_q_);
     return filter;
   }
 
@@ -134,6 +140,9 @@ class ScenarioAdapter {
   gtsam::Vector3 gravity_;
   bool reset_step_;
   bool depth_direct_;
+  // Filter-only bias process-noise PSDs; zero unless the CLI set them.
+  double gyro_bias_q_;
+  double accel_bias_q_;
 };
 
 inline RunSummary runScenario(const gtsam::Scenario& scenario,
