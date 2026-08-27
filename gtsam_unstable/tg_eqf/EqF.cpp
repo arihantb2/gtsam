@@ -21,6 +21,29 @@ namespace {
  * EquivariantFilter::covariance() applies in the forward direction, and it
  * reduces to the identity when X0 is the identity.
  */
+/**
+ * Van Loan discretization of the process noise,
+ *
+ *   Qd = int_0^dt exp(A s) Qc exp(A^T s) ds,
+ *
+ * from the truncated exponential of the block matrix C = [-A, Qc; 0, A^T] dt:
+ * expm(C) = [F11, G; 0, F22] with F22 = exp(A^T dt) and
+ * G = exp(-A dt) int_0^dt exp(A s) Qc exp(A^T s) ds, so Qd = F22^T G.
+ */
+Eigen::Matrix<double, 18, 18> discretizeNoiseVanLoan(
+    const Eigen::Matrix<double, 18, 18>& A,
+    const Eigen::Matrix<double, 18, 18>& Qc, double dt) {
+  Eigen::Matrix<double, 36, 36> C = Eigen::Matrix<double, 36, 36>::Zero();
+  C.topLeftCorner<18, 18>() = -A;
+  C.topRightCorner<18, 18>() = Qc;
+  C.bottomRightCorner<18, 18>() = A.transpose();
+
+  const Matrix E = expm(C * dt, 4);
+  const Eigen::Matrix<double, 18, 18> Qd =
+      E.bottomRightCorner<18, 18>().transpose() * E.topRightCorner<18, 18>();
+  return 0.5 * (Qd + Qd.transpose());
+}
+
 Eigen::Matrix<double, 18, 18> toOriginChart(
     const State& xi_ref, const Eigen::Matrix<double, 18, 18>& Sigma0,
     const TGElement& X0) {
@@ -131,19 +154,14 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
 
   const Lift lift(u);
   const InputOrbit psi_u(u);
-  // Give the virtual bias its own process noise so the b_v = 0 anchor leaves it
-  // a steady-state floor of about sqrt(Q R) instead of driving its covariance
-  // to zero.
-  Covariance18 Qc_eff = Qc;
-  Qc_eff.block<3, 3>(15, 15) += virtual_bias_Q_;
-  // Filter-only bias process noise; both blocks are zero unless
-  // set_bias_process_noise() turned them on.
-  Qc_eff.block<3, 3>(9, 9) += gyro_bias_Q_;
-  Qc_eff.block<3, 3>(12, 12) += accel_bias_Q_;
 
-  // Discretize with a 4-term truncation of exp(A dt) rather than the Euler
-  // default.
-  Base::predict<4>(lift, psi_u, Qc_eff, dt);
+  // Discretize with a 4-term truncation of exp(A dt) for the transition
+  // matrix, and Van Loan for the process noise. predictWithJacobian scales its
+  // Qc argument by dt, so Qd is passed pre-divided.
+  const MatrixM A = computeErrorDynamicsMatrix<Lift>(psi_u);
+  const Covariance18 Qc_eff =
+      dt > 0.0 ? Covariance18(discretizeNoiseVanLoan(A, Qc, dt) / dt) : Qc;
+  Base::predictWithJacobian<4>(lift, A, Qc_eff, dt);
 
   // Pin the unobservable virtual bias at zero unless disabled.
   if (anchor_virtual_bias_) {
@@ -179,8 +197,7 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
 
   auto Qc = B * Sigma * B.transpose();
 
-  // Continuous-time density; Base::predict applies the discretization dt
-  // factor.
+  // Continuous-time density; propagate() applies the Van Loan discretization.
   return Qc;
 }
 
@@ -190,11 +207,6 @@ void TGEqF::set_virtual_bias_anchor(bool enable,
   if (R_vb) {
     virtual_bias_R_ = *R_vb;
   }
-}
-
-void TGEqF::set_bias_process_noise(double gyro_psd, double accel_psd) {
-  gyro_bias_Q_ = gyro_psd * Covariance3::Identity();
-  accel_bias_Q_ = accel_psd * Covariance3::Identity();
 }
 
 void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {

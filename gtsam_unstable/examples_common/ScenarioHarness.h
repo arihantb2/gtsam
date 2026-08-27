@@ -94,14 +94,6 @@ struct RunOptions {
   // default) or the direct scalar one. Other filter adapters ignore both.
   bool tg_eqf_reset_step = true;
   bool tg_eqf_depth_direct = false;
-
-  // TG-EqF only: filter-only process noise on the b_w / b_a blocks, as a
-  // continuous-time sigma (the PSD is its square). Unlike gyro_bias_rw /
-  // accel_bias_rw these do NOT drive the simulated IMU -- the true biases stay
-  // constant and only the filter's covariance changes -- so they are
-  // linearization compensation, not a bias model. Zero disables them.
-  double tg_eqf_gyro_bias_q_sigma = 0.0;
-  double tg_eqf_accel_bias_q_sigma = 0.0;
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -190,10 +182,6 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         throw std::runtime_error("--reset-step requires 0 or 1");
       }
       opts.tg_eqf_reset_step = (flag != 0);
-    } else if (arg == "--filter-gyro-bias-q") {
-      opts.tg_eqf_gyro_bias_q_sigma = std::stod(value());
-    } else if (arg == "--filter-accel-bias-q") {
-      opts.tg_eqf_accel_bias_q_sigma = std::stod(value());
     } else if (arg == "--depth-model") {
       const std::string model = value();
       if (model == "pseudo") {

@@ -17,8 +17,8 @@ namespace tgeqf {
  *
  * Has no gyro/accel channel for the virtual input nu, and no random-walk
  * channel for its bias b_v: nu is held at zero rather than driven by a noisy
- * measurement, and b_v's own process noise instead enters separately as
- * virtual_bias_Q_.
+ * measurement, and b_v's own process noise comes only from whatever the
+ * gyro/accel channels above couple into it through the lift.
  */
 struct ImuNoise {
   Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
@@ -49,7 +49,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   /// Initial standard deviation of the virtual bias b_v.
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
-  static constexpr double kBiasSigma = 1e-3;
 
   /**
    * Full initial covariance built from the physical-state one, ordered
@@ -96,19 +95,14 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
       bool enable, const std::optional<Covariance3>& R_vb = std::nullopt);
 
   /**
-   * Filter-only process noise on the physical bias states, as continuous-time
-   * PSDs (variance units), added to Qc's b_w and b_a blocks by propagate().
-   */
-  void set_bias_process_noise(double gyro_psd, double accel_psd);
-
-  /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
    */
   MatrixM resetMatrix(const TangentVector& delta_xi,
                       const TangentVector& delta_x) const;
 
   /**
-   * IMU propagation with origin-chart Qc injected directly (P += Qc*dt).
+   * IMU propagation with a continuous-time origin-chart process noise density
+   * Qc, discretized by Van Loan as Qd = int_0^dt exp(A s) Qc exp(A^T s) ds.
    * Use the ImuNoise overload for lift-mapped process noise instead.
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
@@ -116,14 +110,15 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
                  double dt);
 
   /**
-   * IMU propagation with Qc_eff = B Sigma B^T from IMU PSDs through the
-   * lift differential (origin chart).
+   * IMU propagation with Qc = B Sigma B^T from IMU PSDs through the lift
+   * differential (origin chart).
    */
   void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
                  const Eigen::Vector3d& g_vec, const ImuNoise& noise,
                  double dt);
 
-  // Qc_eff = B Sigma B^T; discrete covariance is Qc_eff * dt. For testing.
+  // Qc_eff = B Sigma B^T, the continuous-time density; propagate() applies
+  // the Van Loan discretization. For testing.
   Covariance18 inputNoiseCov(const ImuNoise& noise) const;
 
   /// Fixed-origin input lift orbit_jacobian0_ * G; reduces to G itself since
@@ -186,15 +181,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   bool anchor_virtual_bias_ = false;
 
-  // Process noise and measurement noise for the virtual-bias state.
+  // Measurement noise for the virtual-bias anchor update.
   Covariance3 virtual_bias_R_ = 1e-6 * Covariance3::Identity();
-  Covariance3 virtual_bias_Q_ = 1e-6 * Covariance3::Identity();
-
-  /**
-   * Process noise on b_w and b_a. Off by default
-   */
-  Covariance3 gyro_bias_Q_ = Covariance3::Zero();
-  Covariance3 accel_bias_Q_ = Covariance3::Zero();
 
   bool reset_step_ = true;
 
