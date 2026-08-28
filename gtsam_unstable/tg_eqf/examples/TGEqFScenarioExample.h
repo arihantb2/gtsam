@@ -42,13 +42,16 @@ class ScenarioAdapter {
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(imu_scenarios::navGravity()),
         reset_step_(opts.tg_eqf_reset_step),
-        depth_direct_(opts.tg_eqf_depth_direct) {}
+        depth_direct_(opts.tg_eqf_depth_direct),
+        cov_format_(opts.log_full_covariance
+                        ? imu_scenarios::CovarianceFormat::FullUpperTriangle
+                        : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
 
   /// The virtual bias bv is estimate-only: it has no ground-truth counterpart.
   std::string csvHeader() const {
     return imu_scenarios::trajectoryCsvHeader(
         {"v", "p", "bg", "ba"}, {"v", "p", "bg", "ba", "bv"},
-        {"R", "v", "p", "bg", "ba", "bv"});
+        {"R", "v", "p", "bg", "ba", "bv"}, cov_format_);
   }
 
   /// Pin the origin xi0 at the manifold identity, so the error dynamics are
@@ -124,8 +127,12 @@ class ScenarioAdapter {
         .v3(xi_hat.b_w)
         .v3(xi_hat.b_a)
         .v3(xi_hat.b_v);
-    row.tangent<kDim>(filter.errorStateVector(xi_true))
-        .covarianceBlocks<kDim>(filter.errorCovariance());
+    row.tangent<kDim>(filter.errorStateVector(xi_true));
+    if (cov_format_ == imu_scenarios::CovarianceFormat::FullUpperTriangle) {
+      row.covarianceFullUpper<kDim>(filter.errorCovariance());
+    } else {
+      row.covarianceBlocks<kDim>(filter.errorCovariance());
+    }
     row.end();
   }
 
@@ -134,6 +141,7 @@ class ScenarioAdapter {
   gtsam::Vector3 gravity_;
   bool reset_step_;
   bool depth_direct_;
+  imu_scenarios::CovarianceFormat cov_format_;
 };
 
 inline RunSummary runScenario(const gtsam::Scenario& scenario,

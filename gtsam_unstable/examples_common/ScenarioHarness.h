@@ -94,6 +94,9 @@ struct RunOptions {
   // default) or the direct scalar one. Other filter adapters ignore both.
   bool tg_eqf_reset_step = true;
   bool tg_eqf_depth_direct = false;
+
+  // Applies to all three filter adapters, unlike the two options above.
+  bool log_full_covariance = false;
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -190,6 +193,15 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         opts.tg_eqf_depth_direct = true;
       } else {
         throw std::runtime_error("--depth-model requires 'pseudo' or 'direct'");
+      }
+    } else if (arg == "--cov-format") {
+      const std::string format = value();
+      if (format == "diag") {
+        opts.log_full_covariance = false;
+      } else if (format == "full") {
+        opts.log_full_covariance = true;
+      } else {
+        throw std::runtime_error("--cov-format requires 'diag' or 'full'");
       }
     } else {
       std::cerr << "warning: ignoring unrecognized argument '" << arg << "'\n";

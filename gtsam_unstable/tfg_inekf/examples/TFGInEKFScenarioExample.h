@@ -36,12 +36,16 @@ class ScenarioAdapter {
   explicit ScenarioAdapter(const RunOptions& opts)
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
             imu_scenarios::resolvedProcessNoise(opts))),
-        gravity_(imu_scenarios::navGravity()) {}
+        gravity_(imu_scenarios::navGravity()),
+        cov_format_(opts.log_full_covariance
+                        ? imu_scenarios::CovarianceFormat::FullUpperTriangle
+                        : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
 
   std::string csvHeader() const {
     return imu_scenarios::trajectoryCsvHeader({"v", "p", "bg", "ba"},
                                               {"v", "p", "bg", "ba"},
-                                              {"R", "v", "p", "bg", "ba"});
+                                              {"R", "v", "p", "bg", "ba"},
+                                              cov_format_);
   }
 
   /// Start at the perturbed initial belief, biases included. Every TFG state is
@@ -95,14 +99,19 @@ class ScenarioAdapter {
         .v3(X_hat.p)
         .v3(X_hat.bias_omega())
         .v3(X_hat.bias_accel());
-    row.tangent<kDim>(filter.errorStateVector(X_true))
-        .covarianceBlocks<kDim>(filter.covariance());
+    row.tangent<kDim>(filter.errorStateVector(X_true));
+    if (cov_format_ == imu_scenarios::CovarianceFormat::FullUpperTriangle) {
+      row.covarianceFullUpper<kDim>(filter.covariance());
+    } else {
+      row.covarianceBlocks<kDim>(filter.covariance());
+    }
     row.end();
   }
 
  private:
   ImuNoise noise_;
   Eigen::Vector3d gravity_;
+  imu_scenarios::CovarianceFormat cov_format_;
 };
 
 inline RunSummary runScenario(const gtsam::Scenario& scenario,

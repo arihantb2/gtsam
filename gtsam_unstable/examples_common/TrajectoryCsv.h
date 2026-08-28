@@ -19,6 +19,10 @@
 
 namespace imu_scenarios {
 
+/// BlockDiagonal logs only each tangent block's 3x3 diagonal (today's
+/// format); FullUpperTriangle also logs the off-block-diagonal terms.
+enum class CovarianceFormat { BlockDiagonal, FullUpperTriangle };
+
 /// Column header matching CsvRow below.
 /// @param truth_blocks    3-vector blocks logged for ground truth, after the
 ///                        gt_q* quaternion, e.g. {"v", "p", "bg", "ba"}.
@@ -26,10 +30,12 @@ namespace imu_scenarios {
 ///                        the truth has no counterpart for (TG-EqF's "bv").
 /// @param tangent_blocks  blocks of the tangent space, driving both the err_*
 ///                        and P_* groups, e.g. {"R", "v", "p", "bg", "ba"}.
+/// @param cov_format      BlockDiagonal (default) or FullUpperTriangle.
 inline std::string trajectoryCsvHeader(
     const std::vector<std::string>& truth_blocks,
     const std::vector<std::string>& estimate_blocks,
-    const std::vector<std::string>& tangent_blocks) {
+    const std::vector<std::string>& tangent_blocks,
+    CovarianceFormat cov_format = CovarianceFormat::BlockDiagonal) {
   std::string header = "t";
 
   auto appendQuaternion = [&header](const std::string& prefix) {
@@ -61,13 +67,28 @@ inline std::string trajectoryCsvHeader(
 
   appendVectors("err", tangent_blocks);
 
-  // Upper triangle of each 3x3 diagonal block of the covariance.
-  for (const std::string& block : tangent_blocks) {
-    for (const char* entry : {"00", "01", "02", "11", "12", "22"}) {
-      header += ",P_";
-      header += block;
-      header += '_';
-      header += entry;
+  if (cov_format == CovarianceFormat::BlockDiagonal) {
+    // Upper triangle of each 3x3 diagonal block of the covariance.
+    for (const std::string& block : tangent_blocks) {
+      for (const char* entry : {"00", "01", "02", "11", "12", "22"}) {
+        header += ",P_";
+        header += block;
+        header += '_';
+        header += entry;
+      }
+    }
+  } else {
+    // Global scalar tangent indices, not block-pair names: the err_* columns
+    // above already declare the 3-wide block layout in order, so a reader
+    // can recover any block slice from the index alone.
+    const int dim = 3 * static_cast<int>(tangent_blocks.size());
+    for (int i = 0; i < dim; ++i) {
+      for (int j = i; j < dim; ++j) {
+        header += ",P_";
+        header += std::to_string(i);
+        header += '_';
+        header += std::to_string(j);
+      }
     }
   }
 
@@ -112,6 +133,19 @@ class CsvRow {
       out_ << ',' << P(o, o) << ',' << P(o, o + 1) << ',' << P(o, o + 2) << ','
            << P(o + 1, o + 1) << ',' << P(o + 1, o + 2) << ','
            << P(o + 2, o + 2);
+    }
+    return *this;
+  }
+
+  /// Full upper triangle of a covariance, row-major (i, then j >= i), matching
+  /// the FullUpperTriangle header.
+  template <int Dim>
+  CsvRow& covarianceFullUpper(const Eigen::Matrix<double, Dim, Dim>& P) {
+    static_assert(Dim % 3 == 0, "covariance dimension must be a multiple of 3");
+    for (int i = 0; i < Dim; ++i) {
+      for (int j = i; j < Dim; ++j) {
+        out_ << ',' << P(i, j);
+      }
     }
     return *this;
   }
