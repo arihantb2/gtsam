@@ -96,7 +96,8 @@ struct RunOptions {
   bool tg_eqf_depth_direct = false;
 
   // Applies to all three filter adapters, unlike the two options above.
-  bool log_full_covariance = false;
+  // Default is the full upper triangle; pass --cov-format diag to opt out.
+  bool log_full_covariance = true;
 };
 
 /// Parse "x,y,z" into a Vector3 (throws on malformed input).
@@ -204,7 +205,10 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         throw std::runtime_error("--cov-format requires 'diag' or 'full'");
       }
     } else {
-      std::cerr << "warning: ignoring unrecognized argument '" << arg << "'\n";
+      // A stale binary once accepted --cov-format full, ignored it, and still
+      // recorded the flag in the run manifest; silently ignoring an unknown
+      // flag makes a stale binary indistinguishable from a working one.
+      throw std::runtime_error("unrecognized argument '" + arg + "'");
     }
   }
   return opts;
