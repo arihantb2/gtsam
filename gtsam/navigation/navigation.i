@@ -178,9 +178,6 @@ class PreintegratedRotation {
   gtsam::Rot3 biascorrectedDeltaRij(
       const gtsam::Vector3& biasOmegaIncr,
       gtsam::OptionalJacobian<3, 3> H = nullptr) const;
-  gtsam::Vector3 integrateCoriolis(
-      const gtsam::Rot3& rot_i,
-      gtsam::OptionalJacobian<3, 3> H = nullptr) const;
 
   // Access instance variables
   const double& deltaTij() const;
@@ -216,11 +213,9 @@ virtual class PreintegrationParams : gtsam::PreintegratedRotationParams {
 
   void setAccelerometerCovariance(const gtsam::Matrix3& cov);
   void setIntegrationCovariance(const gtsam::Matrix3& cov);
-  void setUse2ndOrderCoriolis(bool flag);
 
   const gtsam::Matrix3& getAccelerometerCovariance() const;
   const gtsam::Matrix3& getIntegrationCovariance() const;
-  bool   getUse2ndOrderCoriolis()     const;
 
   // enabling serialization functionality
   void serialize() const;
@@ -236,11 +231,10 @@ class PreintegratedImuMeasurements {
   // Testable
   void print(string s = "") const;
   bool equals(
-      const gtsam::PreintegratedImuMeasurementsT<gtsam::TangentPreintegration>&
-          expected,
-      double tol) const;
+      const gtsam::PreintegratedImuMeasurements& expected, double tol) const;
 
   // Standard Interface
+  @pybind_lambda
   void integrateMeasurement(
       const gtsam::Vector3& measuredAcc,
       const gtsam::Vector3& measuredOmega, double deltaT);
@@ -249,7 +243,8 @@ class PreintegratedImuMeasurements {
 
   gtsam::Matrix preintMeasCov() const;
   gtsam::Matrix9 residualCovariance() const;
-  const gtsam::Vector9& preintegrated() const;
+  @pybind_lambda
+  gtsam::Vector9 preintegrated() const;
   double deltaTij() const;
   gtsam::Rot3 deltaRij() const;
   gtsam::Vector3 deltaPij() const;
@@ -270,6 +265,59 @@ class PreintegratedImuMeasurements {
   // enabling serialization functionality
   void serialize() const;
 };
+
+template<PREINTEGRATION>
+class PreintegratedImuMeasurementsT {
+  // Constructors
+  PreintegratedImuMeasurementsT(const gtsam::PreintegrationParams* p);
+  PreintegratedImuMeasurementsT(const gtsam::PreintegrationParams* p,
+      const gtsam::imuBias::ConstantBias& biasHat);
+
+  // Testable
+  void print(string s = "") const;
+  bool equals(
+      const gtsam::PreintegratedImuMeasurementsT<PREINTEGRATION>& expected,
+      double tol) const;
+
+  // Standard Interface
+  @pybind_lambda
+  void integrateMeasurement(
+      const gtsam::Vector3& measuredAcc,
+      const gtsam::Vector3& measuredOmega, double deltaT);
+  void resetIntegration();
+  void resetIntegrationAndSetBias(const gtsam::imuBias::ConstantBias& biasHat);
+
+  gtsam::Matrix preintMeasCov() const;
+  gtsam::Matrix9 residualCovariance() const;
+  @pybind_lambda
+  gtsam::Vector9 preintegrated() const;
+  double deltaTij() const;
+  gtsam::Rot3 deltaRij() const;
+  gtsam::Vector3 deltaPij() const;
+  gtsam::Vector3 deltaVij() const;
+  gtsam::Vector3 so3TangentAt(double t) const;
+  gtsam::Matrix deskewPoints(gtsam::ConstMatrixView points,
+      const gtsam::Vector3& velocity_i = gtsam::Vector3::Zero()) const;
+  gtsam::Matrix deskewPointsAtTimes(gtsam::ConstMatrixView points,
+      const gtsam::Vector& times,
+      const gtsam::Vector3& velocity_i = gtsam::Vector3::Zero()) const;
+  const gtsam::imuBias::ConstantBias& biasHat() const;
+  gtsam::Vector6 biasHatVector() const;
+  gtsam::NavState predict(const gtsam::NavState& state_i,
+      const gtsam::imuBias::ConstantBias& bias_i,
+      gtsam::OptionalJacobian<9, 9> H1 = nullptr,
+      gtsam::OptionalJacobian<9, 6> H2 = nullptr) const;
+};
+
+typedef gtsam::PreintegratedImuMeasurementsT<
+    gtsam::ManifoldPreintegration> PreintegratedImuMeasurementsManifold;
+typedef gtsam::PreintegratedImuMeasurementsT<
+    gtsam::TangentPreintegration> PreintegratedImuMeasurementsTangent;
+typedef gtsam::PreintegratedImuMeasurementsT<
+    gtsam::LieGroupPreintegration> PreintegratedImuMeasurementsLieGroup;
+@serializable
+typedef gtsam::PreintegratedImuMeasurementsT<
+    gtsam::GalileanPreintegration> PreintegratedImuMeasurementsG;
 
 virtual class ImuFactor: gtsam::NoiseModelFactor {
   ImuFactor(gtsam::Key pose_i, gtsam::Key vel_i, gtsam::Key pose_j, gtsam::Key vel_j,
@@ -301,6 +349,25 @@ virtual class ImuFactor2: gtsam::NoiseModelFactor {
                               gtsam::OptionalMatrixType H1 = nullptr,
                               gtsam::OptionalMatrixType H2 = nullptr,
                               gtsam::OptionalMatrixType H3 = nullptr) const;
+
+  // enable serialization functionality
+  void serialize() const;
+};
+
+#include <gtsam/navigation/GalileanImuFactor.h>
+virtual class GalileanImuFactor: gtsam::NoiseModelFactor {
+  GalileanImuFactor(
+      gtsam::Key pose_i, gtsam::Key vel_i, gtsam::Key pose_j,
+      gtsam::Key vel_j, gtsam::Key bias,
+      const gtsam::PreintegratedImuMeasurementsG& preintegratedMeasurements);
+
+  // Standard Interface
+  const gtsam::PreintegratedImuMeasurementsG&
+  preintegratedMeasurements() const;
+  gtsam::Vector evaluateError(
+      const gtsam::Pose3& pose_i, const gtsam::Vector3& vel_i,
+      const gtsam::Pose3& pose_j, const gtsam::Vector3& vel_j,
+      const gtsam::imuBias::ConstantBias& bias) const;
 
   // enable serialization functionality
   void serialize() const;
@@ -365,8 +432,7 @@ class PreintegratedCombinedMeasurements {
   // Testable
   void print(string s = "Preintegrated Measurements:") const;
   bool equals(
-      const gtsam::PreintegratedCombinedMeasurementsT<
-          gtsam::TangentPreintegration>& expected,
+      const gtsam::PreintegratedCombinedMeasurements& expected,
       double tol) const;
 
   // Standard Interface

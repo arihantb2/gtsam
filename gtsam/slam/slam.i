@@ -499,6 +499,7 @@ gtsam::BetweenFactorPose3s parse3DFactors(
 pair<gtsam::NonlinearFactorGraph*, gtsam::Values*> load3D(
     const string& filename);
 
+// In 3D, EDGE_SE3_TRACKXYZ records are exposed as BearingRangeFactor3D.
 pair<gtsam::NonlinearFactorGraph*, gtsam::Values*> readG2o(
     const string& g2oFile, const bool is3D = false,
     gtsam::KernelFunctionType kernelFunctionType =
@@ -599,17 +600,64 @@ virtual class FrobeniusBetweenFactor : gtsam::NoiseModelFactor {
   gtsam::Vector evaluateError(const T& T1, const T& T2) const;
 };
 
-#include <gtsam/slam/RelativeTranslationFactor.h>
-// Relative translation measurement for certifiable SE(d) synchronization,
-// with d = 2 or 3. `measured` is the d-vector translation offset expressed in
-// the body frame of pose i, and `weight` is the translational precision tau.
-template <d = {2, 3}>
-virtual class RelativeTranslationFactor : gtsam::NoiseModelFactor {
-  RelativeTranslationFactor(gtsam::Key rotationKey, gtsam::Key translationKey1,
-                            gtsam::Key translationKey2,
-                            const gtsam::Vector& measured, double weight);
+template <T = {gtsam::Rot2, gtsam::Rot3, gtsam::Pose2, gtsam::Pose3}>
+virtual class FrobeniusLeftBetweenFactor : gtsam::NoiseModelFactor {
+  FrobeniusLeftBetweenFactor(gtsam::Key j1, gtsam::Key j2, const T& iTj);
+  FrobeniusLeftBetweenFactor(gtsam::Key j1, gtsam::Key j2, const T& iTj,
+                             gtsam::noiseModel::Base* model);
 
-  const Eigen::Matrix<double, d, 1>& measured() const;
+  gtsam::Vector evaluateError(const T& iTw, const T& jTw) const;
+};
+
+#include <gtsam/slam/KnownLandmarkFactor.h>
+template <POSE = {gtsam::Pose2, gtsam::Pose3}>
+virtual class KnownLandmarkFactor : gtsam::NoiseModelFactor {
+  KnownLandmarkFactor(gtsam::Key key, const POSE::Translation& wL,
+                      const POSE::Translation& measured_kP,
+                      const gtsam::noiseModel::Base* model);
+
+  gtsam::Vector evaluateError(const POSE& wTk) const;
+};
+
+template <POSE = {gtsam::Pose2, gtsam::Pose3}>
+virtual class KnownLandmarkFactor2 : gtsam::NoiseModelFactor {
+  KnownLandmarkFactor2(gtsam::Key key, const POSE::Translation& wL,
+                       const POSE::Translation& measured_kP,
+                       const gtsam::noiseModel::Base* model);
+
+  gtsam::Vector evaluateError(const POSE& kTw) const;
+};
+
+#include <gtsam/slam/WahbaFactor.h>
+class WahbaFactor : gtsam::NoiseModelFactor {
+  WahbaFactor(gtsam::Key key, const gtsam::Unit3& bDirection,
+              const gtsam::Unit3& measured_aDirection,
+              const gtsam::noiseModel::Base* model);
+
+  gtsam::Vector evaluateError(const gtsam::Rot3& aRb) const;
+};
+
+#include <gtsam/slam/RelativeTranslationFactor.h>
+// Relative translation measurements for certifiable SE(d) synchronization.
+// Concrete declarations let the wrappers use their supported fixed-size Eigen
+// aliases while preserving the templated C++ implementation.
+virtual class RelativeTranslationFactor2 : gtsam::NoiseModelFactor {
+  RelativeTranslationFactor2(gtsam::Key rotationKey,
+                             gtsam::Key translationKey1,
+                             gtsam::Key translationKey2,
+                             const gtsam::Vector2& measured, double weight);
+
+  const gtsam::Vector2& measured() const;
+  double weight() const;
+};
+
+virtual class RelativeTranslationFactor3 : gtsam::NoiseModelFactor {
+  RelativeTranslationFactor3(gtsam::Key rotationKey,
+                             gtsam::Key translationKey1,
+                             gtsam::Key translationKey2,
+                             const gtsam::Vector3& measured, double weight);
+
+  const gtsam::Vector3& measured() const;
   double weight() const;
 };
 

@@ -30,6 +30,7 @@
 #include <gtsam/navigation/CombinedImuFactorWithGravity.h>
 #include <gtsam/navigation/DopplerFactor.h>
 #include <gtsam/navigation/GPSFactor.h>
+#include <gtsam/navigation/GalileanImuFactor.h>
 #include <gtsam/navigation/ImuFactor.h>
 #include <gtsam/navigation/ImuFactorWithGravity.h>
 #include <gtsam/navigation/PseudorangeFactor.h>
@@ -53,21 +54,28 @@ BOOST_CLASS_EXPORT_GUID(PreintegrationCombinedParams,
                         "gtsam_PreintegrationCombinedParams")
 BOOST_CLASS_EXPORT_GUID(PreintegratedCombinedMeasurements,
                         "gtsam_PreintegratedCombinedMeasurements")
+BOOST_CLASS_EXPORT_GUID(PreintegratedImuMeasurementsG,
+                        "gtsam_PreintegratedImuMeasurementsG")
+BOOST_CLASS_EXPORT_GUID(GalileanImuFactor, "gtsam_GalileanImuFactor")
 
 /* ************************************************************************* */
+#ifdef GTSAM_ALLOW_DEPRECATED_SINCE_V43
+// Legacy archives keep the ignored flag even though it no longer affects
+// equality or prediction.
 TEST(PreintegrationParams, LegacySecondOrderFlagSerialization) {
   PreintegrationParams input(Vector3(0.1, -0.2, -9.8));
   input.omegaCoriolis = Vector3(1e-5, -2e-5, 7e-5);
-  input.use2ndOrderCoriolis = true;
+  input.setUse2ndOrderCoriolis(true);
 
   PreintegrationParams output;
   roundtrip(input, output);
-  EXPECT(output.use2ndOrderCoriolis);
+  EXPECT(output.getUse2ndOrderCoriolis());
 
   PreintegrationParams semanticallyEquivalent = input;
-  semanticallyEquivalent.use2ndOrderCoriolis = false;
+  semanticallyEquivalent.setUse2ndOrderCoriolis(false);
   EXPECT(input.equals(semanticallyEquivalent, 1e-9));
 }
+#endif
 
 /* ************************************************************************* */
 TEST(AHRSFactor, Serialization) {
@@ -250,6 +258,27 @@ TEST(LieGroupPreintegration, Serialization) {
 }
 
 }  // namespace lie_group_serialization
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace galilean_serialization {
+
+// Verifies the Galilean PIM and its public factor round-trip through every
+// supported archive format.
+TEST(GalileanPreintegration, Serialization) {
+  const PreintegratedImuMeasurementsG pim =
+      getPreintegratedMeasurements<PreintegratedImuMeasurementsG>();
+  EXPECT(equalsObj(pim));
+  EXPECT(equalsXML(pim));
+  EXPECT(equalsBinary(pim));
+
+  const GalileanImuFactor factor(1, 2, 3, 4, 5, pim);
+  EXPECT(equalsObj(factor));
+  EXPECT(equalsXML(factor));
+  EXPECT(equalsBinary(factor));
+}
+
+}  // namespace galilean_serialization
 /* ************************************************************************* */
 
 /* ************************************************************************* */
