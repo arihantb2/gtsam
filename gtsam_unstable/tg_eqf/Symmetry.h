@@ -1,4 +1,5 @@
 #pragma once
+#include <gtsam/base/GroupAction.h>
 #include <gtsam_unstable/tg_eqf/Group.h>
 #include <gtsam_unstable/tg_eqf/State.h>
 
@@ -8,6 +9,10 @@ namespace tgeqf {
 /// Right group action phi : G x M -> M for TG-EqF.
 struct TGSymmetry {
   using Group = TGElement;
+  using Manifold = State;
+
+  /// phi(X, phi(Y, xi)) == phi(Y * X, xi), so this is a right action.
+  static constexpr ActionType type = ActionType::Right;
 
   /// Maps G -> M by acting on a fixed reference state (orbit functor).
   struct Orbit {
