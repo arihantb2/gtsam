@@ -106,26 +106,60 @@ inline RampProfile evalRamp(double t, double T) {
 /// independently). The spline parameter u in [0,1] is mapped to physical time
 /// through the shared `evalRamp` time-warp `S(t)` (u = S(t) / pathDuration), so
 /// the path spins up smoothly from rest -- pose(0)=origin, v(0)=a(0)=0 --
-/// matching the rest-start invariant every other factory obeys. Attitude is
-/// held at identity, so omega_b = 0 and the accelerometer sees the path's
-/// nav-frame specific force; rotation is exercised by the typical-navigation
-/// factory instead. Past the final waypoint (u >= 1) the
-/// pose is clamped and held at rest; size pathDuration so a run stays within
-/// the path (the default does).
+/// matching the rest-start invariant every other factory obeys.
+///
+/// Attitude is OPTIONAL. With no attitudes given, rotation is held at
+/// identity and omega_b = 0, as before. Given one (roll, pitch, yaw) triple
+/// per waypoint (aerospace 3-2-1, R(u) = Rz(yaw) * Ry(pitch) * Rx(roll), body
+/// to nav; yaw already unwrapped by the caller), the three angle channels get
+/// their own cubic C2 spline over the SAME u as the position spline, and
+/// omega_b is the analytic body rate from the Euler-angle rates -- so the
+/// synthesized gyro stays exactly consistent with pose(t).rotation(). udot(0)
+/// = 0, so omega_b(0) = 0 regardless of attitude, preserving the rest-start
+/// invariant.
+///
+/// The map from waypoint index to spline parameter u defaults to chord
+/// length (the waypoints describe a shape, not a schedule). Pass
+/// KnotParameterization::Uniform when the waypoints are already spaced
+/// uniformly in time, so u stays proportional to time instead of arc length.
+///
+/// Past the final waypoint (u >= 1) the pose is clamped and held at rest
+/// (attitude included); size pathDuration so a run stays within the path
+/// (the default does).
 class SplineScenario : public gtsam::Scenario {
  public:
+  /// How waypoint index maps to spline parameter u.
+  enum class KnotParameterization {
+    ChordLength,  ///< u_i from cumulative distance between waypoints.
+    Uniform,      ///< u_i = i / (n - 1); use when waypoints are evenly
+                  ///< spaced in time rather than in arc length.
+  };
+
   /// @param waypoints  >= 2 nav-frame positions; the path is auto-translated
   ///                   so pose(0) sits at the origin.
+  /// @param attitudes  empty for identity attitude, or one (roll, pitch, yaw)
+  ///                   triple per waypoint, same length and order as
+  ///                   waypoints.
   /// @param pathDuration  warped-time seconds to traverse waypoints.front() ->
   ///                   waypoints.back() (spline parameter u: 0 -> 1). Must be
   ///                   > 0. Larger => slower traversal.
   /// @param rampDuration  rest-to-cruise spin-up (shared evalRamp profile).
+  /// @param knotParam  how waypoint index maps to u; shared by the position
+  ///                   and attitude splines.
   SplineScenario(const std::vector<gtsam::Vector3>& waypoints,
-                 double pathDuration, double rampDuration = kRampDuration)
+                 const std::vector<gtsam::Vector3>& attitudes,
+                 double pathDuration, double rampDuration = kRampDuration,
+                 KnotParameterization knotParam =
+                     KnotParameterization::ChordLength)
       : pathDuration_(pathDuration), rampDuration_(rampDuration) {
     const std::size_t n = waypoints.size();
     if (n < 2) {
       throw std::invalid_argument("SplineScenario needs at least 2 waypoints.");
+    }
+    if (!attitudes.empty() && attitudes.size() != n) {
+      throw std::invalid_argument(
+          "SplineScenario attitudes must be empty or match waypoints in "
+          "size.");
     }
     if (!(pathDuration_ > 0.0)) {
       throw std::invalid_argument("SplineScenario pathDuration must be > 0.");
@@ -138,16 +172,55 @@ class SplineScenario : public gtsam::Scenario {
     // when there are too few waypoints to support it.
     const Eigen::Index degree =
         std::min<Eigen::Index>(3, static_cast<Eigen::Index>(n) - 1);
-    spline_ = Eigen::SplineFitting<Spline3>::Interpolate(pts, degree);
+    Eigen::SplineFitting<Spline3>::KnotVectorType uParams;
+    if (knotParam == KnotParameterization::Uniform) {
+      uParams.resize(static_cast<Eigen::Index>(n));
+      for (std::size_t i = 0; i < n; ++i) {
+        uParams(static_cast<Eigen::Index>(i)) =
+            static_cast<double>(i) / static_cast<double>(n - 1);
+      }
+    } else {
+      Eigen::ChordLengths(pts, uParams);
+    }
+    spline_ = Eigen::SplineFitting<Spline3>::Interpolate(pts, degree, uParams);
     origin_ = spline_(0.0).matrix();              // == waypoints.front()
     finalPos_ = spline_(1.0).matrix() - origin_;  // held past the last waypoint
+
+    hasAttitude_ = !attitudes.empty();
+    if (hasAttitude_) {
+      Eigen::Array<double, 3, Eigen::Dynamic> angles(3, n);
+      for (std::size_t i = 0; i < n; ++i) {
+        angles.col(i) = attitudes[i].array();
+      }
+      attitudeSpline_ =
+          Eigen::SplineFitting<Spline3>::Interpolate(angles, degree, uParams);
+      attitudeOrigin_ = attitudeSpline_(0.0).matrix();
+      attitudeFinal_ = attitudeSpline_(1.0).matrix();
+    }
   }
 
   gtsam::Pose3 pose(double t) const override {
-    return gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(position_n(t)));
+    return gtsam::Pose3(rotation_n(t), gtsam::Point3(position_n(t)));
   }
-  gtsam::Vector3 omega_b(double /*t*/) const override {
-    return gtsam::Vector3::Zero();
+  gtsam::Vector3 omega_b(double t) const override {
+    if (!hasAttitude_) {
+      return gtsam::Vector3::Zero();
+    }
+    const UParam u = mapTime(t);
+    if (u.clamped) {
+      return gtsam::Vector3::Zero();
+    }
+    const auto der = attitudeSpline_.derivatives(u.u, 1);
+    const double phi = der(0, 0), theta = der(1, 0);
+    const double phidot = der(0, 1) * u.udot;
+    const double thetadot = der(1, 1) * u.udot;
+    const double psidot = der(2, 1) * u.udot;
+    const double wx = phidot - psidot * std::sin(theta);
+    const double wy =
+        thetadot * std::cos(phi) + psidot * std::cos(theta) * std::sin(phi);
+    const double wz =
+        -thetadot * std::sin(phi) + psidot * std::cos(theta) * std::cos(phi);
+    return gtsam::Vector3(wx, wy, wz);
   }
   gtsam::Vector3 velocity_n(double t) const override {
     const UParam u = mapTime(t);
@@ -178,6 +251,16 @@ class SplineScenario : public gtsam::Scenario {
   gtsam::Vector3 dpdu(double u) const {
     return spline_.derivatives(u, 1).col(1).matrix();
   }
+  gtsam::Rot3 rotation_n(double t) const {
+    if (!hasAttitude_) {
+      return gtsam::Rot3();
+    }
+    const UParam u = mapTime(t);
+    const gtsam::Vector3 rpy = u.clamped
+        ? (u.u >= 1.0 ? attitudeFinal_ : attitudeOrigin_)
+        : attitudeSpline_(u.u).matrix();
+    return gtsam::Rot3::Ypr(rpy(2), rpy(1), rpy(0));
+  }
 
   /// Spline parameter u = S(t)/pathDuration and its time derivatives, where S
   /// is the shared rest-start ramp. `clamped` marks t <= 0 (held at origin) or
@@ -202,6 +285,10 @@ class SplineScenario : public gtsam::Scenario {
   Spline3 spline_;
   gtsam::Vector3 origin_ = gtsam::Vector3::Zero();
   gtsam::Vector3 finalPos_ = gtsam::Vector3::Zero();
+  bool hasAttitude_ = false;
+  Spline3 attitudeSpline_;
+  gtsam::Vector3 attitudeOrigin_ = gtsam::Vector3::Zero();
+  gtsam::Vector3 attitudeFinal_ = gtsam::Vector3::Zero();
 };
 
 /// One leg of a piecewise-constant-twist ground path: constant body angular
@@ -364,7 +451,7 @@ inline std::vector<gtsam::Vector3> defaultSplineWaypoints() {
 inline SplineScenario waypointSpline(
     const std::vector<gtsam::Vector3>& waypoints = defaultSplineWaypoints(),
     double pathDuration = kSplinePathDuration) {
-  return SplineScenario(waypoints, pathDuration);
+  return SplineScenario(waypoints, {}, pathDuration);
 }
 
 /// Samoa survey: a waypoint spline through the first 300 s of a real AUV
@@ -372,11 +459,19 @@ inline SplineScenario waypointSpline(
 /// evalRamp profile like every other scenario. The waypoints are generated
 /// already moved into the inertial frame -- first waypoint at the origin,
 /// initial direction of travel along nav +x, gravity axis untouched -- so
-/// this starts at rest at the origin like every other factory. Fixed
-/// duration: past the last waypoint the path clamps and holds at rest
-/// (SplineScenario), so a longer --duration run just idles after 300 s.
+/// this starts at rest at the origin like every other factory. Real attitude
+/// (samoaSurveyAttitudes()) drives omega_b, so this exercises the gyro
+/// channel too, not just translation. The waypoints are spaced uniformly in
+/// TIME (one every ~0.2 s of the source data), not by arc length, so this
+/// uses KnotParameterization::Uniform -- chord-length knots would compress
+/// slow stretches of the real trajectory (e.g. turns) in u, distorting the
+/// rates SplineScenario derives from du/dt. Fixed duration: past the last
+/// waypoint the path clamps and holds at rest (SplineScenario), so a longer
+/// --duration run just idles after 300 s.
 inline SplineScenario samoaSurvey() {
-  return SplineScenario(samoaSurveyWaypoints(), kSamoaPathDuration);
+  return SplineScenario(samoaSurveyWaypoints(), samoaSurveyAttitudes(),
+                        kSamoaPathDuration, kRampDuration,
+                        SplineScenario::KnotParameterization::Uniform);
 }
 
 /// Typical navigation: rest -> cruise, straight legs with two occasional
