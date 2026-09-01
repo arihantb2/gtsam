@@ -57,6 +57,10 @@ BOOST_CLASS_EXPORT_GUID(PreintegratedCombinedMeasurements,
 BOOST_CLASS_EXPORT_GUID(PreintegratedImuMeasurementsG,
                         "gtsam_PreintegratedImuMeasurementsG")
 BOOST_CLASS_EXPORT_GUID(GalileanImuFactor, "gtsam_GalileanImuFactor")
+BOOST_CLASS_EXPORT_GUID(PreintegratedCombinedMeasurementsG,
+                        "gtsam_PreintegratedCombinedMeasurementsG")
+BOOST_CLASS_EXPORT_GUID(GalileanCombinedImuFactor,
+                        "gtsam_GalileanCombinedImuFactor")
 
 /* ************************************************************************* */
 #ifdef GTSAM_ALLOW_DEPRECATED_SINCE_V43
@@ -163,6 +167,23 @@ TEST(ImuFactorWithGravity, serialization) {
 }
 
 /* ************************************************************************* */
+// Round-trips the NavState-based gravity factors; the non-default magnitude
+// verifies it is restored from the archive, not recomputed from the params.
+TEST(ImuFactor2WithGravity, serialization) {
+  auto pim = getPreintegratedMeasurements<PreintegratedImuMeasurements>();
+
+  ImuFactor2WithGravityDirection direction(1, 2, 3, 4, pim, 1.62);
+  EXPECT(equalsObj<ImuFactor2WithGravityDirection>(direction));
+  EXPECT(equalsXML<ImuFactor2WithGravityDirection>(direction));
+  EXPECT(equalsBinary<ImuFactor2WithGravityDirection>(direction));
+
+  ImuFactor2WithGravityVector vector(1, 2, 3, 4, pim);
+  EXPECT(equalsObj<ImuFactor2WithGravityVector>(vector));
+  EXPECT(equalsXML<ImuFactor2WithGravityVector>(vector));
+  EXPECT(equalsBinary<ImuFactor2WithGravityVector>(vector));
+}
+
+/* ************************************************************************* */
 TEST(CombinedImuFactor, Serialization) {
   auto pim = getPreintegratedMeasurements<PreintegratedCombinedMeasurements>();
 
@@ -201,6 +222,8 @@ using StandardFactor = ImuFactorT<Pim>;
 using NavStateFactor = ImuFactor2T<Pim>;
 using GravityDirectionFactor = ImuFactorWithGravityT<Pim, Unit3>;
 using GravityVectorFactor = ImuFactorWithGravityT<Pim, Point3>;
+using NavStateGravityDirectionFactor = ImuFactor2WithGravityT<Pim, Unit3>;
+using NavStateGravityVectorFactor = ImuFactor2WithGravityT<Pim, Point3>;
 using CombinedFactor = CombinedImuFactorT<CombinedPim>;
 using CombinedGravityDirectionFactor =
     CombinedImuFactorWithGravityT<CombinedPim, Unit3>;
@@ -233,6 +256,17 @@ TEST(LieGroupPreintegration, Serialization) {
   EXPECT(equalsObj(gravityVector));
   EXPECT(equalsXML(gravityVector));
   EXPECT(equalsBinary(gravityVector));
+
+  const NavStateGravityDirectionFactor navStateGravityDirection(1, 2, 3, 4,
+                                                                pim, 9.81);
+  EXPECT(equalsObj(navStateGravityDirection));
+  EXPECT(equalsXML(navStateGravityDirection));
+  EXPECT(equalsBinary(navStateGravityDirection));
+
+  const NavStateGravityVectorFactor navStateGravityVector(1, 2, 3, 4, pim);
+  EXPECT(equalsObj(navStateGravityVector));
+  EXPECT(equalsXML(navStateGravityVector));
+  EXPECT(equalsBinary(navStateGravityVector));
 
   const CombinedPim combinedPim = getPreintegratedMeasurements<CombinedPim>();
   EXPECT(equalsObj(combinedPim));
@@ -276,6 +310,17 @@ TEST(GalileanPreintegration, Serialization) {
   EXPECT(equalsObj(factor));
   EXPECT(equalsXML(factor));
   EXPECT(equalsBinary(factor));
+
+  const PreintegratedCombinedMeasurementsG combinedPim =
+      getPreintegratedMeasurements<PreintegratedCombinedMeasurementsG>();
+  EXPECT(equalsObj(combinedPim));
+  EXPECT(equalsXML(combinedPim));
+  EXPECT(equalsBinary(combinedPim));
+
+  const GalileanCombinedImuFactor combinedFactor(1, 2, 3, 4, 5, 6, combinedPim);
+  EXPECT(equalsObj(combinedFactor));
+  EXPECT(equalsXML(combinedFactor));
+  EXPECT(equalsBinary(combinedFactor));
 }
 
 }  // namespace galilean_serialization

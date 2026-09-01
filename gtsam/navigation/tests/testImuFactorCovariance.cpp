@@ -66,6 +66,56 @@ std::shared_ptr<PreintegrationParams> makeParams() {
   return params;
 }
 
+template <class PIM>
+struct PimBackend;
+
+template <class Backend>
+struct PimBackend<PreintegratedImuMeasurementsT<Backend>> {
+  using Type = Backend;
+};
+
+template <class PIM>
+bool matchesDensePropagation(bool displacedSensor) {
+  auto params = makeParams();
+  const Matrix3 accelerometerRoot{
+      {0.02, 0.00, 0.00}, {0.01, 0.07, 0.00}, {-0.02, 0.03, 0.14}};
+  const Matrix3 gyroscopeRoot{
+      {0.01, 0.00, 0.00}, {-0.002, 0.04, 0.00}, {0.003, -0.01, 0.07}};
+  params->accelerometerCovariance =
+      accelerometerRoot * accelerometerRoot.transpose();
+  params->gyroscopeCovariance = gyroscopeRoot * gyroscopeRoot.transpose();
+  params->integrationCovariance = 1e-5 * I_3x3;
+  if (displacedSensor) {
+    params->body_P_sensor =
+        Pose3(Rot3::RzRyRx(0.1, -0.2, 0.3), Point3(0.2, -0.1, 0.05));
+  }
+
+  using Backend = typename PimBackend<PIM>::Type;
+  const imuBias::ConstantBias bias(Vector3(0.01, -0.02, 0.03),
+                                   Vector3(-0.004, 0.005, -0.006));
+  Backend backend(params, bias);
+  PIM pim(params, bias);
+  Matrix9 expected = Z_9x9;
+  for (size_t sample = 0; sample < 25; ++sample) {
+    const double scale = static_cast<double>(sample);
+    const Vector3 acceleration =
+        kMeasuredAcceleration + scale * Vector3(0.002, -0.001, 0.0005);
+    const Vector3 angularVelocity =
+        kMeasuredAngularVelocity + scale * Vector3(-0.0003, 0.0002, 0.0001);
+    Matrix9 A;
+    Matrix93 B, C;
+    backend.update(acceleration, angularVelocity, kDt, &A, &B, &C);
+    expected = A * expected * A.transpose();
+    expected.noalias() +=
+        B * (params->accelerometerCovariance / kDt) * B.transpose();
+    expected.noalias() +=
+        C * (params->gyroscopeCovariance / kDt) * C.transpose();
+    expected.block<3, 3>(3, 3).noalias() += params->integrationCovariance * kDt;
+    pim.integrateMeasurement(acceleration, angularVelocity, kDt);
+  }
+  return assert_equal(expected, pim.preintMeasCov(), 1e-12);
+}
+
 std::shared_ptr<PreintegrationCombinedParams> makeCombinedParams() {
   auto params = PreintegrationCombinedParams::MakeSharedD(10.0);
   params->accelerometerCovariance =
@@ -85,6 +135,68 @@ std::shared_ptr<PreintegrationCombinedParams> makeCombinedParams() {
 }
 
 template <class PIM>
+struct CombinedPimBackend;
+
+template <class Backend>
+struct CombinedPimBackend<PreintegratedCombinedMeasurementsT<Backend>> {
+  using Type = Backend;
+};
+
+template <class PIM>
+bool matchesDenseCombinedPropagation(bool displacedSensor) {
+  auto params = makeCombinedParams();
+  const Matrix3 accelerometerRoot{
+      {0.02, 0.00, 0.00}, {0.01, 0.07, 0.00}, {-0.02, 0.03, 0.14}};
+  const Matrix3 gyroscopeRoot{
+      {0.01, 0.00, 0.00}, {-0.002, 0.04, 0.00}, {0.003, -0.01, 0.07}};
+  params->accelerometerCovariance =
+      accelerometerRoot * accelerometerRoot.transpose();
+  params->gyroscopeCovariance = gyroscopeRoot * gyroscopeRoot.transpose();
+  params->integrationCovariance = 1e-5 * I_3x3;
+  if (displacedSensor) {
+    params->body_P_sensor =
+        Pose3(Rot3::RzRyRx(0.1, -0.2, 0.3), Point3(0.2, -0.1, 0.05));
+  }
+
+  using Backend = typename CombinedPimBackend<PIM>::Type;
+  const imuBias::ConstantBias bias(Vector3(0.01, -0.02, 0.03),
+                                   Vector3(-0.004, 0.005, -0.006));
+  Backend backend(params, bias);
+  PIM pim(params, bias);
+  Matrix15 expected = Matrix15::Zero();
+  for (size_t sample = 0; sample < 25; ++sample) {
+    const double scale = static_cast<double>(sample);
+    const Vector3 acceleration =
+        kMeasuredAcceleration + scale * Vector3(0.002, -0.001, 0.0005);
+    const Vector3 angularVelocity =
+        kMeasuredAngularVelocity + scale * Vector3(-0.0003, 0.0002, 0.0001);
+    Matrix9 A;
+    Matrix93 B, C;
+    backend.update(acceleration, angularVelocity, kDt, &A, &B, &C);
+
+    Matrix15 F = Matrix15::Zero();
+    F.block<9, 9>(0, 0) = A;
+    F.block<9, 3>(0, 9) = B;
+    F.block<9, 3>(0, 12) = C;
+    F.block<6, 6>(9, 9) = I_6x6;
+    expected = F * expected * F.transpose();
+
+    const Matrix3 scaledAccelerometerCovariance =
+        params->accelerometerCovariance / kDt;
+    const Matrix3 scaledGyroscopeCovariance = params->gyroscopeCovariance / kDt;
+    expected.topLeftCorner<9, 9>().noalias() +=
+        B * scaledAccelerometerCovariance * B.transpose();
+    expected.topLeftCorner<9, 9>().noalias() +=
+        C * scaledGyroscopeCovariance * C.transpose();
+    expected.block<3, 3>(3, 3).noalias() += kDt * params->integrationCovariance;
+    expected.block<3, 3>(9, 9).noalias() += kDt * params->biasAccCovariance;
+    expected.block<3, 3>(12, 12).noalias() += kDt * params->biasOmegaCovariance;
+    pim.integrateMeasurement(acceleration, angularVelocity, kDt);
+  }
+  return assert_equal(expected, pim.preintMeasCov(), 1e-12);
+}
+
+template <class PIM>
 PIM integrateIdealMeasurements(
     const std::shared_ptr<PreintegrationParams>& params) {
   PIM pim(params);
@@ -97,10 +209,12 @@ PIM integrateIdealMeasurements(
 
 template <template <class> class PimTemplate, class PreintegrationType>
 Matrix9 residualChartJacobian(const PimTemplate<PreintegrationType>& pim) {
-  static_assert(std::is_same_v<PreintegrationType, ManifoldPreintegration> ||
-                    std::is_same_v<PreintegrationType, TangentPreintegration> ||
-                    std::is_same_v<PreintegrationType, LieGroupPreintegration>,
-                "Unsupported IMU preintegration backend");
+  static_assert(
+      std::is_same_v<PreintegrationType, ManifoldPreintegration> ||
+          std::is_same_v<PreintegrationType, TangentPreintegration> ||
+          std::is_same_v<PreintegrationType, LieGroupPreintegration> ||
+          std::is_same_v<PreintegrationType, GalileanPreintegration>,
+      "Unsupported IMU preintegration backend");
   if constexpr (std::is_same_v<PreintegrationType, TangentPreintegration>) {
     // Map additive [theta, position, velocity] perturbations into the
     // component-wise NavState chart used by the factor residual.
@@ -136,6 +250,19 @@ template <class PIM>
 Matrix9 theoreticalResidualCovariance(const PIM& pim) {
   const Matrix9 jacobian = residualChartJacobian(pim);
   return jacobian * pim.preintMeasCov() * jacobian.transpose();
+}
+
+// Checks optimized propagation against the original dense equation.
+TEST_PIM(ImuFactorCovariance, DensePropagationRegression) {
+  EXPECT(matchesDensePropagation<PIM>(false));
+  EXPECT(matchesDensePropagation<PIM>(true));
+}
+
+// Checks optimized Combined propagation against the original dense equation.
+TEST_PIM_WITH_COMBINED_BACKEND(ImuFactorCovariance,
+                               DenseCombinedPropagationRegression) {
+  EXPECT(matchesDenseCombinedPropagation<CombinedPIM>(false));
+  EXPECT(matchesDenseCombinedPropagation<CombinedPIM>(true));
 }
 
 template <class CombinedPIM>
