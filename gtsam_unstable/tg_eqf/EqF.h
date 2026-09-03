@@ -91,6 +91,13 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Enable/disable covariance reset after each update.
   void set_reset_step(bool enable) { reset_step_ = enable; }
 
+  /// Which DVL output matrix update_dvl() linearizes with. Cstar (default) is
+  /// the equivariant, third-order matrix the filter is designed around; C0 is
+  /// the naive chart derivative at the reference state alone, second order,
+  /// kept here so the two can be compared head-to-head in an ablation.
+  enum class DvlJacobian { Cstar, C0 };
+  void set_dvl_jacobian(DvlJacobian mode) { dvl_jacobian_ = mode; }
+
   void set_virtual_bias_anchor(
       bool enable, const std::optional<Covariance3>& R_vb = std::nullopt);
 
@@ -125,7 +132,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /// orbit_jacobian0_ is always I_18. For testing.
   MatrixM input_lift() const { return input_lift_; }
 
-  // DVL body-velocity update via h(xi) = R^T v, using the equivariant C*.
+  // DVL body-velocity update via h(xi) = R^T v, using the output matrix
+  // selected by set_dvl_jacobian() (the equivariant C* by default).
   void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
 
   // Position update via h'(xi) = R^T(pi - p), using the equivariant C*.
@@ -185,6 +193,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   Covariance3 virtual_bias_R_ = 1e-6 * Covariance3::Identity();
 
   bool reset_step_ = true;
+  DvlJacobian dvl_jacobian_ = DvlJacobian::Cstar;
 
   // Fixed-origin caches for the current reference state (xi_ref_).
   Eigen::Matrix<double, 18, 18> innovation_lift_;

@@ -43,6 +43,7 @@ class ScenarioAdapter {
         gravity_(imu_scenarios::navGravity()),
         reset_step_(opts.tg_eqf_reset_step),
         depth_direct_(opts.tg_eqf_depth_direct),
+        dvl_c0_(opts.tg_eqf_dvl_c0),
         cov_format_(opts.log_full_covariance
                         ? imu_scenarios::CovarianceFormat::FullUpperTriangle
                         : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
@@ -71,6 +72,8 @@ class ScenarioAdapter {
     Filter filter(phiInverse(State::identity(), xi_hat0),
                   Filter::initialCovariance(P0));
     filter.set_reset_step(reset_step_);
+    filter.set_dvl_jacobian(dvl_c0_ ? Filter::DvlJacobian::C0
+                                    : Filter::DvlJacobian::Cstar);
     return filter;
   }
 
@@ -141,6 +144,7 @@ class ScenarioAdapter {
   gtsam::Vector3 gravity_;
   bool reset_step_;
   bool depth_direct_;
+  bool dvl_c0_;
   imu_scenarios::CovarianceFormat cov_format_;
 };
 

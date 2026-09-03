@@ -220,9 +220,11 @@ void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {
   const Eigen::Vector3d z = DVLMeasurement::inverse_output_action(X, z_dvl);
   const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
 
-  const Eigen::Matrix<double, 3, 18> Cstar =
-      DVLMeasurement::jacobian_Cstar(xi_ref, X, z_dvl);
-  updateWithReset(prediction, Cstar, z, R_eff);
+  const Eigen::Matrix<double, 3, 18> C =
+      dvl_jacobian_ == DvlJacobian::C0
+          ? DVLMeasurement::jacobian_C0(xi_ref)
+          : DVLMeasurement::jacobian_Cstar(xi_ref, X, z_dvl);
+  updateWithReset(prediction, C, z, R_eff);
 }
 
 void TGEqF::update_position(const Eigen::Vector3d& pi,

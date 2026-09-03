@@ -90,10 +90,13 @@ struct RunOptions {
   double aiding_start_time = 0.0;  // delay before aiding updates start (s)
 
   // TG-EqF only: the covariance transport (reset) step after each measurement
-  // update, and the depth output model -- equivariant pseudo-position (the
-  // default) or the direct scalar one. Other filter adapters ignore both.
+  // update, the depth output model -- equivariant pseudo-position (the
+  // default) or the direct scalar one -- and the DVL output matrix: the
+  // equivariant C* (default) or the naive chart derivative C0, for the
+  // velocity-model ablation. Other filter adapters ignore all three.
   bool tg_eqf_reset_step = true;
   bool tg_eqf_depth_direct = false;
+  bool tg_eqf_dvl_c0 = false;
 
   // Applies to all three filter adapters, unlike the two options above.
   // Default is the full upper triangle; pass --cov-format diag to opt out.
@@ -194,6 +197,15 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         opts.tg_eqf_depth_direct = true;
       } else {
         throw std::runtime_error("--depth-model requires 'pseudo' or 'direct'");
+      }
+    } else if (arg == "--dvl-jacobian") {
+      const std::string mode = value();
+      if (mode == "cstar") {
+        opts.tg_eqf_dvl_c0 = false;
+      } else if (mode == "c0") {
+        opts.tg_eqf_dvl_c0 = true;
+      } else {
+        throw std::runtime_error("--dvl-jacobian requires 'cstar' or 'c0'");
       }
     } else if (arg == "--cov-format") {
       const std::string format = value();
