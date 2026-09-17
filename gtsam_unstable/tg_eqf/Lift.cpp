@@ -34,7 +34,7 @@ Lift::Lift(const Input& u) : u(u) {}
 // R^T acting on g (in the "a" slot) and on the state velocity v (in the "v"
 // slot); the N/-N homogeneous-row coupling cancels exactly.
 Eigen::Matrix<double, 18, 1> Lift::operator()(
-    const State& xi, Eigen::Matrix<double, 18, 18>* D_lift) const {
+    const State& xi, OptionalJacobian<18, 18> D_lift) const {
   const Eigen::Matrix3d Rt = xi.R.transpose();
   const se2_3 Lambda1 = {u.w - xi.b_w, u.a - xi.b_a + Rt * u.g_vec,
                          u.v - xi.b_v + Rt * xi.v};

@@ -1,4 +1,5 @@
 #pragma once
+#include <gtsam/base/OptionalJacobian.h>
 #include <gtsam_unstable/tg_eqf/Group.h>
 #include <gtsam_unstable/tg_eqf/State.h>
 
@@ -43,7 +44,7 @@ struct Lift {
 
   /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{18 x 18}.
   Eigen::Matrix<double, 18, 1> operator()(
-      const State& xi, Eigen::Matrix<double, 18, 18>* D_lift = nullptr) const;
+      const State& xi, OptionalJacobian<18, 18> D_lift = {}) const;
 };
 
 /// Input orbit psi_u : G -> L.
