@@ -26,6 +26,7 @@ macro(SET_PYTHON_TARGET_PROPERTIES PYTHON_TARGET OUTPUT_NAME OUTPUT_DIRECTORY)
         LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_DIRECTORY}"
         DEBUG_POSTFIX "" # Otherwise you will have a wrong name
         RELWITHDEBINFO_POSTFIX "" # Otherwise you will have a wrong name
+        MINSIZEREL_POSTFIX "" # Otherwise you will have a wrong name
         TIMING_POSTFIX "" # Otherwise you will have a wrong name
         PROFILING_POSTFIX "" # Otherwise you will have a wrong name
     )
@@ -130,6 +131,11 @@ if(GTSAM_USE_MOSEK)
     list(APPEND interface_headers
         ${PROJECT_SOURCE_DIR}/gtsam/certifiable/certifiable_mosek.i
     )
+    # Use pybind11's native STL conversions instead of container proxy classes.
+    list(APPEND ignore
+        "std::vector<double>"
+        "std::map<std::string, double>"
+        "std::map<gtsam::Key, gtsam::DenseIndex>")
 endif()
 
 if(GTSAM_ENABLE_CUDA)
@@ -212,6 +218,7 @@ copy_directory("${CMAKE_CURRENT_SOURCE_DIR}/gtsam"
 
 if(NOT GTSAM_ENABLE_CUDA)
     file(REMOVE
+        "${GTSAM_MODULE_PATH}/tests/test_CudaGnc.py"
         "${GTSAM_MODULE_PATH}/tests/test_CudaSfm.py"
         "${GTSAM_MODULE_PATH}/tests/test_CudaSparseLevenbergMarquardt.py")
 endif()
@@ -220,7 +227,7 @@ endif()
 file(GLOB GTSAM_PYTHON_TEST_FILES "${CMAKE_CURRENT_SOURCE_DIR}/gtsam/tests/*.py")
 if(NOT GTSAM_ENABLE_CUDA)
     list(FILTER GTSAM_PYTHON_TEST_FILES EXCLUDE REGEX
-        ".*/test_Cuda(Sfm|SparseLevenbergMarquardt)\\.py$")
+        ".*/test_Cuda(Gnc|Sfm|SparseLevenbergMarquardt)\\.py$")
 endif()
 foreach(test_file ${GTSAM_PYTHON_TEST_FILES})
         get_filename_component(test_file_name ${test_file} NAME)

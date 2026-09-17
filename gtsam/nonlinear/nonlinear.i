@@ -622,6 +622,7 @@ class ISAM2 {
   const gtsam::Values& getLinearizationPoint() const;
   bool valueExists(gtsam::Key key) const;
   gtsam::Values calculateEstimate() const;
+  gtsam::Values calculateEstimate(const gtsam::KeyVector& keys) const;
   template <VALUE = {double,
                      gtsam::Point2,
                      gtsam::Rot2,
@@ -982,6 +983,7 @@ class FixedLagSmootherResult {
   gtsam::FactorIndices getMarginalFactorIndices() const;
   gtsam::FactorIndices getDeletedFactorIndices() const;
   gtsam::KeySet getKeysOfDeletedNodes() const;
+  gtsam::KeySet getExpiredPendingKeys() const;
   void print() const;
 };
 
@@ -1004,6 +1006,7 @@ virtual class FixedLagSmoother {
           gtsam::FixedLagSmootherKeyTimestampMap(),
       const gtsam::FactorIndices& factorsToRemove = gtsam::FactorIndices());
   gtsam::Values calculateEstimate() const;
+  gtsam::Values calculateEstimate(const gtsam::KeyVector& keys) const;
 };
 
 #include <gtsam/nonlinear/BatchFixedLagSmoother.h>

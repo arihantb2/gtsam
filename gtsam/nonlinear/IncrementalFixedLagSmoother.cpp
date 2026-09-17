@@ -23,6 +23,8 @@
 #include <gtsam/nonlinear/BayesTreeMarginalizationHelper.h>
 #include <gtsam/base/debug.h>
 
+#include <stdexcept>
+
 namespace gtsam {
 
 /* ************************************************************************* */
@@ -54,10 +56,37 @@ FixedLagSmoother::Result IncrementalFixedLagSmoother::update(
     std::cout << "END" << std::endl;
   }
 
+  // Validate against the graph at update entry, before timestamps or ISAM2
+  // change. New factors cannot make an invalid removal index valid.
+  for (const size_t factorIndex : factorsToRemove) {
+    if (factorIndex >= isam_.getFactorsUnsafe().size()) {
+      throw std::out_of_range(
+          "IncrementalFixedLagSmoother::update: factor index " +
+          std::to_string(factorIndex) + " is outside the factor graph.");
+    }
+  }
+
   FastVector<size_t> removedFactors;
   std::optional<FastMap<Key, int> > constrainedKeys = {};
 
   const KeySet newFactorKeys = newFactors.keys();
+
+  // Every supplied timestamp must name a value the smoother already holds or
+  // one arriving in this update. A timestamp for any other key describes
+  // nothing the smoother estimates, yet it would enter the map that
+  // getCurrentTimestamp() -- the maximum over all entries -- derives the clock
+  // from, and could silently expire every established state. Validate before
+  // updateKeyTimestampMap(), the first state mutation, so a rejected update
+  // leaves the smoother unchanged.
+  for (const auto& keyTimestamp : timestamps) {
+    const Key key = keyTimestamp.first;
+    if (!isam_.valueExists(key) && !newTheta.exists(key)) {
+      throw std::invalid_argument(
+          "IncrementalFixedLagSmoother::update: timestamp supplied for key '" +
+          DefaultKeyFormatter(key) +
+          "', but no value exists in the smoother or newTheta.");
+    }
+  }
 
   // Update the Timestamps associated with the factor keys
   updateKeyTimestampMap(timestamps);
@@ -217,6 +246,7 @@ FixedLagSmoother::Result IncrementalFixedLagSmoother::update(
   result.marginalFactorIndices = marginalFactorIndices;
   result.deletedFactorIndices = deletedFactorIndices;
   result.keysOfDeletedNodes = KeySet(marginalizableKeys);
+  result.expiredPendingKeys = KeySet(expiredPendingKeys);
 
   if (debug)
     std::cout << "IncrementalFixedLagSmoother::update() Finish" << std::endl;
