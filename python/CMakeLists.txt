@@ -115,14 +115,18 @@ set(interface_headers
     ${PROJECT_SOURCE_DIR}/gtsam/linear/linear.i
     ${PROJECT_SOURCE_DIR}/gtsam/nonlinear/values.i
     ${PROJECT_SOURCE_DIR}/gtsam/nonlinear/nonlinear.i
+    ${PROJECT_SOURCE_DIR}/gtsam/nonlinear/nonlinear_continuous_time.i
     ${PROJECT_SOURCE_DIR}/gtsam/nonlinear/custom.i
     ${PROJECT_SOURCE_DIR}/gtsam/constrained/constrained.i
     ${PROJECT_SOURCE_DIR}/gtsam/certifiable/certifiable.i
     ${PROJECT_SOURCE_DIR}/gtsam/symbolic/symbolic.i
     ${PROJECT_SOURCE_DIR}/gtsam/sam/sam.i
     ${PROJECT_SOURCE_DIR}/gtsam/slam/slam.i
+    ${PROJECT_SOURCE_DIR}/gtsam/slam/slam_synchronization.i
+    ${PROJECT_SOURCE_DIR}/gtsam/slam/slam_smart_projection.i
     ${PROJECT_SOURCE_DIR}/gtsam/sfm/sfm.i
     ${PROJECT_SOURCE_DIR}/gtsam/navigation/navigation.i
+    ${PROJECT_SOURCE_DIR}/gtsam/navigation/navigation_geometric.i
     ${PROJECT_SOURCE_DIR}/gtsam/basis/basis.i
     ${PROJECT_SOURCE_DIR}/gtsam/hybrid/hybrid.i
 )
@@ -425,14 +429,20 @@ add_custom_target(${GTSAM_PYTHON_INSTALL_TARGET}
 option(GTSAM_PYTHON_INSTALL_INTO_PREFIX
        "Install the Python package into CMAKE_INSTALL_PREFIX as part of `install`"
        OFF)
+set(GTSAM_PYTHON_INSTALL_PREFIX "" CACHE PATH
+    "Override the Python installation prefix; empty follows CMAKE_INSTALL_PREFIX")
 
 if(GTSAM_PYTHON_INSTALL_INTO_PREFIX)
   install(CODE "
-    message(STATUS \"Installing the GTSAM Python package into \${CMAKE_INSTALL_PREFIX}\")
+    set(_gtsam_python_prefix \"${GTSAM_PYTHON_INSTALL_PREFIX}\")
+    if(_gtsam_python_prefix STREQUAL \"\")
+      set(_gtsam_python_prefix \"\${CMAKE_INSTALL_PREFIX}\")
+    endif()
+    message(STATUS \"Installing the GTSAM Python package into \${_gtsam_python_prefix}\")
     execute_process(
       COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install .
               --no-deps --no-build-isolation --no-compile
-              --prefix \"\${CMAKE_INSTALL_PREFIX}\"
+              --prefix \"\${_gtsam_python_prefix}\"
       WORKING_DIRECTORY \"${GTSAM_PYTHON_BUILD_DIRECTORY}\"
       RESULT_VARIABLE _gtsam_pip_result)
     if(NOT _gtsam_pip_result EQUAL 0)

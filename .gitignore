@@ -60,3 +60,4 @@ build-tbb/
 /.ccache/
 /.ccache-pkg/
 /.sccache/
+/.sccache-pkg/

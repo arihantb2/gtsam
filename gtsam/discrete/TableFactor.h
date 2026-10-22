@@ -37,6 +37,12 @@
 
 namespace gtsam {
 
+/**
+ * @brief Using Eigen::SparseVector with 64 bit indices to support large
+ * discrete factors. Fixes https://github.com/borglab/gtsam/issues/2831
+ */
+using SparseVector = Eigen::SparseVector<double, 0, int64_t>;
+
 class DiscreteConditional;
 class HybridValues;
 
@@ -51,7 +57,7 @@ class HybridValues;
 class GTSAM_EXPORT TableFactor : public DiscreteFactor {
  protected:
   /// SparseVector of nonzero probabilities.
-  Eigen::SparseVector<double> sparse_table_;
+  SparseVector sparse_table_;
 
  private:
   /// Map of Keys and their denominators used in keyValueForIndex.
@@ -112,18 +118,18 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
    * Convert probability table given as doubles to SparseVector.
    * Example: {0, 1, 1, 0, 0, 1, 0} -> values: {1, 1, 1}, indices: {1, 2, 5}
    */
-  static Eigen::SparseVector<double> Convert(const DiscreteKeys& keys,
+  static SparseVector Convert(const DiscreteKeys& keys,
                                              const std::vector<double>& table);
 
   /// Convert probability table given as string to SparseVector.
-  static Eigen::SparseVector<double> Convert(const DiscreteKeys& keys,
+  static SparseVector Convert(const DiscreteKeys& keys,
                                              const std::string& table);
 
   // typedefs needed to play nice with gtsam
   typedef TableFactor This;
   typedef DiscreteFactor Base;  ///< Typedef to base class
   typedef std::shared_ptr<TableFactor> shared_ptr;
-  typedef Eigen::SparseVector<double>::InnerIterator SparseIt;
+  typedef SparseVector::InnerIterator SparseIt;
   typedef std::vector<std::pair<DiscreteValues, double>> AssignValList;
 
   /// @name Standard Constructors
@@ -137,7 +143,7 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
 
   /** Constructor from sparse_table */
   TableFactor(const DiscreteKeys& keys,
-              const Eigen::SparseVector<double>& table);
+              const SparseVector& table);
 
   /** Constructor from doubles */
   TableFactor(const DiscreteKeys& keys, const std::vector<double>& table)
@@ -183,7 +189,7 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
   // /// @{
 
   /// Getter for the underlying sparse vector
-  Eigen::SparseVector<double> sparseTable() const { return sparse_table_; }
+  SparseVector sparseTable() const { return sparse_table_; }
 
   /// Evaluate probability distribution, is just look up in TableFactor.
   double evaluate(const Assignment<Key>& values) const override;
@@ -204,6 +210,9 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
 
   /// multiply with DecisionTreeFactor
   DecisionTreeFactor operator*(const DecisionTreeFactor& f) const override;
+
+  /// Multiply with a conditional, keeping the sparse table representation.
+  TableFactor operator*(const DiscreteConditional& c) const;
 
   /**
    * @brief Multiply factors, DiscreteFactor::shared_ptr edition.
@@ -251,6 +260,9 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
 
   /// Find the maximum value in the factor.
   double max() const override;
+
+  /// Return the assignment to all keys with the largest value.
+  DiscreteValues argmax() const;
 
   /// Create new factor by maximizing over all values with the same separator.
   DiscreteFactor::shared_ptr max(size_t nrFrontals) const override;
@@ -318,9 +330,6 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
    */
   shared_ptr combine(const Ordering& keys, Binary op) const;
 
-  /// Enumerate all values into a map from values to double.
-  std::vector<std::pair<DiscreteValues, double>> enumerate() const;
-
   /**
    * @brief Prune the decision tree of discrete variables.
    *
@@ -337,9 +346,9 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
    * 0.8).
    *
    * @param maxNrAssignments The maximum number of assignments to keep.
-   * @return TableFactor
+   * @return The pruned TableFactor.
    */
-  TableFactor prune(size_t maxNrAssignments) const;
+  DiscreteFactor::shared_ptr prune(size_t maxNrAssignments) const override;
 
   /**
    * Get the number of non-zero values contained in this factor.
@@ -347,7 +356,17 @@ class GTSAM_EXPORT TableFactor : public DiscreteFactor {
    */
   uint64_t nrValues() const override { return sparse_table_.nonZeros(); }
 
-  /// Restrict the factor to the given assignment.
+  /**
+   * Return the same factor with its keys, and hence its table layout, in the
+   * given order. The keys must be a permutation of this factor's keys.
+   */
+  TableFactor reorder(const DiscreteKeys& keys) const;
+
+  /**
+   * Restrict the factor to the given assignment, returning a TableFactor over
+   * the keys that the assignment leaves free. Assigned keys that are not in
+   * this factor are ignored.
+   */
   DiscreteFactor::shared_ptr restrict(
       const DiscreteValues& assignment) const override;
 
