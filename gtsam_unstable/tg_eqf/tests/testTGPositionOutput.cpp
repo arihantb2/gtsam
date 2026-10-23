@@ -25,8 +25,7 @@ using Tangent = Eigen::Matrix<double, 18, 1>;
 
 const Vector3 kPi(2.5, -1.0, 1.2);
 
-bool veq(const Vector3& a, const Vector3& b,
-         double tol = kTol) {
+bool veq(const Vector3& a, const Vector3& b, double tol = kTol) {
   return assert_equal((Vector)a, (Vector)b, tol);
 }
 
@@ -41,8 +40,8 @@ State makeXi() {
   return xi;
 }
 
-TGElement makeElement(const Rot3& R, const Vector3& v,
-                      const Vector3& p, const Vector9& a) {
+TGElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
+                      const Vector9& a) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
@@ -50,21 +49,19 @@ TGElement makeElement(const Rot3& R, const Vector3& v,
 }
 
 TGElement makeX() {
-  return makeElement(Rot3::Rz(0.4) * Rot3::Rx(0.2),
-                     Vector3(1.0, -2.0, 0.5),
-                     Vector3(0.3, 0.1, -0.4),
-                     (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1,
-                      -0.1)
-                         .finished());
+  return makeElement(
+      Rot3::Rz(0.4) * Rot3::Rx(0.2), Vector3(1.0, -2.0, 0.5),
+      Vector3(0.3, 0.1, -0.4),
+      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1)
+          .finished());
 }
 
 TGElement makeY() {
-  return makeElement(Rot3::Ry(0.3) * Rot3::Rz(-0.1),
-                     Vector3(-0.5, 1.0, 2.0),
-                     Vector3(0.2, -0.3, 0.1),
-                     (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0,
-                      0.05)
-                         .finished());
+  return makeElement(
+      Rot3::Ry(0.3) * Rot3::Rz(-0.1), Vector3(-0.5, 1.0, 2.0),
+      Vector3(0.2, -0.3, 0.1),
+      (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0, 0.05)
+          .finished());
 }
 
 }  // namespace fixture

@@ -28,9 +28,8 @@ struct Input {
 /**
  * Lift functor Lambda(xi, u) : M x L -> g.
  *
- * Expanding T^{-1}(G-N)T for T = [R, v, p] collapses the wedge/matrix algebra
- * to a closed form (the bottom-row coupling that N/-N introduce cancels the
- * homogeneous rows exactly, leaving only R^T acting on g and on v):
+ * Closed form from expanding T^{-1}(G-N)T (the N/-N homogeneous-row coupling
+ * cancels exactly, leaving only R^T acting on g and v):
  *
  *   Lambda_1.w = w - b_w
  *   Lambda_1.a = a - b_a + R^T g
@@ -59,10 +58,9 @@ struct InputOrbit {
 /**
  * Equivariant DVL body-frame velocity measurement h_d(xi) = R^T v.
  *
- * Both Jacobians below are built at the reference state and are already in
- * **error coordinates**: pass them to TGEqF::updateWithReset() unchanged. The
- * measurement arrives in the body frame of the true state, so pull it back to
- * the origin output space with inverse_output_action() first.
+ * Jacobians below are already in error coordinates at the reference state --
+ * pass to TGEqF::updateWithReset() unchanged. The measurement arrives in the
+ * true state's body frame; pull it back with inverse_output_action() first.
  */
 struct DVLMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
@@ -71,26 +69,22 @@ struct DVLMeasurement {
   static Vector3 predict(const State& xi);
 
   /**
-   * Origin-chart Jacobian C0 in R^{3x18}
+   * Origin-chart Jacobian, C0 = [ y0^  I_3  0  0 ], y0 = R0^T v0.
    *
-   *   C0 = [ y0^  I_3  0  0 ],   y0 = R0^T v0
-   *
-   * The output differential taken at the origin output alone, so its
-   * linearization error is second order in the state error. The filter uses C*
-   * below; C0 is the baseline the accuracy tests measure against.
+   * The output differential at the origin output alone: second order in the
+   * state error. C* below is what the filter actually uses; C0 is the
+   * baseline the accuracy tests compare it against.
    */
   static Jacobian jacobian_C0(const State& xi_ref);
 
   /**
-   * Equivariant output matrix C* in R^{3x18}, in error coordinates
+   * Equivariant output matrix, C* = [ 0.5 (y0 + y_tilde)^  I_3  0  0 ], with
+   * y0 = R0^T v0 and y_tilde = psi_X^{-1}(z) (the measurement pulled back to
+   * the origin output space).
    *
-   *   C* = [ 0.5 (y0 + y_tilde)^  I_3  0  0 ]
-   *
-   * with y0 = R0^T v0 the origin output and y_tilde = psi_X^{-1}(z) the
-   * measurement pulled back to the origin output space. Taking the output
-   * differential at the midpoint of y0 and y_tilde instead of at y0 alone
-   * makes the linearization error third order in the state error, one order
-   * better than C0. This is the matrix the filter uses.
+   * Taking the differential at the midpoint of y0 and y_tilde instead of at
+   * y0 alone makes the linearization error third order rather than second --
+   * this is the matrix the filter uses.
    */
   static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
                                  const Vector3& z_dvl);
@@ -98,20 +92,19 @@ struct DVLMeasurement {
   /// Output group action psi_X(y) = R_X^T y + R_X^T v_X.
   static Vector3 output_action(const TGElement& X, const Vector3& y);
 
-  /// Inverse output action psi_X^{-1}(y) = R_X y - v_X, which carries a
-  /// measurement from the body frame of the true state to the origin output
-  /// space the filter compares in.
+  /// Inverse output action psi_X^{-1}(y) = R_X y - v_X; carries a measurement
+  /// from the true state's body frame to the origin output space.
   static Vector3 inverse_output_action(const TGElement& X, const Vector3& y);
 };
 
 /**
- * Equivariant global position measurement h'(xi) = R^T(pi - p). Used both for
- * a direct position fix (e.g. USBL) and, stacked with the estimated
- * horizontal position, as the pseudo-position stand-in for the pressure-
- * sensor depth update (see TGEqF::update_depth).
+ * Equivariant global position measurement h'(xi) = R^T(pi - p). Used for a
+ * direct position fix (e.g. USBL) and, with the estimated horizontal
+ * position, as the pseudo-position stand-in for the depth update (see
+ * TGEqF::update_depth).
  *
- * Both Jacobians below are built at the reference state and are already in
- * **error coordinates**: pass them to TGEqF::updateWithReset() unchanged.
+ * Jacobians below are already in error coordinates at the reference state --
+ * pass to TGEqF::updateWithReset() unchanged.
  */
 struct PositionMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
@@ -120,35 +113,18 @@ struct PositionMeasurement {
   /// General single-state residual R^T(pi - p).
   static Vector3 predict(const State& xi, const Vector3& pi);
 
-  /**
-   * Residual between the origin output and the transported measurement,
-   * y0 - g.p, with y0 = R0^T(pi - p0). Equals R0^T(pi - p_hat) because the
-   * estimate satisfies p_hat = R0 * g.p + p0.
-   */
+  /// y0 - g.p, with y0 = R0^T(pi - p0); equals R0^T(pi - p_hat) since the
+  /// estimate satisfies p_hat = R0 * g.p + p0.
   static Vector3 predictAtOrigin(const State& xi_ref, const TGElement& g,
                                  const Vector3& pi);
 
-  /**
-   * Origin-chart Jacobian C0 in R^{3x18}
-   *
-   *   C0 = [ y0^  0  -I_3  0 ],   y0 = R0^T (pi - p0)
-   *
-   * The output differential taken at the origin output alone, so its
-   * linearization error is second order in the state error. The filter uses C*
-   * below; C0 is the baseline the accuracy tests measure against.
-   */
+  /// Origin-chart Jacobian, C0 = [ y0^  0  -I_3  0 ], y0 = R0^T(pi - p0). Same
+  /// rationale as DVLMeasurement::jacobian_C0, reading p instead of v.
   static Jacobian jacobian_C0(const State& xi_ref, const Vector3& pi);
 
-  /**
-   * Equivariant output matrix C* in R^{3x18}, in error coordinates
-   *
-   *   C* = [ 0.5 (y0 + p_X)^  0  -I_3  0 ]
-   *
-   * with y0 = R0^T (pi - p0) the origin output and p_X = g.p the transported
-   * measurement. Taking the output differential at the midpoint of y0 and p_X
-   * instead of at y0 alone makes the linearization error third order in the
-   * state error, one order better than C0. This is the matrix the filter uses.
-   */
+  /// Equivariant output matrix, C* = [ 0.5 (y0 + p_X)^  0  -I_3  0 ], with
+  /// p_X = g.p the transported measurement. Same rationale as
+  /// DVLMeasurement::jacobian_Cstar, reading p instead of v.
   static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
                                  const Vector3& pi);
 
@@ -159,10 +135,9 @@ struct PositionMeasurement {
 /**
  * Non-equivariant pressure-sensor depth output h(xi) = e_3^T p.
  *
- * The state action right-translates the position slot, p -> p + R p_A, so
- * h(phi(X, xi)) = h(xi) + e_3^T R p_A. That extra term depends on the
- * unmeasured rotation, so no output action can reproduce it. Hence no C*, and
- * no output_action or predictAtOrigin here: their absence is the point.
+ * p -> p + R p_A under the state action, so h(phi(X,xi)) = h(xi) + e_3^T R p_A
+ * depends on the unmeasured rotation: no output action can reproduce it,
+ * hence no C* (and no output_action/predictAtOrigin) here.
  */
 struct DepthMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
@@ -172,29 +147,23 @@ struct DepthMeasurement {
   static double predict(const State& xi);
 
   /**
-   * Output matrix C in R^{1x18}, in error coordinates at xi_ref:
+   * C = [ (g.p x n)^T  0  n^T  0 ], n = R0^T e_3: the exact chart derivative
+   * of eps -> h(phi(g, Retract(xi_ref, eps))) at eps = 0.
    *
-   *   C = [ (g.p x n)^T  0  n^T  0 ],   n = R0^T e_3
-   *
-   * The exact chart derivative of eps -> h(phi(g, Retract(xi_ref, eps))) at
-   * eps = 0. In this chart Retract is phi(Expmap_G(eps), xi_ref) and phi is a
-   * right action, so the composed map is h(phi(Expmap_G(eps) g, xi_ref)),
-   * whose position slot is R0 (Exp_SO3(eps_R) g.p + J_l(eps_R) eps_p) + p0.
-   * Differentiating at eps = 0 leaves the two blocks above.
+   * Retract is phi(Expmap_G(eps), xi_ref), and phi is a right action, so the
+   * composed map is h(phi(Expmap_G(eps) g, xi_ref)); its position slot is
+   * R0 (Exp_SO3(eps_R) g.p + J_l(eps_R) eps_p) + p0, giving the two blocks.
    */
   static Jacobian jacobian_C(const State& xi_ref, const TGElement& g);
 };
 
 /**
- * Continuous-time IMU noise power spectral densities, mapped through the
- * lift differential B into process noise (see inputNoiseCov()). Per-axis
- * (diagonal, not isotropic): each density is a Vector3 of per-channel PSDs,
- * matching an IMU's independently-characterized x/y/z axes.
+ * Continuous-time IMU noise PSDs, mapped through the lift differential B
+ * into process noise (see inputNoiseCov()). Per-axis, not isotropic.
  *
- * Has no gyro/accel channel for the virtual input nu, and no random-walk
- * channel for its bias b_v: nu is held at zero rather than driven by a noisy
- * measurement, and b_v's own process noise comes only from whatever the
- * gyro/accel channels above couple into it through the lift.
+ * No channel for the virtual input nu (held at zero, not measured) or its
+ * bias b_v (driven only by whatever the lift couples into it from the
+ * gyro/accel channels below).
  */
 struct ImuNoise {
   Vector3 gyro = Vector3::Zero();
@@ -227,15 +196,13 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
 
   /**
-   * Full initial covariance built from the physical-state one, ordered
-   * [R, v, p, b_w, b_a]. The physical block is used as given; the virtual-bias
-   * block is kVirtualBiasInitialSigma^2 * I and uncorrelated with the rest.
+   * Initial covariance built from the physical-state block [R,v,p,b_w,b_a];
+   * the virtual-bias block is kVirtualBiasInitialSigma^2 * I, uncorrelated.
    *
-   * The v and p entries are read in the State chart, which takes SE_2(3)
-   * logarithm coordinates on the navigation block. They are global-frame
-   * velocity and position variances only when the state they are attached to
-   * has identity rotation. Otherwise they are resolved in that state's body
-   * frame and couple to the rotation block.
+   * v and p are read in State's chart (SE_2(3) logarithm coordinates), so
+   * they're plain global-frame variances only at identity rotation --
+   * otherwise they're resolved in that state's body frame and couple to the
+   * rotation block.
    */
   static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
 
@@ -267,16 +234,13 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // Enable/disable covariance reset after each update.
   void set_reset_step(bool enable) { reset_step_ = enable; }
 
-  /// Which DVL output matrix update_dvl() linearizes with. Cstar (default) is
-  /// the equivariant, third-order matrix the filter is designed around; C0 is
-  /// the naive chart derivative at the reference state alone, second order,
-  /// kept here so the two can be compared head-to-head in an ablation.
+  /// DVL Jacobian update_dvl() uses. Cstar (default) is the equivariant,
+  /// third-order matrix the filter is designed around; C0 is the naive,
+  /// second-order chart derivative, kept for ablation comparisons.
   enum class DvlJacobian { Cstar, C0 };
   void set_dvl_jacobian(DvlJacobian mode) { dvl_jacobian_ = mode; }
 
-  /**
-   * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
-   */
+  /// Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
   MatrixM resetMatrix(const TangentVector& delta_xi,
                       const TangentVector& delta_x) const;
 
@@ -348,9 +312,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   // input_lift_) from the current referenceState(). Called on construction.
   void computeOriginCaches();
 
-  /**
-   * Measurement update followed by the covariance reset.
-   */
+  /// Measurement update followed by the covariance reset.
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
                        const Eigen::MatrixXd& R);

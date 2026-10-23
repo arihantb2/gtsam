@@ -33,8 +33,8 @@ Eigen::Matrix<double, 18, 1> makeDelta() {
 }
 
 /// Left-translate the navigation block by an SE_2(3) element, biases untouched.
-State leftTranslate(const Rot3& R_s, const Vector3& v_s,
-                    const Vector3& p_s, const State& xi) {
+State leftTranslate(const Rot3& R_s, const Vector3& v_s, const Vector3& p_s,
+                    const State& xi) {
   Eigen::Matrix<double, 3, 2> vp_s;
   vp_s.col(0) = v_s;
   vp_s.col(1) = p_s;

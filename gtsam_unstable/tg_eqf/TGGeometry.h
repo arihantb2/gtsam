@@ -10,8 +10,7 @@
 namespace gtsam {
 namespace tgeqf {
 
-/// Group element of G = SE_2(3) ⋉ se_2(3), the tangent group of SE_2(3) under
-/// its adjoint action: pairs (A, a) with A in SE_2(3), a in se_2(3), and
+/// Tangent group of SE_2(3) under its adjoint action: pairs (A, a) with
 /// product (A1,a1)(A2,a2) = (A1 A2, a1 + Ad_{A1} a2).
 using TGElement = gtsam::TangentLieGroup<gtsam::ExtendedPose3<2>>;
 
@@ -28,18 +27,12 @@ struct State {
 
   static State identity() { return {}; }
 
-  /// T as a plain 5x5 homogeneous matrix; shorthand for T.matrix().
   Matrix5 T_matrix() const { return T.matrix(); }
 
-  /**
-   * Retract in the origin chart: theta = log_G . phi_xi^-1, i.e.
-   *
-   *   Retract(xi, eps) = phi(Expmap_G(eps), xi).
-   *
-   * The navigation block reads SE_2(3) logarithm coordinates, resolved in
-   * the body frame of T. The bias block is folded through TGElement's own
-   * fiber exponential rather than a plain vector difference.
-   */
+  /// Retract in the origin chart: Retract(xi, eps) = phi(Expmap_G(eps), xi).
+  /// The navigation block reads SE_2(3) logarithm coordinates in T's body
+  /// frame; the bias block goes through TGElement's fiber exponential rather
+  /// than a plain vector difference.
   State retract(const TangentVector& delta) const;
 
   /// Local coordinates in the origin chart; inverse of retract.
@@ -61,13 +54,12 @@ struct traits<tgeqf::State> {
   static constexpr int dimension = 18;
   static int GetDimension(const tgeqf::State&) { return dimension; }
 
-  /// Retract at xi_ref
   static tgeqf::State Retract(const tgeqf::State& xi,
                               const TangentVector& delta) {
     return xi.retract(delta);
   }
 
-  /// Local(xi_ref, xi_est): origin-chart error; inverse of Retract.
+  /// Inverse of Retract.
   static TangentVector Local(const tgeqf::State& xi_ref,
                              const tgeqf::State& xi_est) {
     return xi_ref.localCoordinates(xi_est);
@@ -126,9 +118,8 @@ struct TGSymmetry {
 /// Standalone right group action phi(X, xi).
 State phi(const TGElement& X, const State& xi);
 
-/// The unique group element taking xi_ref to xi_est, i.e. the X with
-/// phi(X, xi_ref) == xi_est. Use it to initialize an EqF whose origin is fixed
-/// at xi_ref but whose estimate should start at xi_est.
+/// The unique X with phi(X, xi_ref) == xi_est. Initializes an EqF whose
+/// origin is fixed at xi_ref but whose estimate starts at xi_est.
 TGElement phiInverse(const State& xi_ref, const State& xi_est);
 
 }  // namespace tgeqf

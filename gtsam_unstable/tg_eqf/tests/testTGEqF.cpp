@@ -30,8 +30,7 @@ using Vector18 = Eigen::Matrix<double, 18, 1>;
 
 const Vector3 kGravity(0.0, 0.0, -9.81);
 
-bool veq(const Vector3& a, const Vector3& b,
-         double tol = kTol) {
+bool veq(const Vector3& a, const Vector3& b, double tol = kTol) {
   return assert_equal((Vector)a, (Vector)b, tol);
 }
 
@@ -226,8 +225,8 @@ TEST(TGEqF, PropagateIntegratesPosition) {
 
   const double dt = 0.01;
   const Vector3 p_before = filter.position();
-  filter.propagate(Vector3::Zero(), -fixture::kGravity,
-                   fixture::kGravity, fixture::defaultQc(), dt);
+  filter.propagate(Vector3::Zero(), -fixture::kGravity, fixture::kGravity,
+                   fixture::defaultQc(), dt);
 
   EXPECT(fixture::veq(filter.position() - p_before, xi0.T.x(0) * dt, 1e-4));
 }
@@ -314,11 +313,10 @@ TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
           [&X0](const State& x) { return DVLMeasurement::predict(phi(X0, x)); },
           xi_ref);
 
-  EXPECT(assert_equal(
-      (Matrix)H_num,
-      (Matrix)(X0.first.rotation().matrix().transpose() *
-               DVLMeasurement::jacobian_C0(xi_ref)),
-      1e-5));
+  EXPECT(assert_equal((Matrix)H_num,
+                      (Matrix)(X0.first.rotation().matrix().transpose() *
+                               DVLMeasurement::jacobian_C0(xi_ref)),
+                      1e-5));
 }
 
 // A DVL update at a state rotated 90 degrees from the reference must move the
@@ -397,9 +395,9 @@ State offOriginRef() {
   vp.col(1) = Vector3(-2.0, 3.0, 0.5);
   State xi_ref;
   xi_ref.T = ExtendedPose3<2>(Rot3::Rz(0.7) * Rot3::Ry(-0.3), vp);
-  xi_ref.b = (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, 0.02, 0.1, -0.08,
-              0.06)
-                 .finished();
+  xi_ref.b =
+      (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, 0.02, 0.1, -0.08, 0.06)
+          .finished();
   return xi_ref;
 }
 
@@ -479,9 +477,8 @@ TEST(TGEqF, ResetAtPureFiberCorrectionHasAdCoupling) {
   Vector18 fiber_only = Vector18::Zero();
   fiber_only.tail<9>() << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01, 0.03;
   // orbitJacobian0(xi_ref) is I_18 in this chart, so delta_xi = delta_x here.
-  const Eigen::Matrix<double, 18, 18> J =
-      filter.resetMatrix(fixture::orbitJacobian0(xi_ref) * fiber_only,
-                         fiber_only);
+  const Eigen::Matrix<double, 18, 18> J = filter.resetMatrix(
+      fixture::orbitJacobian0(xi_ref) * fiber_only, fiber_only);
 
   Eigen::Matrix<double, 18, 18> expected =
       Eigen::Matrix<double, 18, 18>::Identity();
@@ -553,8 +550,7 @@ TEST(TGEqF, ResetStepIsOnByDefault) {
   TGEqF turned_off(xi_ref, fixture::anisotropicSigma(), X0);
   turned_off.set_reset_step(false);
 
-  const Vector3 pi =
-      by_default.position() + Vector3(0.5, 0.3, -0.2);
+  const Vector3 pi = by_default.position() + Vector3(0.5, 0.3, -0.2);
   const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
   by_default.update_position(pi, R);
   turned_off.update_position(pi, R);
@@ -589,8 +585,8 @@ TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
 
   EXPECT(assert_equal((Matrix)nz.gyro.asDiagonal(), (Matrix)Q.block<3, 3>(0, 0),
                       1e-6));
-  EXPECT(assert_equal((Matrix)nz.accel.asDiagonal(), (Matrix)Q.block<3, 3>(3, 3),
-                      1e-6));
+  EXPECT(assert_equal((Matrix)nz.accel.asDiagonal(),
+                      (Matrix)Q.block<3, 3>(3, 3), 1e-6));
   EXPECT(assert_equal((Matrix)nz.gyro_rw.asDiagonal(),
                       (Matrix)Q.block<3, 3>(9, 9), 1e-6));
   EXPECT(assert_equal((Matrix)nz.accel_rw.asDiagonal(),
@@ -652,9 +648,9 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
 // input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart.
 TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
   State xi_ref = State::identity();
-  xi_ref.b = (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, -0.01, 0.02, 0.02,
-              -0.03)
-                 .finished();
+  xi_ref.b =
+      (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, -0.01, 0.02, 0.02, -0.03)
+          .finished();
 
   const TGEqF filter(xi_ref, fixture::defaultSigma());
 

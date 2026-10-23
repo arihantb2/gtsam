@@ -31,15 +31,15 @@ static double minEig(const Eigen::MatrixXd& M) {
 // ---------------------------------------------------------------------------
 
 struct RegressionResult {
-  Vector3 pos_err;         // final position error (m)
-  Vector3 vel_err;         // final velocity error (m/s)
-  Vector3 att_err;         // final attitude error, Log(gt^-1 est) (rad)
-  Vector3 bg_err, ba_err;  // final bias estimate errors
-  Vector3 bg_est, ba_est;  // final bias estimates
-  double pos_cov_trace = 0.0;      // trace of final position covariance block
-  double bg_cov_trace = 0.0;       // trace of final gyro-bias covariance block
-  double ba_cov_trace = 0.0;       // trace of final accel-bias covariance block
-  double min_eig = 0.0;            // min eigenvalue of final covariance
+  Vector3 pos_err;             // final position error (m)
+  Vector3 vel_err;             // final velocity error (m/s)
+  Vector3 att_err;             // final attitude error, Log(gt^-1 est) (rad)
+  Vector3 bg_err, ba_err;      // final bias estimate errors
+  Vector3 bg_est, ba_est;      // final bias estimates
+  double pos_cov_trace = 0.0;  // trace of final position covariance block
+  double bg_cov_trace = 0.0;   // trace of final gyro-bias covariance block
+  double ba_cov_trace = 0.0;   // trace of final accel-bias covariance block
+  double min_eig = 0.0;        // min eigenvalue of final covariance
 };
 
 static RegressionResult runBiasedImu30s(bool with_position_updates) {

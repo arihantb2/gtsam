@@ -32,10 +32,7 @@ Input Input::from_vector(const Eigen::Matrix<double, 21, 1>& v) {
 
 Lift::Lift(const Input& u) : u(u) {}
 
-// Closed form (see the Lift functor's doc comment in TGEqF.h): expanding
-// T^{-1}(G-N)T for T=[R,v,p] leaves only R^T acting on g (in the "a" slot)
-// and on the state velocity v (in the "v" slot); the N/-N homogeneous-row
-// coupling cancels exactly.
+// Closed form; see the Lift functor's doc comment in TGEqF.h.
 Eigen::Matrix<double, 18, 1> Lift::operator()(
     const State& xi, OptionalJacobian<18, 18> D_lift) const {
   const Eigen::Matrix3d Rt = xi.T.rotation().transpose();
@@ -58,10 +55,9 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
   result.tail<9>() = Lambda2;
 
   if (D_lift) {
-    // Analytic Jacobian in the State chart
-    // [dR(3), dv(3), dp(3), dbw(3), dba(3), dbv(3)]. db/d(eps_tau) =
-    // adjointMap(b), db/d(eps_b) = -I_9. Lambda_2 = ad_b[Lambda_1] - tau, so
-    // d(Lambda_2) = ad_b d(Lambda_1) - ad_{Lambda_1} db.
+    // db/d(eps_tau) = adjointMap(b), db/d(eps_b) = -I_9; Lambda_2 =
+    // ad_b[Lambda_1] - tau, so d(Lambda_2) = ad_b d(Lambda_1) - ad_{Lambda_1}
+    // db.
     const Matrix9& db_deps_tau = ad_b;
     const Matrix9 db_deps_b = -Matrix9::Identity();
     const Matrix9 ad_Lambda1 = ExtendedPose3<2>::adjointMap(Lambda1);
@@ -243,13 +239,11 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
   return 0.5 * (Sigma_eps + Sigma_eps.transpose());
 }
 
-// Left Jacobian of G, J_l(gamma) = sum_{k>=0} ad_gamma^k / (k+1)!; used by
-// resetMatrix() below. TangentLieGroup<G>'s own right Jacobian is a
-// different, private kernel, so this stays a free function built from
-// TGElement::adjointMap, the group's own 18x18 algebra adjoint. The series is
-// entire; its convergence rate is set by the rotation angle alone (the
-// adjoint is nilpotent on the translation/fiber blocks), so 28 terms reach
-// machine precision up to the full [-pi, pi] range Logmap can return.
+// Left Jacobian of G, J_l(gamma) = sum_{k>=0} ad_gamma^k / (k+1)!. Kept as a
+// free function (TangentLieGroup<G>'s own right Jacobian is a different,
+// private kernel) built from TGElement::adjointMap. The series converges on
+// rotation angle alone, so 28 terms reach machine precision over Logmap's
+// full [-pi, pi] range.
 Eigen::Matrix<double, 18, 18> leftJacobianG(
     const Eigen::Matrix<double, 18, 1>& gamma) {
   const Eigen::Matrix<double, 18, 18> ad = TGElement::adjointMap(gamma);
@@ -356,9 +350,9 @@ void TGEqF::propagate(const Vector3& w_meas, const Vector3& a_meas,
   const Lift lift(u);
   const InputOrbit psi_u(u);
 
-  // Discretize with a 4-term truncation of exp(A dt) for the transition
-  // matrix, and Van Loan for the process noise. predictWithJacobian scales its
-  // Qc argument by dt, so Qd is passed pre-divided.
+  // 4-term truncation of exp(A dt) for the transition matrix, Van Loan for
+  // the process noise. predictWithJacobian scales Qc by dt, so Qd is
+  // pre-divided.
   const MatrixM A = computeErrorDynamicsMatrix<Lift>(psi_u);
   const Covariance18 Qc_eff =
       dt > 0.0 ? Covariance18(discretizeNoiseVanLoan(A, Qc, dt) / dt) : Qc;
@@ -372,11 +366,10 @@ void TGEqF::propagate(const Vector3& w_meas, const Vector3& a_meas,
 }
 
 TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
-  // B is d/du [Dphi0 * Lambda(xi_ref, psi_{Xhat^-1}(u))] restricted to the
-  // gyro/accel/bias-RW channels of u. psi_{Xhat^-1} carries its own
-  // Ad_{Xhat^-1} factor, which cancels one power of Ad_hat by lift
-  // equivariance, leaving the single Ad_hat below rather than the two an
-  // Ad_hat * G * Ad_hat chain would suggest.
+  // B is d/du [Dphi0 * Lambda(xi_ref, psi_{Xhat^-1}(u))], gyro/accel/bias-RW
+  // channels only. psi_{Xhat^-1}'s own Ad_{Xhat^-1} cancels one power of
+  // Ad_hat by lift equivariance, leaving one Ad_hat rather than the
+  // Ad_hat * G * Ad_hat a naive reading would suggest.
   const Matrix9 Ad_hat = groupEstimate().first.AdjointMap();
   Eigen::Matrix<double, 18, 12> AdSel = Eigen::Matrix<double, 18, 12>::Zero();
   AdSel.block<9, 6>(0, 0) = Ad_hat.leftCols<6>();
@@ -400,8 +393,8 @@ void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const TGElement X = groupEstimate();
   const Eigen::Matrix3d R_X = X.first.rotation().matrix();
 
-  // The comparison happens in the origin output space: the reference output
-  // against the measurement pulled back through the output action.
+  // Compared in the origin output space: reference output against the
+  // measurement pulled back through the output action.
   const Vector3 prediction = DVLMeasurement::predict(xi_ref);
   const Vector3 z = DVLMeasurement::inverse_output_action(X, z_dvl);
   const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
@@ -417,9 +410,8 @@ void TGEqF::update_position(const Vector3& pi, const Covariance3& R_pos) {
   const State xi_ref = referenceState();
   const Eigen::Matrix3d R0 = xi_ref.T.rotation().matrix();
 
-  // Both the residual and R_pos are expressed in the reference rotation frame,
-  // the origin output space that C* is built in. R_pos arrives in the global
-  // frame, one R0 away, so it is conjugated to match.
+  // C*'s origin output space is the reference rotation frame; R_pos arrives
+  // in the global frame, so conjugate it by R0 to match.
   const Vector3 prediction =
       PositionMeasurement::predictAtOrigin(xi_ref, groupEstimate(), pi);
   const Eigen::Matrix<double, 3, 18> Cstar =
@@ -445,8 +437,7 @@ void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
 
 void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
   // No output action exists for h(xi) = e_3^T p, so the innovation is formed
-  // in the raw sensor space: the prediction is taken at the estimate and
-  // R_depth needs no transport.
+  // in the raw sensor space: prediction at the estimate, R_depth untransported.
   Covariance1 prediction, z;
   prediction(0, 0) = DepthMeasurement::predict(state());
   z(0, 0) = z_depth;

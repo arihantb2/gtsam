@@ -40,8 +40,7 @@ TGElement makeX() {
   vp.col(0) = Vector3(1.0, -2.0, 0.5);
   vp.col(1) = Vector3(0.3, 0.1, -0.4);
   const Vector9 a =
-      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1)
-          .finished();
+      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1).finished();
   return TGElement(ExtendedPose3<2>(Rot3::Rz(0.4) * Rot3::Rx(0.2), vp), a);
 }
 
@@ -137,8 +136,8 @@ double residual(const fixture::Tangent& eps) {
 }
 
 double errorC(const fixture::Tangent& eps) {
-  return std::abs(
-      residual(eps) - (DepthMeasurement::jacobian_C(kXiRef, kG) * eps)(0));
+  return std::abs(residual(eps) -
+                  (DepthMeasurement::jacobian_C(kXiRef, kG) * eps)(0));
 }
 
 /// Ratio of the linearization error at half amplitude to that at full: ~1/4

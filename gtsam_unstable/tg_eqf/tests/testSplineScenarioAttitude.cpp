@@ -89,13 +89,13 @@ TEST(SplineScenarioAttitude, BackwardCompatibleWithNoAttitude) {
 TEST(SplineScenarioAttitude, PositionVelocityAccelerationUnaffectedByAttitude) {
   const SplineScenario withAttitude(fixture::waypoints(), fixture::attitudes(),
                                     fixture::kPathDuration, fixture::kRamp);
-  const SplineScenario without(fixture::waypoints(), {},
-                               fixture::kPathDuration, fixture::kRamp);
+  const SplineScenario without(fixture::waypoints(), {}, fixture::kPathDuration,
+                               fixture::kRamp);
   for (double t : {0.0, 1.0, 3.0, 8.0, 15.0, 25.0, 45.0}) {
     EXPECT(assert_equal(without.pose(t).translation(),
                         withAttitude.pose(t).translation(), 1e-12));
-    EXPECT(assert_equal(without.velocity_n(t), withAttitude.velocity_n(t),
-                        1e-12));
+    EXPECT(
+        assert_equal(without.velocity_n(t), withAttitude.velocity_n(t), 1e-12));
     EXPECT(assert_equal(without.acceleration_n(t),
                         withAttitude.acceleration_n(t), 1e-12));
   }
@@ -107,8 +107,9 @@ TEST(SplineScenarioAttitude, UniformKnotsAdvanceByIndexNotArcLength) {
   // far from 0.5. Uniform knots put every waypoint at u_i = i / (n - 1)
   // regardless of spacing, so index 2 (of 5) lands exactly at u = 0.5.
   const std::vector<Vector3> wp = {
-      Vector3(0.0, 0.0, 0.0), Vector3(0.01, 0.0, 0.0), Vector3(0.02, 0.0, 0.0),
-      Vector3(50.0, 0.0, 0.0), Vector3(100.0, 0.0, 0.0),
+      Vector3(0.0, 0.0, 0.0),   Vector3(0.01, 0.0, 0.0),
+      Vector3(0.02, 0.0, 0.0),  Vector3(50.0, 0.0, 0.0),
+      Vector3(100.0, 0.0, 0.0),
   };
   const double pathDuration = 8.0;
   const double rampDuration = 0.0;  // S(t) = t exactly, so u = t / pathDuration

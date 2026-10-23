@@ -31,7 +31,7 @@ bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 }
 
 State makeState(const Rot3& R, const Vector3& v, const Vector3& p,
-               const Vector9& b) {
+                const Vector9& b) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
@@ -58,8 +58,8 @@ State makeXiEst() {
           .finished());
 }
 
-TGElement makeElement(const Rot3& R, const Vector3& v,
-                      const Vector3& p, const Vector9& a) {
+TGElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
+                      const Vector9& a) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
@@ -67,21 +67,19 @@ TGElement makeElement(const Rot3& R, const Vector3& v,
 }
 
 TGElement makeX() {
-  return makeElement(Rot3::Rz(0.4) * Rot3::Rx(0.2),
-                     Vector3(1.0, -2.0, 0.5),
-                     Vector3(0.3, 0.1, -0.4),
-                     (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1,
-                      -0.1)
-                         .finished());
+  return makeElement(
+      Rot3::Rz(0.4) * Rot3::Rx(0.2), Vector3(1.0, -2.0, 0.5),
+      Vector3(0.3, 0.1, -0.4),
+      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1)
+          .finished());
 }
 
 TGElement makeY() {
-  return makeElement(Rot3::Ry(0.3) * Rot3::Rz(-0.1),
-                     Vector3(-0.5, 1.0, 2.0),
-                     Vector3(0.2, -0.3, 0.1),
-                     (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0,
-                      0.05)
-                         .finished());
+  return makeElement(
+      Rot3::Ry(0.3) * Rot3::Rz(-0.1), Vector3(-0.5, 1.0, 2.0),
+      Vector3(0.2, -0.3, 0.1),
+      (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0, 0.05)
+          .finished());
 }
 
 Eigen::Matrix<double, 18, 18> orbitJacobian(const TGElement& X,

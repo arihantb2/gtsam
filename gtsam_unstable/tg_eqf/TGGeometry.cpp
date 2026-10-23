@@ -43,9 +43,8 @@ State phi(const TGElement& X, const State& xi) {
   return result;
 }
 
-// Inverts phi block by block. The navigation part is immediate (it is the
-// ExtendedPose3 "between" of xi_ref.T and xi_est.T); the bias part follows
-// from b_est = Ad_{A^{-1}}(b_ref - a), so a = b_ref - Ad_A(b_est).
+// Nav block is the ExtendedPose3 "between" of xi_ref.T and xi_est.T; bias
+// block follows from b_est = Ad_{A^-1}(b_ref - a), so a = b_ref - Ad_A(b_est).
 TGElement phiInverse(const State& xi_ref, const State& xi_est) {
   TGElement X(xi_ref.T.inverse() * xi_est.T, Vector9::Zero());
   const Vector9 Ad_b_est = X.first.AdjointMap() * xi_est.b;
@@ -55,9 +54,7 @@ TGElement phiInverse(const State& xi_ref, const State& xi_est) {
 
 TGSymmetry::Orbit::Orbit(const State& xi_ref) : xi_ref(xi_ref) {}
 
-// phi(X, xi_ref) with optional Jacobian d(phi)/dX, in the origin chart
-// theta = log_G . phi_xi_ref^-1. By freeness of phi this Jacobian is the
-// identity at every X and every xi_ref, exactly.
+// d(phi)/dX is exactly I_18 everywhere, by freeness of phi.
 State TGSymmetry::Orbit::operator()(const TGElement& X,
                                     Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi_ref);
@@ -71,9 +68,7 @@ State TGSymmetry::Orbit::operator()(const TGElement& X,
 
 TGSymmetry::Diffeomorphism::Diffeomorphism(const TGElement& X) : X(X) {}
 
-// phi(X, xi) with optional Jacobian d(phi)/dxi, in the origin chart
-// theta = log_G . phi_xi^-1. By the right-action axiom and freeness this
-// Jacobian is the full group Adjoint Ad_{X^{-1}}, exactly.
+// d(phi)/dxi is exactly Ad_{X^-1}, by the right-action axiom and freeness.
 State TGSymmetry::Diffeomorphism::operator()(
     const State& xi, Eigen::Matrix<double, 18, 18>* H) const {
   const State result = phi(X, xi);
