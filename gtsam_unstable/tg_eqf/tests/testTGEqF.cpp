@@ -12,11 +12,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
-#include <gtsam_unstable/tg_eqf/EqF.h>
-#include <gtsam_unstable/tg_eqf/Lift.h>
-#include <gtsam_unstable/tg_eqf/PositionOutput.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 #include <chrono>
 #include <cstdio>
@@ -153,11 +149,12 @@ struct IntegrationResult {
 template <size_t K>
 IntegrationResult runIntegrationComparison() {
   State xi0 = State::identity();
-  xi0.R = Rot3::Rz(0.35) * Rot3::Ry(-0.2);
-  xi0.v = Vector3(1.2, -0.7, 0.4);
-  xi0.p = Vector3(2.0, -1.0, 0.5);
-  xi0.b_w = Vector3(0.03, -0.02, 0.01);
-  xi0.b_a = Vector3(-0.08, 0.04, 0.06);
+  Eigen::Matrix<double, 3, 2> vp0;
+  vp0.col(0) = Vector3(1.2, -0.7, 0.4);
+  vp0.col(1) = Vector3(2.0, -1.0, 0.5);
+  xi0.T = ExtendedPose3<2>(Rot3::Rz(0.35) * Rot3::Ry(-0.2), vp0);
+  xi0.b.segment<3>(0) = Vector3(0.03, -0.02, 0.01);
+  xi0.b.segment<3>(3) = Vector3(-0.08, 0.04, 0.06);
 
   TGEqF filter(xi0, fixture::defaultSigma());
 
@@ -222,7 +219,9 @@ TEST_DISABLED(TGEqF, PrintsCovarianceAndTimingByIntegrationOrder) {
 // v*dt.
 TEST(TGEqF, PropagateIntegratesPosition) {
   State xi0 = State::identity();
-  xi0.v = Vector3(1.0, -0.5, 0.2);
+  Eigen::Matrix<double, 3, 2> vp0 = Eigen::Matrix<double, 3, 2>::Zero();
+  vp0.col(0) = Vector3(1.0, -0.5, 0.2);
+  xi0.T = ExtendedPose3<2>(Rot3::Identity(), vp0);
   TGEqF filter(xi0, fixture::defaultSigma());
 
   const double dt = 0.01;
@@ -230,14 +229,14 @@ TEST(TGEqF, PropagateIntegratesPosition) {
   filter.propagate(Vector3::Zero(), -fixture::kGravity,
                    fixture::kGravity, fixture::defaultQc(), dt);
 
-  EXPECT(fixture::veq(filter.position() - p_before, xi0.v * dt, 1e-4));
+  EXPECT(fixture::veq(filter.position() - p_before, xi0.T.x(0) * dt, 1e-4));
 }
 
 // propagate() feeds the virtual input nu = 0 regardless of the b_v estimate, so
 // it must agree with a lift built by hand with u.v = 0 even when b_v is not.
 TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
   State xi_ref = State::identity();
-  xi_ref.b_v = Vector3(0.1, -0.05, 0.08);
+  xi_ref.b.segment<3>(6) = Vector3(0.1, -0.05, 0.08);
 
   const Vector3 omega = Vector3::Zero();
   const Vector3 accel(0.1, -0.2, 0.05);
@@ -393,13 +392,14 @@ Vector18 bigDeltaXi() {
 
 /// A reference state away from the manifold identity.
 State offOriginRef() {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(1.0, -0.5, 0.2);
+  vp.col(1) = Vector3(-2.0, 3.0, 0.5);
   State xi_ref;
-  xi_ref.R = Rot3::Rz(0.7) * Rot3::Ry(-0.3);
-  xi_ref.v = Vector3(1.0, -0.5, 0.2);
-  xi_ref.p = Vector3(-2.0, 3.0, 0.5);
-  xi_ref.b_w = Vector3(0.01, -0.02, 0.03);
-  xi_ref.b_a = Vector3(-0.05, 0.04, 0.02);
-  xi_ref.b_v = Vector3(0.1, -0.08, 0.06);
+  xi_ref.T = ExtendedPose3<2>(Rot3::Rz(0.7) * Rot3::Ry(-0.3), vp);
+  xi_ref.b = (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, 0.02, 0.1, -0.08,
+              0.06)
+                 .finished();
   return xi_ref;
 }
 
@@ -471,7 +471,7 @@ TEST(TGEqF, ResetAtZeroCorrectionIsIdentity) {
 }
 
 // A pure-fiber correction's reset transport is I_18 plus a
-// 0.5 ad_se23(z0) coupling block, not the identity.
+// 0.5 adjointMap(z0) coupling block, not the identity.
 TEST(TGEqF, ResetAtPureFiberCorrectionHasAdCoupling) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, fixture::defaultSigma());
@@ -499,13 +499,15 @@ TEST(TGEqF, ResetTracksTheGroupCorrectionTheUpdateApplies) {
                fixture::rotatedX0());
 
   State xi_true = filter.state();
-  xi_true.v += Vector3(0.1, 0.05, -0.1);
-  xi_true.p += Vector3(0.4, -0.2, 0.3);
+  Eigen::Matrix<double, 3, 2> vp_true;
+  vp_true.col(0) = xi_true.T.x(0) + Vector3(0.1, 0.05, -0.1);
+  vp_true.col(1) = xi_true.T.x(1) + Vector3(0.4, -0.2, 0.3);
+  xi_true.T = ExtendedPose3<2>(xi_true.T.rotation(), vp_true);
 
   const State e_before = filter.errorState(xi_true);
   const TGElement X_before = filter.groupEstimate();
 
-  filter.update_position(xi_true.p + Vector3(0.05, -0.03, 0.02),
+  filter.update_position(xi_true.T.x(1) + Vector3(0.05, -0.03, 0.02),
                          1e-2 * TGEqF::Covariance3::Identity());
 
   const TGElement Xd = X_before * filter.groupEstimate().inverse();
@@ -650,19 +652,15 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
 // input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart.
 TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
   State xi_ref = State::identity();
-  xi_ref.b_w = Vector3(0.01, -0.02, 0.03);
-  xi_ref.b_a = Vector3(-0.05, 0.04, -0.01);
-  xi_ref.b_v = Vector3(0.02, 0.02, -0.03);
+  xi_ref.b = (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, -0.01, 0.02, 0.02,
+              -0.03)
+                 .finished();
 
   const TGEqF filter(xi_ref, fixture::defaultSigma());
 
-  Vector9 b_ref;
-  b_ref.segment<3>(0) = xi_ref.b_w;
-  b_ref.segment<3>(3) = xi_ref.b_a;
-  b_ref.segment<3>(6) = xi_ref.b_v;
   Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
   G.block<9, 9>(0, 0).setIdentity();
-  G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(b_ref);
+  G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(xi_ref.b);
   G.block<9, 9>(9, 9) = -Matrix9::Identity();
 
   EXPECT(assert_equal((Matrix)G, (Matrix)filter.input_lift(), 1e-12));

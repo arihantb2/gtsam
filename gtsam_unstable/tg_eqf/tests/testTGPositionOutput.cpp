@@ -10,8 +10,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/PositionOutput.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;
@@ -32,13 +31,13 @@ bool veq(const Vector3& a, const Vector3& b,
 }
 
 State makeXi() {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(1.0, -2.0, 0.5);
+  vp.col(1) = Vector3(0.3, 0.1, -0.4);
   State xi;
-  xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Vector3(1.0, -2.0, 0.5);
-  xi.p = Vector3(0.3, 0.1, -0.4);
-  xi.b_w = Vector3(0.01, -0.02, 0.03);
-  xi.b_a = Vector3(-0.1, 0.05, 0.0);
-  xi.b_v = Vector3(0.0, 0.1, -0.05);
+  xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
+  xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
+             .finished();
   return xi;
 }
 
@@ -134,10 +133,10 @@ TEST(PositionOutput, CstarMeetsC0AtConvergence) {
 
   // Group element whose acted position is exactly pi: p_hat = R0 g.p + p0.
   Eigen::Matrix<double, 3, 2> vp = Eigen::Matrix<double, 3, 2>::Zero();
-  vp.col(1) = xi_ref.R.unrotate(fixture::kPi - xi_ref.p);
+  vp.col(1) = xi_ref.T.rotation().unrotate(fixture::kPi - xi_ref.T.x(1));
   const TGElement g(ExtendedPose3<2>(Rot3::Identity(), vp),
                     Eigen::Matrix<double, 9, 1>::Zero());
-  EXPECT(fixture::veq(fixture::kPi, phi(g, xi_ref).p));
+  EXPECT(fixture::veq(fixture::kPi, phi(g, xi_ref).T.x(1)));
 
   EXPECT(assert_equal(
       (Matrix)PositionMeasurement::jacobian_C0(xi_ref, fixture::kPi),
@@ -156,7 +155,7 @@ const TGElement kG = fixture::makeX();
 
 /// Position the true state at eps reports to the filter.
 Vector3 measurementAt(const fixture::Tangent& eps) {
-  return phi(kG, traits<State>::Retract(kXiRef, eps)).p;
+  return phi(kG, traits<State>::Retract(kXiRef, eps)).T.x(1);
 }
 
 /**
@@ -172,7 +171,8 @@ Vector3 measurementAt(const fixture::Tangent& eps) {
  * makes this the innovation Jacobian rather than that of the output map alone.
  */
 Vector3 residual(const fixture::Tangent& eps) {
-  return kXiRef.R.unrotate(phi(kG, kXiRef).p - measurementAt(eps));
+  return kXiRef.T.rotation().unrotate(phi(kG, kXiRef).T.x(1) -
+                                      measurementAt(eps));
 }
 
 double errorC0(const fixture::Tangent& eps) {

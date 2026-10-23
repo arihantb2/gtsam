@@ -641,27 +641,16 @@ virtual class LocalOrientedPlane3Factor : gtsam::NoiseModelFactor {
 //*************************************************************************
 // tg_eqf (TG-EqF biased INS filter)
 //*************************************************************************
-#include <gtsam_unstable/tg_eqf/State.h>
-#include <gtsam_unstable/tg_eqf/Group.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
-#include <gtsam_unstable/tg_eqf/Lift.h>
-#include <gtsam_unstable/tg_eqf/PositionOutput.h>
-#include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
-#include <gtsam_unstable/tg_eqf/DepthOutput.h>
-#include <gtsam_unstable/tg_eqf/EqF.h>
+#include <gtsam_unstable/tg_eqf/TGGeometry.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 namespace tgeqf {
 
 class State {
   State();
-  gtsam::Rot3 R;
-  gtsam::Vector3 v;
-  gtsam::Vector3 p;
-  gtsam::Vector3 b_w;
-  gtsam::Vector3 b_a;
-  gtsam::Vector3 b_v;
+  gtsam::ExtendedPose3<2> T;
+  gtsam::Vector9 b;
   static gtsam::tgeqf::State identity();
   gtsam::Matrix5 T_matrix() const;
-  gtsam::Vector9 bias_vector() const;
   gtsam::tgeqf::State retract(
       const gtsam::tgeqf::State::TangentVector& delta) const;
   gtsam::tgeqf::State::TangentVector localCoordinates(

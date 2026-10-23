@@ -10,7 +10,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/TGGeometry.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;
@@ -30,27 +30,32 @@ bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
-State makeXi() {
+State makeState(const Rot3& R, const Vector3& v, const Vector3& p,
+               const Vector9& b) {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = v;
+  vp.col(1) = p;
   State xi;
-  xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Vector3(1.0, -2.0, 0.5);
-  xi.p = Vector3(0.3, 0.1, -0.4);
-  xi.b_w = Vector3(0.01, -0.02, 0.03);
-  xi.b_a = Vector3(-0.1, 0.05, 0.0);
-  xi.b_v = Vector3(0.0, 0.1, -0.05);
+  xi.T = ExtendedPose3<2>(R, vp);
+  xi.b = b;
   return xi;
+}
+
+State makeXi() {
+  return makeState(
+      Rot3::Rz(0.3) * Rot3::Rx(0.1), Vector3(1.0, -2.0, 0.5),
+      Vector3(0.3, 0.1, -0.4),
+      (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
+          .finished());
 }
 
 /// A second state, unrelated to makeXi().
 State makeXiEst() {
-  State xi;
-  xi.R = Rot3::Ry(-0.2) * Rot3::Rz(0.5);
-  xi.v = Vector3(-0.7, 0.4, 1.2);
-  xi.p = Vector3(2.0, -1.5, 0.6);
-  xi.b_w = Vector3(-0.03, 0.01, 0.02);
-  xi.b_a = Vector3(0.2, -0.15, 0.07);
-  xi.b_v = Vector3(0.05, 0.0, -0.02);
-  return xi;
+  return makeState(
+      Rot3::Ry(-0.2) * Rot3::Rz(0.5), Vector3(-0.7, 0.4, 1.2),
+      Vector3(2.0, -1.5, 0.6),
+      (Vector9() << -0.03, 0.01, 0.02, 0.2, -0.15, 0.07, 0.05, 0.0, -0.02)
+          .finished());
 }
 
 TGElement makeElement(const Rot3& R, const Vector3& v,

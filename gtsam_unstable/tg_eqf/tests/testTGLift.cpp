@@ -9,8 +9,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/Lift.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;
@@ -27,13 +26,13 @@ bool veq(const Eigen::VectorXd& a, const Eigen::VectorXd& b,
 }
 
 State makeXi() {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(1.0, -2.0, 0.5);
+  vp.col(1) = Vector3(0.3, 0.1, -0.4);
   State xi;
-  xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Vector3(1.0, -2.0, 0.5);
-  xi.p = Vector3(0.3, 0.1, -0.4);
-  xi.b_w = Vector3(0.01, -0.02, 0.03);
-  xi.b_a = Vector3(-0.1, 0.05, 0.0);
-  xi.b_v = Vector3(0.0, 0.1, -0.05);
+  xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
+  xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
+             .finished();
   return xi;
 }
 
@@ -113,10 +112,7 @@ TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   w.segment<3>(0) = u.w;
   w.segment<3>(3) = u.a;
   w.segment<3>(6) = u.v;
-  Vector9 b;
-  b.segment<3>(0) = xi.b_w;
-  b.segment<3>(3) = xi.b_a;
-  b.segment<3>(6) = xi.b_v;
+  const Vector9& b = xi.b;
   Vector9 tau;
   tau.segment<3>(0) = u.tau_w;
   tau.segment<3>(3) = u.tau_a;
@@ -143,10 +139,10 @@ TEST(Lift, ClosedFormMatchesMatrixConstruction) {
 TEST(Lift, PositionRateCarriesBodyVelocity) {
   State xi = fixture::makeXi();
   Input u = fixture::makeU();
-  u.v = xi.b_v;
+  u.v = xi.b.segment<3>(6);
 
-  EXPECT(fixture::veq(xi.R.unrotate(xi.v), Lift(u)(xi).segment<3>(6),
-                      fixture::kTolL));
+  EXPECT(fixture::veq(xi.T.rotation().unrotate(xi.T.x(0)),
+                      Lift(u)(xi).segment<3>(6), fixture::kTolL));
 }
 
 }  // namespace closed_form

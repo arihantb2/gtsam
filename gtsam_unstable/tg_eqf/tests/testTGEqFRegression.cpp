@@ -7,7 +7,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/navigation/Scenario.h>
-#include <gtsam_unstable/tg_eqf/EqF.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;
@@ -61,9 +61,10 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   // circles away from it.
   const gtsam::NavState gt0 = scenario.navState(0.0);
   State xi0 = State::identity();
-  xi0.R = gt0.attitude();
-  xi0.v = gt0.velocity();
-  xi0.p = gt0.position();  // biases (b_w, b_a, b_v) start at zero
+  Eigen::Matrix<double, 3, 2> vp0;
+  vp0.col(0) = gt0.velocity();
+  vp0.col(1) = gt0.position();
+  xi0.T = ExtendedPose3<2>(gt0.attitude(), vp0);  // biases start at zero
 
   TGEqF::Covariance18 P0 = TGEqF::Covariance18::Zero();
   P0.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * 1e-4;    // attitude

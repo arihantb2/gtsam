@@ -4,7 +4,7 @@
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
-#include <gtsam_unstable/tg_eqf/State.h>
+#include <gtsam_unstable/tg_eqf/TGGeometry.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;
@@ -15,13 +15,13 @@ namespace fixture {
 constexpr double kTol = 1e-9;
 
 State makeXi() {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(10.0, -5.0, 2.0);
+  vp.col(1) = Vector3(1.0, 0.5, -0.2);
   State xi;
-  xi.R = Rot3::Rz(0.5) * Rot3::Rx(0.3);
-  xi.v = Vector3(10.0, -5.0, 2.0);
-  xi.p = Vector3(1.0, 0.5, -0.2);
-  xi.b_w = Vector3(0.01, -0.01, 0.02);
-  xi.b_a = Vector3(-0.1, 0.0, 0.1);
-  xi.b_v = Vector3(0.05, 0.0, -0.05);
+  xi.T = ExtendedPose3<2>(Rot3::Rz(0.5) * Rot3::Rx(0.3), vp);
+  xi.b = (Vector9() << 0.01, -0.01, 0.02, -0.1, 0.0, 0.1, 0.05, 0.0, -0.05)
+             .finished();
   return xi;
 }
 
@@ -35,10 +35,11 @@ Eigen::Matrix<double, 18, 1> makeDelta() {
 /// Left-translate the navigation block by an SE_2(3) element, biases untouched.
 State leftTranslate(const Rot3& R_s, const Vector3& v_s,
                     const Vector3& p_s, const State& xi) {
+  Eigen::Matrix<double, 3, 2> vp_s;
+  vp_s.col(0) = v_s;
+  vp_s.col(1) = p_s;
   State out = xi;
-  out.R = R_s * xi.R;
-  out.v = R_s.rotate(xi.v) + v_s;
-  out.p = R_s.rotate(xi.p) + p_s;
+  out.T = ExtendedPose3<2>(R_s, vp_s) * xi.T;
   return out;
 }
 
@@ -55,11 +56,14 @@ TEST(State, EqualsSeparatesStates) {
   EXPECT(traits<State>::Equals(a, a, fixture::kTol));
 
   State b = a;
-  b.v.x() += 1.0;
+  Eigen::Matrix<double, 3, 2> vp_b;
+  vp_b.col(0) = b.T.x(0) + Vector3(1.0, 0.0, 0.0);
+  vp_b.col(1) = b.T.x(1);
+  b.T = ExtendedPose3<2>(b.T.rotation(), vp_b);
   EXPECT(!traits<State>::Equals(a, b, fixture::kTol));
 
   State c = a;
-  c.b_v.z() += 1.0;
+  c.b(8) += 1.0;
   EXPECT(!traits<State>::Equals(a, c, fixture::kTol));
 }
 
@@ -117,7 +121,7 @@ TEST(State, ChartIsLeftInvariant) {
 TEST(State, BiasBlockIsLinearAtZeroNavigationDisplacement) {
   const State xi_ref = fixture::makeXi();
   State xi = xi_ref;
-  xi.b_a += Vector3(0.3, -0.2, 0.1);
+  xi.b.segment<3>(3) += Vector3(0.3, -0.2, 0.1);
 
   Eigen::Matrix<double, 18, 1> expected = Eigen::Matrix<double, 18, 1>::Zero();
   expected.segment<3>(12) = -Vector3(0.3, -0.2, 0.1);

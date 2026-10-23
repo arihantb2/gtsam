@@ -15,7 +15,7 @@
 #include <gtsam_unstable/examples_common/ImuProcessNoise.h>
 #include <gtsam_unstable/examples_common/ScenarioHarness.h>
 #include <gtsam_unstable/examples_common/TrajectoryCsv.h>
-#include <gtsam_unstable/tg_eqf/EqF.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 #include <ostream>
 #include <string>
@@ -24,8 +24,8 @@ namespace gtsam::tgeqf::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
 // The shared options only describe the physical state: bv has no physical
-// truth, so the initial estimate leaves it at zero (see State::b_v) and its
-// initial covariance comes from the filter itself.
+// truth, so the initial estimate leaves it at zero (the last 3 entries of
+// State::b) and its initial covariance comes from the filter itself.
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -62,12 +62,13 @@ class ScenarioAdapter {
   /// block.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
                     const imu_scenarios::PhysicalStateCovariance& P0) const {
+    Eigen::Matrix<double, 3, 2> vp;
+    vp.col(0) = initial.nav.velocity();
+    vp.col(1) = initial.nav.position();
     State xi_hat0;
-    xi_hat0.R = initial.nav.attitude();
-    xi_hat0.v = initial.nav.velocity();
-    xi_hat0.p = initial.nav.position();
-    xi_hat0.b_w = initial.bias_gyro;
-    xi_hat0.b_a = initial.bias_accel;
+    xi_hat0.T = ExtendedPose3<2>(initial.nav.attitude(), vp);
+    xi_hat0.b.segment<3>(0) = initial.bias_gyro;
+    xi_hat0.b.segment<3>(3) = initial.bias_accel;
     // b_v stays zero: the virtual bias has no physical truth to perturb.
     Filter filter(phiInverse(State::identity(), xi_hat0),
                   Filter::initialCovariance(P0));
@@ -79,13 +80,14 @@ class ScenarioAdapter {
 
   TrueState trueState(const gtsam::NavState& gt, const Vector3& true_bg,
                       const Vector3& true_ba) const {
+    Eigen::Matrix<double, 3, 2> vp;
+    vp.col(0) = gt.velocity();
+    vp.col(1) = gt.position();
     State xi;
-    xi.R = gt.attitude();
-    xi.v = gt.velocity();
-    xi.p = gt.position();
-    xi.b_w = true_bg;
-    xi.b_a = true_ba;
-    xi.b_v = Vector3::Zero();  // virtual bias: no physical truth
+    xi.T = ExtendedPose3<2>(gt.attitude(), vp);
+    xi.b.segment<3>(0) = true_bg;
+    xi.b.segment<3>(3) = true_ba;
+    // b_v (segment<3>(6)) stays zero: no physical truth.
     return xi;
   }
 
@@ -119,17 +121,17 @@ class ScenarioAdapter {
                    const Filter& filter) const {
     const State& xi_hat = filter.state();
     imu_scenarios::CsvRow row(out, t);
-    row.quat(xi_true.R)
-        .v3(xi_true.v)
-        .v3(xi_true.p)
-        .v3(xi_true.b_w)
-        .v3(xi_true.b_a);
-    row.quat(xi_hat.R)
-        .v3(xi_hat.v)
-        .v3(xi_hat.p)
-        .v3(xi_hat.b_w)
-        .v3(xi_hat.b_a)
-        .v3(xi_hat.b_v);
+    row.quat(xi_true.T.rotation())
+        .v3(xi_true.T.x(0))
+        .v3(xi_true.T.x(1))
+        .v3(xi_true.b.segment<3>(0))
+        .v3(xi_true.b.segment<3>(3));
+    row.quat(xi_hat.T.rotation())
+        .v3(xi_hat.T.x(0))
+        .v3(xi_hat.T.x(1))
+        .v3(xi_hat.b.segment<3>(0))
+        .v3(xi_hat.b.segment<3>(3))
+        .v3(xi_hat.b.segment<3>(6));
     row.tangent<kDim>(filter.errorStateVector(xi_true));
     if (cov_format_ == imu_scenarios::CovarianceFormat::FullUpperTriangle) {
       row.covarianceFullUpper<kDim>(filter.errorCovariance());

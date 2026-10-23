@@ -14,7 +14,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/Group.h>
+#include <gtsam_unstable/tg_eqf/TGGeometry.h>
 
 using namespace gtsam::tgeqf;
 using namespace gtsam;

@@ -10,8 +10,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tg_eqf/DepthOutput.h>
-#include <gtsam_unstable/tg_eqf/Symmetry.h>
+#include <gtsam_unstable/tg_eqf/TGEqF.h>
 
 #include <cmath>
 
@@ -26,13 +25,13 @@ constexpr double kTol = 1e-9;
 using Tangent = Eigen::Matrix<double, 18, 1>;
 
 State makeXi() {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(1.0, -2.0, 0.5);
+  vp.col(1) = Vector3(0.3, 0.1, -0.4);
   State xi;
-  xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Vector3(1.0, -2.0, 0.5);
-  xi.p = Vector3(0.3, 0.1, -0.4);
-  xi.b_w = Vector3(0.01, -0.02, 0.03);
-  xi.b_a = Vector3(-0.1, 0.05, 0.0);
-  xi.b_v = Vector3(0.0, 0.1, -0.05);
+  xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
+  xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
+             .finished();
   return xi;
 }
 
@@ -55,7 +54,8 @@ namespace output_matrix {
 // predict() reads the raw vertical position, e_3^T p, with no transform.
 TEST(DepthOutput, PredictReadsVerticalPosition) {
   const State xi = fixture::makeXi();
-  EXPECT_DOUBLES_EQUAL(xi.p.z(), DepthMeasurement::predict(xi), fixture::kTol);
+  EXPECT_DOUBLES_EQUAL(xi.T.x(1).z(), DepthMeasurement::predict(xi),
+                       fixture::kTol);
 }
 
 // At the group identity C is the plain chart derivative of predict().
@@ -98,7 +98,11 @@ namespace equivariance {
 TEST(DepthOutput, HasNoEquivariantOutputAction) {
   State xi_a = fixture::makeXi();
   State xi_b = xi_a;
-  xi_b.R = Rot3::Ry(0.7) * xi_a.R;  // different R, same p, so same h(xi)
+  Eigen::Matrix<double, 3, 2> vp_b;
+  vp_b.col(0) = xi_a.T.x(0);
+  vp_b.col(1) = xi_a.T.x(1);
+  // Different R, same p, so same h(xi).
+  xi_b.T = ExtendedPose3<2>(Rot3::Ry(0.7) * xi_a.T.rotation(), vp_b);
 
   EXPECT_DOUBLES_EQUAL(DepthMeasurement::predict(xi_a),
                        DepthMeasurement::predict(xi_b), fixture::kTol);
