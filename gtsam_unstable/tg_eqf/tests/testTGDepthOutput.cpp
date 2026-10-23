@@ -28,22 +28,22 @@ using Tangent = Eigen::Matrix<double, 18, 1>;
 State makeXi() {
   State xi;
   xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_a = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_v = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v = Vector3(1.0, -2.0, 0.5);
+  xi.p = Vector3(0.3, 0.1, -0.4);
+  xi.b_w = Vector3(0.01, -0.02, 0.03);
+  xi.b_a = Vector3(-0.1, 0.05, 0.0);
+  xi.b_v = Vector3(0.0, 0.1, -0.05);
   return xi;
 }
 
 TGElement makeX() {
-  TGElement X;
-  X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  X.a = {Eigen::Vector3d(0.1, -0.1, 0.05), Eigen::Vector3d(-0.2, 0.3, 0.0),
-         Eigen::Vector3d(0.0, 0.1, -0.1)};
-  return X;
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(1.0, -2.0, 0.5);
+  vp.col(1) = Vector3(0.3, 0.1, -0.4);
+  const Vector9 a =
+      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1)
+          .finished();
+  return TGElement(ExtendedPose3<2>(Rot3::Rz(0.4) * Rot3::Rx(0.2), vp), a);
 }
 
 }  // namespace fixture
@@ -149,7 +149,7 @@ double halvingRatio(double (*error)(const fixture::Tangent&),
 // pseudo-position construction.
 TEST(DepthOutput, CIsSecondOrderInAttitudeError) {
   fixture::Tangent d = fixture::Tangent::Zero();
-  d.segment<3>(0) = Eigen::Vector3d(0.6, -0.5, 0.62).normalized();
+  d.segment<3>(0) = Vector3(0.6, -0.5, 0.62).normalized();
 
   // The matrix does err at this amplitude, so the ratio is not vacuous.
   EXPECT(errorC(0.2 * d) > 1e-6);

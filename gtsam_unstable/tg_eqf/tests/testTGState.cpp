@@ -17,11 +17,11 @@ constexpr double kTol = 1e-9;
 State makeXi() {
   State xi;
   xi.R = Rot3::Rz(0.5) * Rot3::Rx(0.3);
-  xi.v = Eigen::Vector3d(10.0, -5.0, 2.0);
-  xi.p = Eigen::Vector3d(1.0, 0.5, -0.2);
-  xi.b_w = Eigen::Vector3d(0.01, -0.01, 0.02);
-  xi.b_a = Eigen::Vector3d(-0.1, 0.0, 0.1);
-  xi.b_v = Eigen::Vector3d(0.05, 0.0, -0.05);
+  xi.v = Vector3(10.0, -5.0, 2.0);
+  xi.p = Vector3(1.0, 0.5, -0.2);
+  xi.b_w = Vector3(0.01, -0.01, 0.02);
+  xi.b_a = Vector3(-0.1, 0.0, 0.1);
+  xi.b_v = Vector3(0.05, 0.0, -0.05);
   return xi;
 }
 
@@ -33,8 +33,8 @@ Eigen::Matrix<double, 18, 1> makeDelta() {
 }
 
 /// Left-translate the navigation block by an SE_2(3) element, biases untouched.
-State leftTranslate(const Rot3& R_s, const Eigen::Vector3d& v_s,
-                    const Eigen::Vector3d& p_s, const State& xi) {
+State leftTranslate(const Rot3& R_s, const Vector3& v_s,
+                    const Vector3& p_s, const State& xi) {
   State out = xi;
   out.R = R_s * xi.R;
   out.v = R_s.rotate(xi.v) + v_s;
@@ -102,8 +102,8 @@ TEST(State, ChartIsLeftInvariant) {
   const State xi = traits<State>::Retract(xi_ref, fixture::makeDelta());
 
   const Rot3 R_s = Rot3::Ry(0.9) * Rot3::Rz(-0.4);
-  const Eigen::Vector3d v_s(-3.0, 1.0, 0.7);
-  const Eigen::Vector3d p_s(2.0, -0.5, 4.0);
+  const Vector3 v_s(-3.0, 1.0, 0.7);
+  const Vector3 p_s(2.0, -0.5, 4.0);
 
   EXPECT(assert_equal((Vector)traits<State>::Local(xi_ref, xi),
                       (Vector)traits<State>::Local(
@@ -117,10 +117,10 @@ TEST(State, ChartIsLeftInvariant) {
 TEST(State, BiasBlockIsLinearAtZeroNavigationDisplacement) {
   const State xi_ref = fixture::makeXi();
   State xi = xi_ref;
-  xi.b_a += Eigen::Vector3d(0.3, -0.2, 0.1);
+  xi.b_a += Vector3(0.3, -0.2, 0.1);
 
   Eigen::Matrix<double, 18, 1> expected = Eigen::Matrix<double, 18, 1>::Zero();
-  expected.segment<3>(12) = -Eigen::Vector3d(0.3, -0.2, 0.1);
+  expected.segment<3>(12) = -Vector3(0.3, -0.2, 0.1);
 
   EXPECT(assert_equal((Vector)expected,
                       (Vector)traits<State>::Local(xi_ref, xi), fixture::kTol));

@@ -29,43 +29,49 @@ bool veq(const Eigen::VectorXd& a, const Eigen::VectorXd& b,
 State makeXi() {
   State xi;
   xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_a = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_v = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v = Vector3(1.0, -2.0, 0.5);
+  xi.p = Vector3(0.3, 0.1, -0.4);
+  xi.b_w = Vector3(0.01, -0.02, 0.03);
+  xi.b_a = Vector3(-0.1, 0.05, 0.0);
+  xi.b_v = Vector3(0.0, 0.1, -0.05);
   return xi;
 }
 
+TGElement makeElement(const Rot3& R, const Vector3& v,
+                      const Vector3& p, const Vector9& a) {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = v;
+  vp.col(1) = p;
+  return TGElement(ExtendedPose3<2>(R, vp), a);
+}
+
 TGElement makeX() {
-  TGElement X;
-  X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  X.a = {Eigen::Vector3d(0.01, -0.02, 0.03), Eigen::Vector3d(-0.1, 0.05, 0.0),
-         Eigen::Vector3d(0.0, 0.1, -0.05)};
-  return X;
+  return makeElement(Rot3::Rz(0.4) * Rot3::Rx(0.2),
+                     Vector3(1.0, -2.0, 0.5),
+                     Vector3(0.3, 0.1, -0.4),
+                     (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0,
+                      0.1, -0.05)
+                         .finished());
 }
 
 TGElement makeY() {
-  TGElement Y;
-  Y.R = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
-  Y.v = Eigen::Vector3d(-0.5, 1.0, 2.0);
-  Y.p = Eigen::Vector3d(0.2, -0.3, 0.1);
-  Y.a = {Eigen::Vector3d(0.05, 0.0, -0.05), Eigen::Vector3d(0.1, -0.1, 0.2),
-         Eigen::Vector3d(-0.1, 0.0, 0.05)};
-  return Y;
+  return makeElement(Rot3::Ry(0.3) * Rot3::Rz(-0.1),
+                     Vector3(-0.5, 1.0, 2.0),
+                     Vector3(0.2, -0.3, 0.1),
+                     (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0,
+                      0.05)
+                         .finished());
 }
 
 Input makeU() {
   Input u;
-  u.w = Eigen::Vector3d(0.2, -0.1, 0.05);
-  u.a = Eigen::Vector3d(-0.05, 0.1, 0.0);
-  u.v = Eigen::Vector3d(0.0, 0.0, 9.81);
-  u.tau_w = Eigen::Vector3d(0.01, -0.02, 0.0);
-  u.tau_a = Eigen::Vector3d(0.02, 0.0, 0.01);
-  u.tau_v = Eigen::Vector3d(0.0, 0.03, -0.01);
-  u.g_vec = Eigen::Vector3d(0.0, 0.0, -9.81);
+  u.w = Vector3(0.2, -0.1, 0.05);
+  u.a = Vector3(-0.05, 0.1, 0.0);
+  u.v = Vector3(0.0, 0.0, 9.81);
+  u.tau_w = Vector3(0.01, -0.02, 0.0);
+  u.tau_a = Vector3(0.02, 0.0, 0.01);
+  u.tau_v = Vector3(0.0, 0.03, -0.01);
+  u.g_vec = Vector3(0.0, 0.0, -9.81);
   return u;
 }
 
@@ -100,24 +106,36 @@ TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   const State xi = fixture::makeXi();
   const Input u = fixture::makeU();
 
+  using Se23 = ExtendedPose3<2>;
+
   const Eigen::Matrix<double, 5, 5> T = xi.T_matrix();
-  const se2_3 w = {u.w, u.a, u.v};
-  const se2_3 b = {xi.b_w, xi.b_a, xi.b_v};
-  const se2_3 tau = {u.tau_w, u.tau_a, u.tau_v};
-  const se2_3 g = {Eigen::Vector3d::Zero(), u.g_vec, Eigen::Vector3d::Zero()};
+  Vector9 w;
+  w.segment<3>(0) = u.w;
+  w.segment<3>(3) = u.a;
+  w.segment<3>(6) = u.v;
+  Vector9 b;
+  b.segment<3>(0) = xi.b_w;
+  b.segment<3>(3) = xi.b_a;
+  b.segment<3>(6) = xi.b_v;
+  Vector9 tau;
+  tau.segment<3>(0) = u.tau_w;
+  tau.segment<3>(3) = u.tau_a;
+  tau.segment<3>(6) = u.tau_v;
+  Vector9 g = Vector9::Zero();
+  g.segment<3>(3) = u.g_vec;
 
   Eigen::Matrix<double, 5, 5> N = Eigen::Matrix<double, 5, 5>::Zero();
   N(3, 4) = 1.0;
 
   const Eigen::Matrix<double, 5, 5> L1 =
-      w.wedge() - b.wedge() + N + T.inverse() * (g.wedge() - N) * T;
-  const Eigen::Matrix<double, 5, 5> B = b.wedge();
-  const se2_3 expected_1 = se2_3::vee(L1);
-  const se2_3 expected_2 = se2_3::vee(B * L1 - L1 * B - tau.wedge());
+      Se23::Hat(w) - Se23::Hat(b) + N + T.inverse() * (Se23::Hat(g) - N) * T;
+  const Eigen::Matrix<double, 5, 5> B = Se23::Hat(b);
+  const Vector9 expected_1 = Se23::Vee(L1);
+  const Vector9 expected_2 = Se23::Vee(B * L1 - L1 * B - Se23::Hat(tau));
 
   const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
-  EXPECT(fixture::veq(expected_1.vector(), Lambda.head<9>()));
-  EXPECT(fixture::veq(expected_2.vector(), Lambda.tail<9>()));
+  EXPECT(fixture::veq(expected_1, Lambda.head<9>()));
+  EXPECT(fixture::veq(expected_2, Lambda.tail<9>()));
 }
 
 // The position-rate slot carries dp = v. With the virtual input cancelling its

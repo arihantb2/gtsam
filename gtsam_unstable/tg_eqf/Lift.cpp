@@ -36,17 +36,25 @@ Lift::Lift(const Input& u) : u(u) {}
 Eigen::Matrix<double, 18, 1> Lift::operator()(
     const State& xi, OptionalJacobian<18, 18> D_lift) const {
   const Eigen::Matrix3d Rt = xi.R.transpose();
-  const se2_3 Lambda1 = {u.w - xi.b_w, u.a - xi.b_a + Rt * u.g_vec,
-                         u.v - xi.b_v + Rt * xi.v};
+  Vector9 Lambda1;
+  Lambda1.segment<3>(0) = u.w - xi.b_w;
+  Lambda1.segment<3>(3) = u.a - xi.b_a + Rt * u.g_vec;
+  Lambda1.segment<3>(6) = u.v - xi.b_v + Rt * xi.v;
 
-  const se2_3 b = {xi.b_w, xi.b_a, xi.b_v};
-  const se2_3 tau = {u.tau_w, u.tau_a, u.tau_v};
-  const Eigen::Matrix<double, 9, 9> ad_b = detail::ad_se23(b);
-  const Eigen::Matrix<double, 9, 1> Lambda2 =
-      ad_b * Lambda1.vector() - tau.vector();
+  Vector9 b;
+  b.segment<3>(0) = xi.b_w;
+  b.segment<3>(3) = xi.b_a;
+  b.segment<3>(6) = xi.b_v;
+  Vector9 tau;
+  tau.segment<3>(0) = u.tau_w;
+  tau.segment<3>(3) = u.tau_a;
+  tau.segment<3>(6) = u.tau_v;
+
+  const Matrix9 ad_b = ExtendedPose3<2>::adjointMap(b);
+  const Vector9 Lambda2 = ad_b * Lambda1 - tau;
 
   Eigen::Matrix<double, 18, 1> result;
-  result.head<9>() = Lambda1.vector();
+  result.head<9>() = Lambda1;
   result.tail<9>() = Lambda2;
 
   if (D_lift) {
@@ -54,10 +62,11 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
     // [dR(3), dv(3), dp(3), dbw(3), dba(3), dbv(3)]. db/d(eps_tau) =
     // ad_se23(b), db/d(eps_b) = -I_9. Lambda_2 = ad_b[Lambda_1] - tau, so
     // d(Lambda_2) = ad_b d(Lambda_1) - ad_{Lambda_1} db.
-    const Eigen::Matrix<double, 9, 9> db_deps_tau = detail::ad_se23(b);
-    const Eigen::Matrix<double, 9, 9> db_deps_b =
-        -Eigen::Matrix<double, 9, 9>::Identity();
-    const Eigen::Matrix<double, 9, 9> ad_Lambda1 = detail::ad_se23(Lambda1);
+    const Matrix9& db_deps_tau = ad_b;
+    const Matrix9 db_deps_b =
+        -Matrix9::Identity();
+    const Matrix9 ad_Lambda1 =
+        ExtendedPose3<2>::adjointMap(Lambda1);
 
     D_lift->setZero();
     D_lift->block<3, 3>(3, 0) = gtsam::skewSymmetric(Rt * u.g_vec);
@@ -77,24 +86,30 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
 InputOrbit::InputOrbit(const Input& u) : u(u) {}
 
 Input InputOrbit::operator()(const TGElement& X) const {
-  const se2_3 w = {u.w, u.a, u.v};
-  const se2_3 tau = {u.tau_w, u.tau_a, u.tau_v};
+  Vector9 w;
+  w.segment<3>(0) = u.w;
+  w.segment<3>(3) = u.a;
+  w.segment<3>(6) = u.v;
+  Vector9 tau;
+  tau.segment<3>(0) = u.tau_w;
+  tau.segment<3>(3) = u.tau_a;
+  tau.segment<3>(6) = u.tau_v;
 
-  const se2_3 w_minus_a = {w.w - X.a.w, w.a - X.a.a, w.v - X.a.v};
-  const se2_3 Ad_A_inv_w_minus_a = X.Ad_A_inv(w_minus_a);
-  const se2_3 Omega_A_inv = {Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(),
-                             X.R.unrotate(-X.v)};
-  const se2_3 w_out =
-      se2_3::from_vector(Ad_A_inv_w_minus_a.vector() + Omega_A_inv.vector());
-  const se2_3 tau_out = se2_3::from_vector(X.Ad_A_inv(tau).vector());
+  const Matrix9 Ad_A_inv_matrix =
+      X.first.inverse().AdjointMap();
+  const Vector9 w_minus_a = w - X.second;
+  Vector9 Omega_A_inv = Vector9::Zero();
+  Omega_A_inv.segment<3>(6) = X.first.rotation().unrotate(-X.first.x(0));
+  const Vector9 w_out = Ad_A_inv_matrix * w_minus_a + Omega_A_inv;
+  const Vector9 tau_out = Ad_A_inv_matrix * tau;
 
   Input result;
-  result.w = w_out.w;
-  result.a = w_out.a;
-  result.v = w_out.v;
-  result.tau_w = tau_out.w;
-  result.tau_a = tau_out.a;
-  result.tau_v = tau_out.v;
+  result.w = w_out.segment<3>(0);
+  result.a = w_out.segment<3>(3);
+  result.v = w_out.segment<3>(6);
+  result.tau_w = tau_out.segment<3>(0);
+  result.tau_a = tau_out.segment<3>(3);
+  result.tau_v = tau_out.segment<3>(6);
   result.g_vec = u.g_vec;
   return result;
 }

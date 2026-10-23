@@ -37,7 +37,7 @@ State State::retract(const Eigen::Matrix<double, 18, 1>& delta) const {
 }
 
 Eigen::Matrix<double, 18, 1> State::localCoordinates(const State& other) const {
-  return phiInverse(*this, other).Logmap();
+  return TGElement::Logmap(phiInverse(*this, other));
 }
 
 }  // namespace tgeqf

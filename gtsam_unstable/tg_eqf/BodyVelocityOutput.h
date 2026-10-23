@@ -19,7 +19,7 @@ struct DVLMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
-  static Eigen::Vector3d predict(const State& xi);
+  static Vector3 predict(const State& xi);
 
   /**
    * Origin-chart Jacobian C0 in R^{3x18}
@@ -44,17 +44,17 @@ struct DVLMeasurement {
    * better than C0. This is the matrix the filter uses.
    */
   static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
-                                 const Eigen::Vector3d& z_dvl);
+                                 const Vector3& z_dvl);
 
   /// Output group action psi_X(y) = R_X^T y + R_X^T v_X.
-  static Eigen::Vector3d output_action(const TGElement& X,
-                                       const Eigen::Vector3d& y);
+  static Vector3 output_action(const TGElement& X,
+                                       const Vector3& y);
 
   /// Inverse output action psi_X^{-1}(y) = R_X y - v_X, which carries a
   /// measurement from the body frame of the true state to the origin output
   /// space the filter compares in.
-  static Eigen::Vector3d inverse_output_action(const TGElement& X,
-                                               const Eigen::Vector3d& y);
+  static Vector3 inverse_output_action(const TGElement& X,
+                                               const Vector3& y);
 };
 
 }  // namespace tgeqf

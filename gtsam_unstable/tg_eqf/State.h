@@ -12,11 +12,11 @@ namespace tgeqf {
 /// (dim 18).
 struct State {
   gtsam::Rot3 R;
-  Eigen::Vector3d v = Eigen::Vector3d::Zero();
-  Eigen::Vector3d p = Eigen::Vector3d::Zero();
-  Eigen::Vector3d b_w = Eigen::Vector3d::Zero();
-  Eigen::Vector3d b_a = Eigen::Vector3d::Zero();
-  Eigen::Vector3d b_v = Eigen::Vector3d::Zero();
+  Vector3 v = Vector3::Zero();
+  Vector3 p = Vector3::Zero();
+  Vector3 b_w = Vector3::Zero();
+  Vector3 b_a = Vector3::Zero();
+  Vector3 b_v = Vector3::Zero();
 
   static constexpr int dimension = 18;
 
@@ -38,8 +38,7 @@ struct State {
    *
    * The navigation block reads SE_2(3) logarithm coordinates, resolved in
    * the body frame of T. The bias block is folded through TGElement's own
-   * fiber exponential (Group.cpp's Xi(tau)) rather than a plain vector
-   * difference.
+   * fiber exponential rather than a plain vector difference.
    */
   State retract(const TangentVector& delta) const;
 

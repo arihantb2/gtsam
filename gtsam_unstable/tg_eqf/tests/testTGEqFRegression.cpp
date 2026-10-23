@@ -31,11 +31,11 @@ static double minEig(const Eigen::MatrixXd& M) {
 // ---------------------------------------------------------------------------
 
 struct RegressionResult {
-  Eigen::Vector3d pos_err;         // final position error (m)
-  Eigen::Vector3d vel_err;         // final velocity error (m/s)
-  Eigen::Vector3d att_err;         // final attitude error, Log(gt^-1 est) (rad)
-  Eigen::Vector3d bg_err, ba_err;  // final bias estimate errors
-  Eigen::Vector3d bg_est, ba_est;  // final bias estimates
+  Vector3 pos_err;         // final position error (m)
+  Vector3 vel_err;         // final velocity error (m/s)
+  Vector3 att_err;         // final attitude error, Log(gt^-1 est) (rad)
+  Vector3 bg_err, ba_err;  // final bias estimate errors
+  Vector3 bg_est, ba_est;  // final bias estimates
   double pos_cov_trace = 0.0;      // trace of final position covariance block
   double bg_cov_trace = 0.0;       // trace of final gyro-bias covariance block
   double ba_cov_trace = 0.0;       // trace of final accel-bias covariance block
@@ -44,16 +44,16 @@ struct RegressionResult {
 
 static RegressionResult runBiasedImu30s(bool with_position_updates) {
   // Coordinated turn: 0.3 rad/s yaw, 2 m/s forward => circle of radius ~6.7 m.
-  const gtsam::ConstantTwistScenario scenario(Eigen::Vector3d(0, 0, 0.3),
-                                              Eigen::Vector3d(2.0, 0, 0));
+  const gtsam::ConstantTwistScenario scenario(Vector3(0, 0, 0.3),
+                                              Vector3(2.0, 0, 0));
   // Constant true biases, unknown to the filter (it starts at zero).
-  const Eigen::Vector3d true_bg(0.01, -0.005, 0.02);  // rad/s
-  const Eigen::Vector3d true_ba(0.05, -0.03, 0.02);   // m/s^2
+  const Vector3 true_bg(0.01, -0.005, 0.02);  // rad/s
+  const Vector3 true_ba(0.05, -0.03, 0.02);   // m/s^2
 
   const double dt = 0.01, duration = 30.0;  // 100 Hz IMU, 30 s
   const int num_steps = static_cast<int>(duration / dt);
   const int gnss_decim = 10;  // 10 Hz position fixes
-  const Eigen::Vector3d g(0.0, 0.0, -9.81);
+  const Vector3 g(0.0, 0.0, -9.81);
 
   // The origin chart is the true initial state, with zero bias estimate and
   // X0 = identity, so the recovered state starts exactly at ground truth. The
@@ -88,8 +88,8 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   for (int k = 0; k < num_steps; ++k) {
     // Ideal IMU at time t (specific force f = R^T (a_n - g)) plus the biases.
     const gtsam::NavState gt = scenario.navState(t);
-    const Eigen::Vector3d omega_meas = scenario.omega_b(t) + true_bg;
-    const Eigen::Vector3d accel_meas =
+    const Vector3 omega_meas = scenario.omega_b(t) + true_bg;
+    const Vector3 accel_meas =
         gt.attitude().unrotate(scenario.acceleration_n(t) - g) + true_ba;
     ekf.propagate(omega_meas, accel_meas, g, Qc, dt);
     t += dt;
@@ -100,8 +100,8 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
 
   const gtsam::NavState gt_end = scenario.navState(duration);
   RegressionResult r;
-  r.pos_err = Eigen::Vector3d(gt_end.position()) - ekf.position();
-  r.vel_err = Eigen::Vector3d(gt_end.velocity()) - ekf.velocity();
+  r.pos_err = Vector3(gt_end.position()) - ekf.position();
+  r.vel_err = Vector3(gt_end.velocity()) - ekf.velocity();
   r.att_err = gtsam::Rot3::Logmap(gt_end.attitude().between(ekf.attitude()));
   r.bg_est = ekf.bias_gyro();
   r.ba_est = ekf.bias_accel();

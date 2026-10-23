@@ -4,7 +4,6 @@
 #include <gtsam_unstable/tg_eqf/Symmetry.h>
 
 #include <Eigen/Dense>
-#include <optional>
 
 namespace gtsam {
 namespace tgeqf {
@@ -21,10 +20,10 @@ namespace tgeqf {
  * gyro/accel channels above couple into it through the lift.
  */
 struct ImuNoise {
-  Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
-  Eigen::Vector3d accel = Eigen::Vector3d::Zero();
-  Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();
-  Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();
+  Vector3 gyro = Vector3::Zero();
+  Vector3 accel = Vector3::Zero();
+  Vector3 gyro_rw = Vector3::Zero();
+  Vector3 accel_rw = Vector3::Zero();
 };
 
 /**
@@ -98,9 +97,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   enum class DvlJacobian { Cstar, C0 };
   void set_dvl_jacobian(DvlJacobian mode) { dvl_jacobian_ = mode; }
 
-  void set_virtual_bias_anchor(
-      bool enable, const std::optional<Covariance3>& R_vb = std::nullopt);
-
   /**
    * Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
    */
@@ -112,16 +108,16 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Qc, discretized by Van Loan as Qd = int_0^dt exp(A s) Qc exp(A^T s) ds.
    * Use the ImuNoise overload for lift-mapped process noise instead.
    */
-  void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
-                 const Eigen::Vector3d& g_vec, const Covariance18& Qc,
+  void propagate(const Vector3& w_meas, const Vector3& a_meas,
+                 const Vector3& g_vec, const Covariance18& Qc,
                  double dt);
 
   /**
    * IMU propagation with Qc = B Sigma B^T from IMU PSDs through the lift
    * differential (origin chart).
    */
-  void propagate(const Eigen::Vector3d& w_meas, const Eigen::Vector3d& a_meas,
-                 const Eigen::Vector3d& g_vec, const ImuNoise& noise,
+  void propagate(const Vector3& w_meas, const Vector3& a_meas,
+                 const Vector3& g_vec, const ImuNoise& noise,
                  double dt);
 
   // Qc_eff = B Sigma B^T, the continuous-time density; propagate() applies
@@ -134,10 +130,10 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   // DVL body-velocity update via h(xi) = R^T v, using the output matrix
   // selected by set_dvl_jacobian() (the equivariant C* by default).
-  void update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl);
+  void update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl);
 
   // Position update via h'(xi) = R^T(pi - p), using the equivariant C*.
-  void update_position(const Eigen::Vector3d& pi, const Covariance3& R_pos);
+  void update_position(const Vector3& pi, const Covariance3& R_pos);
 
   /**
    * Pressure-sensor depth update from the world-frame z position using the
@@ -160,20 +156,17 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    */
   void update_depth_direct(double z_depth, const Covariance1& R_depth);
 
-  // Virtual-bias anchor b_v = 0 pseudo-measurement.
-  void update_virtual_bias(const Covariance3& R_vb);
-
   // Error state and vector in the fixed-origin chart.
   State errorState(const State& xi_true) const;
   TangentVector errorStateVector(const State& xi_true) const;
 
   // State accessors.
   gtsam::Rot3 attitude() const;
-  Eigen::Vector3d velocity() const;
-  Eigen::Vector3d position() const;
-  Eigen::Vector3d bias_gyro() const;
-  Eigen::Vector3d bias_accel() const;
-  Eigen::Vector3d bias_vel() const;
+  Vector3 velocity() const;
+  Vector3 position() const;
+  Vector3 bias_gyro() const;
+  Vector3 bias_accel() const;
+  Vector3 bias_vel() const;
 
  private:
   // Compute the fixed-origin caches (orbit_jacobian0_, innovation_lift_,
@@ -186,11 +179,6 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   void updateWithReset(const Eigen::VectorXd& prediction,
                        const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
                        const Eigen::MatrixXd& R);
-
-  bool anchor_virtual_bias_ = false;
-
-  // Measurement noise for the virtual-bias anchor update.
-  Covariance3 virtual_bias_R_ = 1e-6 * Covariance3::Identity();
 
   bool reset_step_ = true;
   DvlJacobian dvl_jacobian_ = DvlJacobian::Cstar;

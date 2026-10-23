@@ -7,15 +7,18 @@ namespace tgeqf {
 State phi(const TGElement& X, const State& xi) {
   State result;
 
-  result.R = xi.R * X.R;
-  result.v = xi.R.rotate(X.v) + xi.v;
-  result.p = xi.R.rotate(X.p) + xi.p;
+  result.R = xi.R * X.first.rotation();
+  result.v = xi.R.rotate(X.first.x(0)) + xi.v;
+  result.p = xi.R.rotate(X.first.x(1)) + xi.p;
 
-  const se2_3 b_diff = {xi.b_w - X.a.w, xi.b_a - X.a.a, xi.b_v - X.a.v};
-  const se2_3 b_new = X.Ad_A_inv(b_diff);
-  result.b_w = b_new.w;
-  result.b_a = b_new.a;
-  result.b_v = b_new.v;
+  Vector9 b_diff;
+  b_diff.segment<3>(0) = xi.b_w - X.second.segment<3>(0);
+  b_diff.segment<3>(3) = xi.b_a - X.second.segment<3>(3);
+  b_diff.segment<3>(6) = xi.b_v - X.second.segment<3>(6);
+  const Vector9 b_new = X.first.inverse().AdjointMap() * b_diff;
+  result.b_w = b_new.segment<3>(0);
+  result.b_a = b_new.segment<3>(3);
+  result.b_v = b_new.segment<3>(6);
 
   return result;
 }
@@ -23,14 +26,23 @@ State phi(const TGElement& X, const State& xi) {
 // Inverts phi block by block. The navigation part is immediate; the bias part
 // follows from b_est = Ad_{A^{-1}}(b_ref - a), so a = b_ref - Ad_A(b_est).
 TGElement phiInverse(const State& xi_ref, const State& xi_est) {
-  TGElement X;
-  X.R = xi_ref.R.inverse() * xi_est.R;
-  X.v = xi_ref.R.unrotate(xi_est.v - xi_ref.v);
-  X.p = xi_ref.R.unrotate(xi_est.p - xi_ref.p);
+  const Rot3 R = xi_ref.R.inverse() * xi_est.R;
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = xi_ref.R.unrotate(xi_est.v - xi_ref.v);
+  vp.col(1) = xi_ref.R.unrotate(xi_est.p - xi_ref.p);
+  TGElement X(ExtendedPose3<2>(R, vp), Vector9::Zero());
 
-  const se2_3 Ad_b_est = X.Ad_A({xi_est.b_w, xi_est.b_a, xi_est.b_v});
-  X.a = {xi_ref.b_w - Ad_b_est.w, xi_ref.b_a - Ad_b_est.a,
-         xi_ref.b_v - Ad_b_est.v};
+  Vector9 b_est;
+  b_est.segment<3>(0) = xi_est.b_w;
+  b_est.segment<3>(3) = xi_est.b_a;
+  b_est.segment<3>(6) = xi_est.b_v;
+  const Vector9 Ad_b_est = X.first.AdjointMap() * b_est;
+
+  Vector9 Xa;
+  Xa.segment<3>(0) = xi_ref.b_w - Ad_b_est.segment<3>(0);
+  Xa.segment<3>(3) = xi_ref.b_a - Ad_b_est.segment<3>(3);
+  Xa.segment<3>(6) = xi_ref.b_v - Ad_b_est.segment<3>(6);
+  X.second = Xa;
   return X;
 }
 
@@ -60,7 +72,7 @@ State TGSymmetry::Diffeomorphism::operator()(
   const State result = phi(X, xi);
 
   if (H) {
-    *H = gtsam::traits<TGElement>::AdjointMap(X.inverse());
+    *H = X.inverse().AdjointMap();
   }
 
   return result;

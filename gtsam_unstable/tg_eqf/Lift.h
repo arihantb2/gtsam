@@ -10,13 +10,13 @@ namespace tgeqf {
 
 /// Extended input u in R^21.
 struct Input {
-  Eigen::Vector3d w = Eigen::Vector3d::Zero();
-  Eigen::Vector3d a = Eigen::Vector3d::Zero();
-  Eigen::Vector3d v = Eigen::Vector3d::Zero();  // virtual input \nu
-  Eigen::Vector3d tau_w = Eigen::Vector3d::Zero();
-  Eigen::Vector3d tau_a = Eigen::Vector3d::Zero();
-  Eigen::Vector3d tau_v = Eigen::Vector3d::Zero();
-  Eigen::Vector3d g_vec = Eigen::Vector3d::Zero();
+  Vector3 w = Vector3::Zero();
+  Vector3 a = Vector3::Zero();
+  Vector3 v = Vector3::Zero();  // virtual input \nu
+  Vector3 tau_w = Vector3::Zero();
+  Vector3 tau_a = Vector3::Zero();
+  Vector3 tau_v = Vector3::Zero();
+  Vector3 g_vec = Vector3::Zero();
 
   /// Coefficient vector of the extended input.
   using Vector21 = Eigen::Matrix<double, 21, 1>;

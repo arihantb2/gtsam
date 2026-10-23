@@ -21,16 +21,16 @@ struct PositionMeasurement {
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
   /// General single-state residual R^T(pi - p).
-  static Eigen::Vector3d predict(const State& xi, const Eigen::Vector3d& pi);
+  static Vector3 predict(const State& xi, const Vector3& pi);
 
   /**
    * Residual between the origin output and the transported measurement,
    * y0 - g.p, with y0 = R0^T(pi - p0). Equals R0^T(pi - p_hat) because the
    * estimate satisfies p_hat = R0 * g.p + p0.
    */
-  static Eigen::Vector3d predictAtOrigin(const State& xi_ref,
+  static Vector3 predictAtOrigin(const State& xi_ref,
                                          const TGElement& g,
-                                         const Eigen::Vector3d& pi);
+                                         const Vector3& pi);
 
   /**
    * Origin-chart Jacobian C0 in R^{3x18}
@@ -41,7 +41,7 @@ struct PositionMeasurement {
    * linearization error is second order in the state error. The filter uses C*
    * below; C0 is the baseline the accuracy tests measure against.
    */
-  static Jacobian jacobian_C0(const State& xi_ref, const Eigen::Vector3d& pi);
+  static Jacobian jacobian_C0(const State& xi_ref, const Vector3& pi);
 
   /**
    * Equivariant output matrix C* in R^{3x18}, in error coordinates
@@ -54,11 +54,11 @@ struct PositionMeasurement {
    * state error, one order better than C0. This is the matrix the filter uses.
    */
   static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
-                                 const Eigen::Vector3d& pi);
+                                 const Vector3& pi);
 
   /// Output group action psi_X(y) = R_X^T (y - p_X).
-  static Eigen::Vector3d output_action(const TGElement& X,
-                                       const Eigen::Vector3d& y);
+  static Vector3 output_action(const TGElement& X,
+                                       const Vector3& y);
 };
 
 }  // namespace tgeqf

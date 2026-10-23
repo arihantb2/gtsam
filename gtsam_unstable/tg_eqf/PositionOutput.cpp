@@ -4,20 +4,20 @@
 namespace gtsam {
 namespace tgeqf {
 
-Eigen::Vector3d PositionMeasurement::predict(const State& xi,
-                                             const Eigen::Vector3d& pi) {
+Vector3 PositionMeasurement::predict(const State& xi,
+                                             const Vector3& pi) {
   return xi.R.unrotate(pi - xi.p);
 }
 
-Eigen::Vector3d PositionMeasurement::predictAtOrigin(
-    const State& xi_ref, const TGElement& g, const Eigen::Vector3d& pi) {
-  const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
-  return y0 - g.p;
+Vector3 PositionMeasurement::predictAtOrigin(
+    const State& xi_ref, const TGElement& g, const Vector3& pi) {
+  const Vector3 y0 = xi_ref.R.unrotate(pi - xi_ref.p);
+  return y0 - g.first.x(1);
 }
 
 Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
-    const State& xi_ref, const Eigen::Vector3d& pi) {
-  const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
+    const State& xi_ref, const Vector3& pi) {
+  const Vector3 y0 = xi_ref.R.unrotate(pi - xi_ref.p);
   Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
   C0.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
@@ -25,9 +25,9 @@ Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
 }
 
 Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_Cstar(
-    const State& xi_ref, const TGElement& g, const Eigen::Vector3d& pi) {
-  const Eigen::Vector3d y0 = xi_ref.R.unrotate(pi - xi_ref.p);
-  const Eigen::Vector3d vec = y0 + g.p;
+    const State& xi_ref, const TGElement& g, const Vector3& pi) {
+  const Vector3 y0 = xi_ref.R.unrotate(pi - xi_ref.p);
+  const Vector3 vec = y0 + g.first.x(1);
 
   Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
@@ -35,9 +35,9 @@ Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_Cstar(
   return Cstar;
 }
 
-Eigen::Vector3d PositionMeasurement::output_action(const TGElement& X,
-                                                   const Eigen::Vector3d& y) {
-  return X.R.unrotate(y - X.p);
+Vector3 PositionMeasurement::output_action(const TGElement& X,
+                                                   const Vector3& y) {
+  return X.first.rotation().unrotate(y - X.first.x(1));
 }
 
 }  // namespace tgeqf

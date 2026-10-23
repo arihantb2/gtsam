@@ -77,15 +77,15 @@ class ScenarioAdapter {
     return filter;
   }
 
-  TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,
-                      const Eigen::Vector3d& true_ba) const {
+  TrueState trueState(const gtsam::NavState& gt, const Vector3& true_bg,
+                      const Vector3& true_ba) const {
     State xi;
     xi.R = gt.attitude();
     xi.v = gt.velocity();
     xi.p = gt.position();
     xi.b_w = true_bg;
     xi.b_a = true_ba;
-    xi.b_v = Eigen::Vector3d::Zero();  // virtual bias: no physical truth
+    xi.b_v = Vector3::Zero();  // virtual bias: no physical truth
     return xi;
   }
 

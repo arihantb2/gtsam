@@ -33,11 +33,11 @@ bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
 State makeXi() {
   State xi;
   xi.R = Rot3::Rz(0.3) * Rot3::Rx(0.1);
-  xi.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  xi.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  xi.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi.b_a = Eigen::Vector3d(-0.1, 0.05, 0.0);
-  xi.b_v = Eigen::Vector3d(0.0, 0.1, -0.05);
+  xi.v = Vector3(1.0, -2.0, 0.5);
+  xi.p = Vector3(0.3, 0.1, -0.4);
+  xi.b_w = Vector3(0.01, -0.02, 0.03);
+  xi.b_a = Vector3(-0.1, 0.05, 0.0);
+  xi.b_v = Vector3(0.0, 0.1, -0.05);
   return xi;
 }
 
@@ -45,32 +45,38 @@ State makeXi() {
 State makeXiEst() {
   State xi;
   xi.R = Rot3::Ry(-0.2) * Rot3::Rz(0.5);
-  xi.v = Eigen::Vector3d(-0.7, 0.4, 1.2);
-  xi.p = Eigen::Vector3d(2.0, -1.5, 0.6);
-  xi.b_w = Eigen::Vector3d(-0.03, 0.01, 0.02);
-  xi.b_a = Eigen::Vector3d(0.2, -0.15, 0.07);
-  xi.b_v = Eigen::Vector3d(0.05, 0.0, -0.02);
+  xi.v = Vector3(-0.7, 0.4, 1.2);
+  xi.p = Vector3(2.0, -1.5, 0.6);
+  xi.b_w = Vector3(-0.03, 0.01, 0.02);
+  xi.b_a = Vector3(0.2, -0.15, 0.07);
+  xi.b_v = Vector3(0.05, 0.0, -0.02);
   return xi;
 }
 
+TGElement makeElement(const Rot3& R, const Vector3& v,
+                      const Vector3& p, const Vector9& a) {
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = v;
+  vp.col(1) = p;
+  return TGElement(ExtendedPose3<2>(R, vp), a);
+}
+
 TGElement makeX() {
-  TGElement X;
-  X.R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
-  X.v = Eigen::Vector3d(1.0, -2.0, 0.5);
-  X.p = Eigen::Vector3d(0.3, 0.1, -0.4);
-  X.a = {Eigen::Vector3d(0.1, -0.1, 0.05), Eigen::Vector3d(-0.2, 0.3, 0.0),
-         Eigen::Vector3d(0.0, 0.1, -0.1)};
-  return X;
+  return makeElement(Rot3::Rz(0.4) * Rot3::Rx(0.2),
+                     Vector3(1.0, -2.0, 0.5),
+                     Vector3(0.3, 0.1, -0.4),
+                     (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1,
+                      -0.1)
+                         .finished());
 }
 
 TGElement makeY() {
-  TGElement Y;
-  Y.R = Rot3::Ry(0.3) * Rot3::Rz(-0.1);
-  Y.v = Eigen::Vector3d(-0.5, 1.0, 2.0);
-  Y.p = Eigen::Vector3d(0.2, -0.3, 0.1);
-  Y.a = {Eigen::Vector3d(0.05, 0.0, -0.05), Eigen::Vector3d(0.1, -0.1, 0.2),
-         Eigen::Vector3d(-0.1, 0.0, 0.05)};
-  return Y;
+  return makeElement(Rot3::Ry(0.3) * Rot3::Rz(-0.1),
+                     Vector3(-0.5, 1.0, 2.0),
+                     Vector3(0.2, -0.3, 0.1),
+                     (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0,
+                      0.05)
+                         .finished());
 }
 
 Eigen::Matrix<double, 18, 18> orbitJacobian(const TGElement& X,
@@ -108,11 +114,12 @@ TEST(Phi, IsARightAction) {
 
 // On the navigation block the action is right translation of the extended pose,
 // T_out = T * A. Checked in the 5x5 matrix representation, which reaches
-// State::T_matrix and TGElement::to_A_matrix from an independent direction.
+// State::T_matrix and ExtendedPose3<2>::matrix() from an independent
+// direction.
 TEST(Phi, RightTranslatesTheExtendedPose) {
   const State xi = fixture::makeXi();
   const TGElement X = fixture::makeX();
-  EXPECT(fixture::meq(phi(X, xi).T_matrix(), xi.T_matrix() * X.to_A_matrix(),
+  EXPECT(fixture::meq(phi(X, xi).T_matrix(), xi.T_matrix() * X.first.matrix(),
                       fixture::kTolL));
 }
 

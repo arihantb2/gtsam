@@ -4,12 +4,12 @@
 namespace gtsam {
 namespace tgeqf {
 
-Eigen::Vector3d DVLMeasurement::predict(const State& xi) {
+Vector3 DVLMeasurement::predict(const State& xi) {
   return xi.R.unrotate(xi.v);
 }
 
 Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_C0(const State& xi_ref) {
-  const Eigen::Vector3d y0 = predict(xi_ref);
+  const Vector3 y0 = predict(xi_ref);
   Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
   C0.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
@@ -17,9 +17,9 @@ Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_C0(const State& xi_ref) {
 }
 
 Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_Cstar(
-    const State& xi_ref, const TGElement& g, const Eigen::Vector3d& z_dvl) {
-  const Eigen::Vector3d y0 = predict(xi_ref);
-  const Eigen::Vector3d vec = y0 + inverse_output_action(g, z_dvl);
+    const State& xi_ref, const TGElement& g, const Vector3& z_dvl) {
+  const Vector3 y0 = predict(xi_ref);
+  const Vector3 vec = y0 + inverse_output_action(g, z_dvl);
 
   Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
@@ -27,14 +27,14 @@ Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_Cstar(
   return Cstar;
 }
 
-Eigen::Vector3d DVLMeasurement::output_action(const TGElement& X,
-                                              const Eigen::Vector3d& y) {
-  return X.R.unrotate(y + X.v);
+Vector3 DVLMeasurement::output_action(const TGElement& X,
+                                              const Vector3& y) {
+  return X.first.rotation().unrotate(y + X.first.x(0));
 }
 
-Eigen::Vector3d DVLMeasurement::inverse_output_action(
-    const TGElement& X, const Eigen::Vector3d& y) {
-  return X.R.rotate(y) - X.v;
+Vector3 DVLMeasurement::inverse_output_action(
+    const TGElement& X, const Vector3& y) {
+  return X.first.rotation().rotate(y) - X.first.x(0);
 }
 
 }  // namespace tgeqf

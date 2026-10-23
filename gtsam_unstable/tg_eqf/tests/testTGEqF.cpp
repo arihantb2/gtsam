@@ -32,9 +32,9 @@ constexpr double kTol = 1e-6;
 
 using Vector18 = Eigen::Matrix<double, 18, 1>;
 
-const Eigen::Vector3d kGravity(0.0, 0.0, -9.81);
+const Vector3 kGravity(0.0, 0.0, -9.81);
 
-bool veq(const Eigen::Vector3d& a, const Eigen::Vector3d& b,
+bool veq(const Vector3& a, const Vector3& b,
          double tol = kTol) {
   return assert_equal((Vector)a, (Vector)b, tol);
 }
@@ -64,11 +64,11 @@ TGEqF::Covariance18 defaultQc() {
 
 /// Group element with phi(X0, identity) = (Rz(90 deg), (2,0,0), (5,-3,1), 0).
 TGElement rotatedX0() {
-  TGElement X;
-  X.R = Rot3::Rz(M_PI / 2);
-  X.v = Eigen::Vector3d(2.0, 0.0, 0.0);
-  X.p = Eigen::Vector3d(5.0, -3.0, 1.0);
-  return X;
+  Eigen::Matrix<double, 3, 2> vp;
+  vp.col(0) = Vector3(2.0, 0.0, 0.0);
+  vp.col(1) = Vector3(5.0, -3.0, 1.0);
+  return TGElement(ExtendedPose3<2>(Rot3::Rz(M_PI / 2), vp),
+                   Eigen::Matrix<double, 9, 1>::Zero());
 }
 
 Eigen::Matrix<double, 18, 18> orbitJacobian0(const State& xi_ref) {
@@ -105,11 +105,11 @@ TEST(TGEqF, InitializesAtTheReferenceState) {
                       fixture::kTol));
 
   EXPECT(filter.attitude().equals(Rot3::Identity(), fixture::kTol));
-  EXPECT(fixture::veq(Eigen::Vector3d::Zero(), filter.velocity()));
-  EXPECT(fixture::veq(Eigen::Vector3d::Zero(), filter.position()));
-  EXPECT(fixture::veq(Eigen::Vector3d::Zero(), filter.bias_gyro()));
-  EXPECT(fixture::veq(Eigen::Vector3d::Zero(), filter.bias_accel()));
-  EXPECT(fixture::veq(Eigen::Vector3d::Zero(), filter.bias_vel()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.velocity()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.position()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.bias_gyro()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.bias_accel()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.bias_vel()));
 }
 
 // Sigma0 is given in the chart at the initial estimate, so the constructor
@@ -154,21 +154,21 @@ template <size_t K>
 IntegrationResult runIntegrationComparison() {
   State xi0 = State::identity();
   xi0.R = Rot3::Rz(0.35) * Rot3::Ry(-0.2);
-  xi0.v = Eigen::Vector3d(1.2, -0.7, 0.4);
-  xi0.p = Eigen::Vector3d(2.0, -1.0, 0.5);
-  xi0.b_w = Eigen::Vector3d(0.03, -0.02, 0.01);
-  xi0.b_a = Eigen::Vector3d(-0.08, 0.04, 0.06);
+  xi0.v = Vector3(1.2, -0.7, 0.4);
+  xi0.p = Vector3(2.0, -1.0, 0.5);
+  xi0.b_w = Vector3(0.03, -0.02, 0.01);
+  xi0.b_a = Vector3(-0.08, 0.04, 0.06);
 
   TGEqF filter(xi0, fixture::defaultSigma());
 
   Input u;
-  u.w = Eigen::Vector3d(0.7, -0.4, 1.1);
-  u.a = Eigen::Vector3d(1.5, -0.8, 0.6);
+  u.w = Vector3(0.7, -0.4, 1.1);
+  u.a = Vector3(1.5, -0.8, 0.6);
   u.g_vec = fixture::kGravity;
-  u.v = Eigen::Vector3d::Zero();
-  u.tau_w = Eigen::Vector3d::Zero();
-  u.tau_a = Eigen::Vector3d::Zero();
-  u.tau_v = Eigen::Vector3d::Zero();
+  u.v = Vector3::Zero();
+  u.tau_w = Vector3::Zero();
+  u.tau_a = Vector3::Zero();
+  u.tau_v = Vector3::Zero();
 
   const double dt = 0.05;
   for (int step = 0; step < 20; ++step) {
@@ -222,12 +222,12 @@ TEST_DISABLED(TGEqF, PrintsCovarianceAndTimingByIntegrationOrder) {
 // v*dt.
 TEST(TGEqF, PropagateIntegratesPosition) {
   State xi0 = State::identity();
-  xi0.v = Eigen::Vector3d(1.0, -0.5, 0.2);
+  xi0.v = Vector3(1.0, -0.5, 0.2);
   TGEqF filter(xi0, fixture::defaultSigma());
 
   const double dt = 0.01;
-  const Eigen::Vector3d p_before = filter.position();
-  filter.propagate(Eigen::Vector3d::Zero(), -fixture::kGravity,
+  const Vector3 p_before = filter.position();
+  filter.propagate(Vector3::Zero(), -fixture::kGravity,
                    fixture::kGravity, fixture::defaultQc(), dt);
 
   EXPECT(fixture::veq(filter.position() - p_before, xi0.v * dt, 1e-4));
@@ -237,10 +237,10 @@ TEST(TGEqF, PropagateIntegratesPosition) {
 // it must agree with a lift built by hand with u.v = 0 even when b_v is not.
 TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
   State xi_ref = State::identity();
-  xi_ref.b_v = Eigen::Vector3d(0.1, -0.05, 0.08);
+  xi_ref.b_v = Vector3(0.1, -0.05, 0.08);
 
-  const Eigen::Vector3d omega = Eigen::Vector3d::Zero();
-  const Eigen::Vector3d accel(0.1, -0.2, 0.05);
+  const Vector3 omega = Vector3::Zero();
+  const Vector3 accel(0.1, -0.2, 0.05);
   const double dt = 0.05;
 
   TGEqF via_propagate(xi_ref, fixture::defaultSigma());
@@ -268,7 +268,7 @@ namespace updates {
 // position block of the covariance.
 TEST(TGEqF, PositionUpdateCorrectsPosition) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
-  const Eigen::Vector3d pi(1.5, 0.0, -0.25);
+  const Vector3 pi(1.5, 0.0, -0.25);
   const TGEqF::Covariance3 R = 0.001 * TGEqF::Covariance3::Identity();
 
   const double trace_before =
@@ -284,7 +284,7 @@ TEST(TGEqF, PositionUpdateCorrectsPosition) {
 // shrinks the velocity block of the covariance.
 TEST(TGEqF, DvlUpdateCorrectsVelocity) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
-  const Eigen::Vector3d z_dvl(0.8, 0.1, -0.3);
+  const Vector3 z_dvl(0.8, 0.1, -0.3);
   const TGEqF::Covariance3 R = 0.001 * TGEqF::Covariance3::Identity();
 
   const double trace_before =
@@ -293,24 +293,6 @@ TEST(TGEqF, DvlUpdateCorrectsVelocity) {
 
   const double trace_after = filter.errorCovariance().block<3, 3>(3, 3).trace();
   EXPECT((DVLMeasurement::predict(filter.state()) - z_dvl).norm() < 0.2);
-  EXPECT(trace_after < trace_before);
-}
-
-// The b_v = 0 constraint drives a non-zero virtual bias toward zero and
-// shrinks its covariance block.
-TEST(TGEqF, VirtualBiasUpdateDrivesTheBiasToZero) {
-  State xi_ref = State::identity();
-  xi_ref.b_v = Eigen::Vector3d(0.2, -0.15, 0.1);
-  TGEqF filter(xi_ref, fixture::defaultSigma());
-
-  const double before = filter.bias_vel().norm();
-  const double trace_before =
-      filter.errorCovariance().block<3, 3>(15, 15).trace();
-  filter.update_virtual_bias(1e-4 * TGEqF::Covariance3::Identity());
-
-  const double trace_after =
-      filter.errorCovariance().block<3, 3>(15, 15).trace();
-  EXPECT(filter.bias_vel().norm() < 0.5 * before);
   EXPECT(trace_after < trace_before);
 }
 
@@ -329,13 +311,14 @@ TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
   const TGElement X0 = fixture::rotatedX0();
 
   const Eigen::Matrix<double, 3, 18> H_num =
-      numericalDerivative11<Eigen::Vector3d, State>(
+      numericalDerivative11<Vector3, State>(
           [&X0](const State& x) { return DVLMeasurement::predict(phi(X0, x)); },
           xi_ref);
 
   EXPECT(assert_equal(
       (Matrix)H_num,
-      (Matrix)(X0.R.matrix().transpose() * DVLMeasurement::jacobian_C0(xi_ref)),
+      (Matrix)(X0.first.rotation().matrix().transpose() *
+               DVLMeasurement::jacobian_C0(xi_ref)),
       1e-5));
 }
 
@@ -349,12 +332,12 @@ TEST(TGEqF, DvlUpdateMovesVelocityInTheGlobalFrame) {
   Sigma0.block<3, 3>(0, 0) = 1e-8 * Eigen::Matrix3d::Identity();
   TGEqF filter(State::identity(), Sigma0, fixture::rotatedX0());
 
-  const Eigen::Vector3d v_before = filter.velocity();
-  const Eigen::Vector3d z_dvl =
-      filter.attitude().unrotate(v_before + Eigen::Vector3d(0.0, 0.1, 0.0));
+  const Vector3 v_before = filter.velocity();
+  const Vector3 z_dvl =
+      filter.attitude().unrotate(v_before + Vector3(0.0, 0.1, 0.0));
   filter.update_dvl(z_dvl, 1e-4 * TGEqF::Covariance3::Identity());
 
-  const Eigen::Vector3d dv = filter.velocity() - v_before;
+  const Vector3 dv = filter.velocity() - v_before;
   EXPECT(dv.y() > 0.05);
   EXPECT(std::abs(dv.x()) < 0.02);
   EXPECT(std::abs(dv.z()) < 0.02);
@@ -365,11 +348,11 @@ TEST(TGEqF, PositionUpdateMovesEstimateInTheGlobalFrame) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
 
-  const Eigen::Vector3d p_before = filter.position();
-  const Eigen::Vector3d pi = p_before + Eigen::Vector3d(0.0, 0.5, 0.0);
+  const Vector3 p_before = filter.position();
+  const Vector3 pi = p_before + Vector3(0.0, 0.5, 0.0);
   filter.update_position(pi, 1e-4 * TGEqF::Covariance3::Identity());
 
-  const Eigen::Vector3d dp = filter.position() - p_before;
+  const Vector3 dp = filter.position() - p_before;
   EXPECT(dp.y() > 0.4);
   EXPECT(std::abs(dp.x()) < 0.1);
   EXPECT(std::abs(dp.z()) < 0.1);
@@ -412,11 +395,11 @@ Vector18 bigDeltaXi() {
 State offOriginRef() {
   State xi_ref;
   xi_ref.R = Rot3::Rz(0.7) * Rot3::Ry(-0.3);
-  xi_ref.v = Eigen::Vector3d(1.0, -0.5, 0.2);
-  xi_ref.p = Eigen::Vector3d(-2.0, 3.0, 0.5);
-  xi_ref.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi_ref.b_a = Eigen::Vector3d(-0.05, 0.04, 0.02);
-  xi_ref.b_v = Eigen::Vector3d(0.1, -0.08, 0.06);
+  xi_ref.v = Vector3(1.0, -0.5, 0.2);
+  xi_ref.p = Vector3(-2.0, 3.0, 0.5);
+  xi_ref.b_w = Vector3(0.01, -0.02, 0.03);
+  xi_ref.b_a = Vector3(-0.05, 0.04, 0.02);
+  xi_ref.b_v = Vector3(0.1, -0.08, 0.06);
   return xi_ref;
 }
 
@@ -437,14 +420,14 @@ UpdatePair positionUpdatePair(const TGEqF::Covariance18& Sigma0,
   without_reset.set_reset_step(false);
 
   const TGElement X_before = with_reset.groupEstimate();
-  const Eigen::Vector3d pi =
-      with_reset.position() + offset_scale * Eigen::Vector3d(0.5, 0.3, -0.2);
+  const Vector3 pi =
+      with_reset.position() + offset_scale * Vector3(0.5, 0.3, -0.2);
   const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
   with_reset.update_position(pi, R);
   without_reset.update_position(pi, R);
 
   const TGElement Xd = X_before * with_reset.groupEstimate().inverse();
-  const Vector18 delta_x = -Xd.Logmap();
+  const Vector18 delta_x = -TGElement::Logmap(Xd);
   const Vector18 delta_xi = fixture::orbitJacobian0(xi_ref) * delta_x;
   return {with_reset.errorCovariance(), without_reset.errorCovariance(),
           with_reset.resetMatrix(delta_xi, delta_x)};
@@ -502,8 +485,8 @@ TEST(TGEqF, ResetAtPureFiberCorrectionHasAdCoupling) {
 
   Eigen::Matrix<double, 18, 18> expected =
       Eigen::Matrix<double, 18, 18>::Identity();
-  const se2_3 z0 = se2_3::from_vector(fiber_only.tail<9>());
-  expected.block<9, 9>(9, 0) = 0.5 * detail::ad_se23(z0);
+  expected.block<9, 9>(9, 0) =
+      0.5 * ExtendedPose3<2>::adjointMap(fiber_only.tail<9>());
 
   EXPECT(assert_equal((Matrix)expected, (Matrix)J, 1e-6));
 }
@@ -516,13 +499,13 @@ TEST(TGEqF, ResetTracksTheGroupCorrectionTheUpdateApplies) {
                fixture::rotatedX0());
 
   State xi_true = filter.state();
-  xi_true.v += Eigen::Vector3d(0.1, 0.05, -0.1);
-  xi_true.p += Eigen::Vector3d(0.4, -0.2, 0.3);
+  xi_true.v += Vector3(0.1, 0.05, -0.1);
+  xi_true.p += Vector3(0.4, -0.2, 0.3);
 
   const State e_before = filter.errorState(xi_true);
   const TGElement X_before = filter.groupEstimate();
 
-  filter.update_position(xi_true.p + Eigen::Vector3d(0.05, -0.03, 0.02),
+  filter.update_position(xi_true.p + Vector3(0.05, -0.03, 0.02),
                          1e-2 * TGEqF::Covariance3::Identity());
 
   const TGElement Xd = X_before * filter.groupEstimate().inverse();
@@ -568,8 +551,8 @@ TEST(TGEqF, ResetStepIsOnByDefault) {
   TGEqF turned_off(xi_ref, fixture::anisotropicSigma(), X0);
   turned_off.set_reset_step(false);
 
-  const Eigen::Vector3d pi =
-      by_default.position() + Eigen::Vector3d(0.5, 0.3, -0.2);
+  const Vector3 pi =
+      by_default.position() + Vector3(0.5, 0.3, -0.2);
   const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
   by_default.update_position(pi, R);
   turned_off.update_position(pi, R);
@@ -586,10 +569,10 @@ namespace process_noise {
 
 ImuNoise makeNoise() {
   ImuNoise nz;
-  nz.gyro = Eigen::Vector3d::Constant(2e-4);
-  nz.accel = Eigen::Vector3d::Constant(3e-3);
-  nz.gyro_rw = Eigen::Vector3d::Constant(1e-6);
-  nz.accel_rw = Eigen::Vector3d::Constant(5e-5);
+  nz.gyro = Vector3::Constant(2e-4);
+  nz.accel = Vector3::Constant(3e-3);
+  nz.gyro_rw = Vector3::Constant(1e-6);
+  nz.accel_rw = Vector3::Constant(5e-5);
   return nz;
 }
 
@@ -627,8 +610,8 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   TGEqF filter(State::identity(), fixture::defaultSigma(),
                fixture::rotatedX0());
   const ImuNoise nz = makeNoise();
-  const Eigen::Vector3d omega(0.1, -0.05, 0.02);
-  const Eigen::Vector3d accel(0.3, 0.2, 9.6);
+  const Vector3 omega(0.1, -0.05, 0.02);
+  const Vector3 accel(0.3, 0.2, 9.6);
 
   const State xi_ref = State::identity();
   const TGElement Xhat_inv = filter.groupEstimate().inverse();
@@ -648,7 +631,7 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   Eigen::Matrix<double, 18, 12> B_num;
   for (int j = 0; j < 12; ++j) {
     Input uu = u;
-    Eigen::Vector3d* slot[4] = {&uu.w, &uu.a, &uu.tau_w, &uu.tau_a};
+    Vector3* slot[4] = {&uu.w, &uu.a, &uu.tau_w, &uu.tau_a};
     (*slot[j / 3])(j % 3) += h;
     B_num.col(j) = (lambda_origin(uu) - L0) / h;
   }
@@ -667,17 +650,20 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
 // input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart.
 TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
   State xi_ref = State::identity();
-  xi_ref.b_w = Eigen::Vector3d(0.01, -0.02, 0.03);
-  xi_ref.b_a = Eigen::Vector3d(-0.05, 0.04, -0.01);
-  xi_ref.b_v = Eigen::Vector3d(0.02, 0.02, -0.03);
+  xi_ref.b_w = Vector3(0.01, -0.02, 0.03);
+  xi_ref.b_a = Vector3(-0.05, 0.04, -0.01);
+  xi_ref.b_v = Vector3(0.02, 0.02, -0.03);
 
   const TGEqF filter(xi_ref, fixture::defaultSigma());
 
-  const se2_3 b_ref = {xi_ref.b_w, xi_ref.b_a, xi_ref.b_v};
+  Vector9 b_ref;
+  b_ref.segment<3>(0) = xi_ref.b_w;
+  b_ref.segment<3>(3) = xi_ref.b_a;
+  b_ref.segment<3>(6) = xi_ref.b_v;
   Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
   G.block<9, 9>(0, 0).setIdentity();
-  G.block<9, 9>(9, 0) = detail::ad_se23(b_ref);
-  G.block<9, 9>(9, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
+  G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(b_ref);
+  G.block<9, 9>(9, 9) = -Matrix9::Identity();
 
   EXPECT(assert_equal((Matrix)G, (Matrix)filter.input_lift(), 1e-12));
 }
@@ -686,8 +672,8 @@ TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
 // raw-Qc overload, and the noise it injects does grow the covariance.
 TEST(TGEqF, PropagateWithImuNoiseDelegatesToInputNoiseCov) {
   const ImuNoise nz = makeNoise();
-  const Eigen::Vector3d omega(0.05, -0.02, 0.01);
-  const Eigen::Vector3d accel(0.1, -0.2, 9.85);
+  const Vector3 omega(0.05, -0.02, 0.01);
+  const Vector3 accel(0.1, -0.2, 9.85);
   const double dt = 0.05;
 
   TGEqF via_noise(State::identity(), fixture::defaultSigma());
@@ -724,9 +710,9 @@ TEST(TGEqF, DepthUpdateCorrectsVerticalPositionOnly) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   const double z_depth = -0.8;
 
-  const Eigen::Vector3d before = filter.position();
+  const Vector3 before = filter.position();
   filter.update_depth(z_depth, depthNoise(0.01));
-  const Eigen::Vector3d delta = filter.position() - before;
+  const Vector3 delta = filter.position() - before;
 
   EXPECT(std::abs(filter.position().z() - z_depth) < 0.1);
   EXPECT(std::abs(delta.x()) < 0.02);
@@ -760,7 +746,7 @@ TEST(TGEqF, DepthUpdateMatchesTheEquivalentPositionUpdate) {
   const double sigma_z = 0.02;
   via_depth.update_depth(z_depth, depthNoise(sigma_z));
 
-  Eigen::Vector3d pseudo = via_position.position();
+  Vector3 pseudo = via_position.position();
   pseudo.z() = z_depth;
   TGEqF::Covariance3 R_pseudo = TGEqF::Covariance3::Zero();
   R_pseudo(0, 0) = TGEqF::kDefaultHorizontalVariance;

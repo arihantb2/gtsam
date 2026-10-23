@@ -3,7 +3,7 @@
 #include <gtsam_unstable/tg_eqf/EqF.h>
 #include <gtsam_unstable/tg_eqf/Lift.h>
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
-#include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
+#include "gtsam/base/Matrix.h"
 
 namespace gtsam {
 namespace tgeqf {
@@ -60,6 +60,27 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
   return 0.5 * (Sigma_eps + Sigma_eps.transpose());
 }
 
+// Left Jacobian of G, J_l(gamma) = sum_{k>=0} ad_gamma^k / (k+1)!; used by
+// resetMatrix() below. TangentLieGroup<G>'s own right Jacobian is a
+// different, private kernel, so this stays a free function built from
+// TGElement::adjointMap, the group's own 18x18 algebra adjoint. The series is
+// entire; its convergence rate is set by the rotation angle alone (the
+// adjoint is nilpotent on the translation/fiber blocks), so 28 terms reach
+// machine precision up to the full [-pi, pi] range Logmap can return.
+Eigen::Matrix<double, 18, 18> leftJacobianG(
+    const Eigen::Matrix<double, 18, 1>& gamma) {
+  const Eigen::Matrix<double, 18, 18> ad = TGElement::adjointMap(gamma);
+  Eigen::Matrix<double, 18, 18> term = Eigen::Matrix<double, 18, 18>::Identity();
+  Eigen::Matrix<double, 18, 18> sum = Eigen::Matrix<double, 18, 18>::Zero();
+  double fact = 1.0;
+  for (int k = 0; k < 28; ++k) {
+    fact *= (k + 1);
+    sum += term / fact;
+    term = term * ad;
+  }
+  return sum;
+}
+
 }  // namespace
 
 TGEqF::Covariance18 TGEqF::initialCovariance(
@@ -91,11 +112,14 @@ void TGEqF::computeOriginCaches() {
   innovation_lift_ =
       orbit_jacobian0_.completeOrthogonalDecomposition().pseudoInverse();
 
-  const se2_3 b_ref = {xi_ref.b_w, xi_ref.b_a, xi_ref.b_v};
+  Vector9 b_ref;
+  b_ref.segment<3>(0) = xi_ref.b_w;
+  b_ref.segment<3>(3) = xi_ref.b_a;
+  b_ref.segment<3>(6) = xi_ref.b_v;
   Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
   G.block<9, 9>(0, 0).setIdentity();
-  G.block<9, 9>(9, 0) = detail::ad_se23(b_ref);
-  G.block<9, 9>(9, 9) = -Eigen::Matrix<double, 9, 9>::Identity();
+  G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(b_ref);
+  G.block<9, 9>(9, 9) = -Matrix9::Identity();
   input_lift_ = orbit_jacobian0_ * G;
 }
 
@@ -108,13 +132,12 @@ Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
   //
   //   J(eps) = J_r(r(eps))^{-1} Ad_{Xd^{-1}} J_r(eps),   J_r(w) = J_l(-w).
   const TGElement Xd = TGElement::Expmap(-delta_x);
-  const Eigen::Matrix<double, 18, 18> Ad_Xd_inv =
-      gtsam::traits<TGElement>::AdjointMap(Xd.inverse());
-  const Eigen::Matrix<double, 18, 18> Jr_eps = detail::LeftJacobianG(-delta_xi);
+  const Eigen::Matrix<double, 18, 18> Ad_Xd_inv = Xd.inverse().AdjointMap();
+  const Eigen::Matrix<double, 18, 18> Jr_eps = leftJacobianG(-delta_xi);
 
   const Eigen::Matrix<double, 18, 1> r =
-      (TGElement::Expmap(delta_xi) * Xd).Logmap();
-  const Eigen::Matrix<double, 18, 18> Jr_r = detail::LeftJacobianG(-r);
+      TGElement::Logmap(TGElement::Expmap(delta_xi) * Xd);
+  const Eigen::Matrix<double, 18, 18> Jr_r = leftJacobianG(-r);
 
   return Jr_r.partialPivLu().solve(Ad_Xd_inv * Jr_eps);
 }
@@ -138,19 +161,19 @@ void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
   }
 }
 
-void TGEqF::propagate(const Eigen::Vector3d& w_meas,
-                      const Eigen::Vector3d& a_meas,
-                      const Eigen::Vector3d& g_vec, const Covariance18& Qc,
+void TGEqF::propagate(const Vector3& w_meas,
+                      const Vector3& a_meas,
+                      const Vector3& g_vec, const Covariance18& Qc,
                       double dt) {
   Input u;
   u.w = w_meas;
   u.a = a_meas;
   u.g_vec = g_vec;
   // Virtual input nu = 0
-  u.v = Eigen::Vector3d::Zero();
-  u.tau_w = Eigen::Vector3d::Zero();
-  u.tau_a = Eigen::Vector3d::Zero();
-  u.tau_v = Eigen::Vector3d::Zero();
+  u.v = Vector3::Zero();
+  u.tau_w = Vector3::Zero();
+  u.tau_a = Vector3::Zero();
+  u.tau_v = Vector3::Zero();
 
   const Lift lift(u);
   const InputOrbit psi_u(u);
@@ -162,16 +185,11 @@ void TGEqF::propagate(const Eigen::Vector3d& w_meas,
   const Covariance18 Qc_eff =
       dt > 0.0 ? Covariance18(discretizeNoiseVanLoan(A, Qc, dt) / dt) : Qc;
   Base::predictWithJacobian<4>(lift, A, Qc_eff, dt);
-
-  // Pin the unobservable virtual bias at zero unless disabled.
-  if (anchor_virtual_bias_) {
-    update_virtual_bias(virtual_bias_R_);
-  }
 }
 
-void TGEqF::propagate(const Eigen::Vector3d& w_meas,
-                      const Eigen::Vector3d& a_meas,
-                      const Eigen::Vector3d& g_vec, const ImuNoise& noise,
+void TGEqF::propagate(const Vector3& w_meas,
+                      const Vector3& a_meas,
+                      const Vector3& g_vec, const ImuNoise& noise,
                       double dt) {
   // Map the IMU noise PSDs through the lift.
   propagate(w_meas, a_meas, g_vec, inputNoiseCov(noise), dt);
@@ -183,7 +201,7 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   // Ad_{Xhat^-1} factor, which cancels one power of Ad_hat by lift
   // equivariance, leaving the single Ad_hat below rather than the two an
   // Ad_hat * G * Ad_hat chain would suggest.
-  const Eigen::Matrix<double, 9, 9> Ad_hat = detail::Ad_SE23(groupEstimate());
+  const Matrix9 Ad_hat = groupEstimate().first.AdjointMap();
   Eigen::Matrix<double, 18, 12> AdSel = Eigen::Matrix<double, 18, 12>::Zero();
   AdSel.block<9, 6>(0, 0) = Ad_hat.leftCols<6>();
   AdSel.block<9, 6>(9, 6) = Ad_hat.leftCols<6>();
@@ -201,23 +219,15 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   return Qc;
 }
 
-void TGEqF::set_virtual_bias_anchor(bool enable,
-                                    const std::optional<Covariance3>& R_vb) {
-  anchor_virtual_bias_ = enable;
-  if (R_vb) {
-    virtual_bias_R_ = *R_vb;
-  }
-}
-
-void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {
+void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const State xi_ref = referenceState();
   const TGElement X = groupEstimate();
-  const Eigen::Matrix3d R_X = X.R.matrix();
+  const Eigen::Matrix3d R_X = X.first.rotation().matrix();
 
   // The comparison happens in the origin output space: the reference output
   // against the measurement pulled back through the output action.
-  const Eigen::Vector3d prediction = DVLMeasurement::predict(xi_ref);
-  const Eigen::Vector3d z = DVLMeasurement::inverse_output_action(X, z_dvl);
+  const Vector3 prediction = DVLMeasurement::predict(xi_ref);
+  const Vector3 z = DVLMeasurement::inverse_output_action(X, z_dvl);
   const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
 
   const Eigen::Matrix<double, 3, 18> C =
@@ -227,7 +237,7 @@ void TGEqF::update_dvl(const Eigen::Vector3d& z_dvl, const Covariance3& R_dvl) {
   updateWithReset(prediction, C, z, R_eff);
 }
 
-void TGEqF::update_position(const Eigen::Vector3d& pi,
+void TGEqF::update_position(const Vector3& pi,
                             const Covariance3& R_pos) {
   const State xi_ref = referenceState();
   const Eigen::Matrix3d R0 = xi_ref.R.matrix();
@@ -235,19 +245,19 @@ void TGEqF::update_position(const Eigen::Vector3d& pi,
   // Both the residual and R_pos are expressed in the reference rotation frame,
   // the origin output space that C* is built in. R_pos arrives in the global
   // frame, one R0 away, so it is conjugated to match.
-  const Eigen::Vector3d prediction =
+  const Vector3 prediction =
       PositionMeasurement::predictAtOrigin(xi_ref, groupEstimate(), pi);
   const Eigen::Matrix<double, 3, 18> Cstar =
       PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi);
 
-  const Eigen::Vector3d z = Eigen::Vector3d::Zero();
+  const Vector3 z = Vector3::Zero();
   const Covariance3 R_eff = R0.transpose() * R_pos * R0;
   updateWithReset(prediction, Cstar, z, R_eff);
 }
 
 void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
                          double horizontal_variance) {
-  Eigen::Vector3d pseudo_position = position();
+  Vector3 pseudo_position = position();
   pseudo_position.z() = z_depth;
 
   Covariance3 R_pseudo = Covariance3::Zero();
@@ -271,18 +281,6 @@ void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
   updateWithReset(prediction, C, z, R_depth);
 }
 
-void TGEqF::update_virtual_bias(const Covariance3& R_vb) {
-  // Constraint target b_v = 0, compared against the estimated virtual bias.
-  // The output space is the one the estimate reports in, so R_vb needs no
-  // transport.
-  const Eigen::Vector3d prediction = VirtualBiasMeasurement::predict(state());
-  const Eigen::Vector3d z = Eigen::Vector3d::Zero();
-
-  const Eigen::Matrix<double, 3, 18> Cstar =
-      VirtualBiasMeasurement::jacobian_Cstar(referenceState(), groupEstimate());
-  updateWithReset(prediction, Cstar, z, R_vb);
-}
-
 State TGEqF::errorState(const State& xi_true) const {
   const TGElement& Xhat = groupEstimate();
   return phi(Xhat.inverse(), xi_true);
@@ -295,15 +293,15 @@ TGEqF::TangentVector TGEqF::errorStateVector(const State& xi_true) const {
 
 gtsam::Rot3 TGEqF::attitude() const { return state().R; }
 
-Eigen::Vector3d TGEqF::velocity() const { return state().v; }
+Vector3 TGEqF::velocity() const { return state().v; }
 
-Eigen::Vector3d TGEqF::position() const { return state().p; }
+Vector3 TGEqF::position() const { return state().p; }
 
-Eigen::Vector3d TGEqF::bias_gyro() const { return state().b_w; }
+Vector3 TGEqF::bias_gyro() const { return state().b_w; }
 
-Eigen::Vector3d TGEqF::bias_accel() const { return state().b_a; }
+Vector3 TGEqF::bias_accel() const { return state().b_a; }
 
-Eigen::Vector3d TGEqF::bias_vel() const { return state().b_v; }
+Vector3 TGEqF::bias_vel() const { return state().b_v; }
 
 }  // namespace tgeqf
 }  // namespace gtsam

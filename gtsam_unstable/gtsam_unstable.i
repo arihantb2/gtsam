@@ -647,7 +647,6 @@ virtual class LocalOrientedPlane3Factor : gtsam::NoiseModelFactor {
 #include <gtsam_unstable/tg_eqf/Lift.h>
 #include <gtsam_unstable/tg_eqf/PositionOutput.h>
 #include <gtsam_unstable/tg_eqf/BodyVelocityOutput.h>
-#include <gtsam_unstable/tg_eqf/VirtualBiasOutput.h>
 #include <gtsam_unstable/tg_eqf/DepthOutput.h>
 #include <gtsam_unstable/tg_eqf/EqF.h>
 namespace tgeqf {
@@ -671,20 +670,25 @@ class State {
 
 class TGElement {
   TGElement();
-  gtsam::Rot3 R;
-  gtsam::Vector3 v;
-  gtsam::Vector3 p;
+  gtsam::ExtendedPose3<2> first;
+  gtsam::Vector9 second;
   static gtsam::tgeqf::TGElement Identity();
   gtsam::tgeqf::TGElement operator*(const gtsam::tgeqf::TGElement& Y) const;
   gtsam::tgeqf::TGElement inverse() const;
   static gtsam::tgeqf::TGElement Expmap(
-      const gtsam::tgeqf::TGElement::TangentVector& xi);
-  gtsam::tgeqf::TGElement::TangentVector Logmap() const;
+      const gtsam::tgeqf::TGElement::TangentVector& xi,
+      gtsam::tgeqf::TGElement::ChartJacobian H = nullptr);
+  static gtsam::tgeqf::TGElement::TangentVector Logmap(
+      const gtsam::tgeqf::TGElement& X,
+      gtsam::tgeqf::TGElement::ChartJacobian H = nullptr);
   gtsam::tgeqf::TGElement retract(
-      const gtsam::tgeqf::TGElement::TangentVector& xi) const;
+      const gtsam::tgeqf::TGElement::TangentVector& xi,
+      gtsam::tgeqf::TGElement::ChartJacobian H1 = nullptr,
+      gtsam::tgeqf::TGElement::ChartJacobian H2 = nullptr) const;
   gtsam::tgeqf::TGElement::TangentVector localCoordinates(
-      const gtsam::tgeqf::TGElement& other) const;
-  gtsam::Matrix5 to_A_matrix() const;
+      const gtsam::tgeqf::TGElement& other,
+      gtsam::tgeqf::TGElement::ChartJacobian H1 = nullptr,
+      gtsam::tgeqf::TGElement::ChartJacobian H2 = nullptr) const;
 };
 
 gtsam::tgeqf::State phi(const gtsam::tgeqf::TGElement& X,
@@ -747,12 +751,6 @@ class DVLMeasurement {
                                               const gtsam::Vector3& y);
 };
 
-class VirtualBiasMeasurement {
-  static gtsam::Vector3 predict(const gtsam::tgeqf::State& xi);
-  static gtsam::tgeqf::VirtualBiasMeasurement::Jacobian jacobian_Cstar(
-      const gtsam::tgeqf::State& xi_ref, const gtsam::tgeqf::TGElement& g);
-};
-
 class DepthMeasurement {
   static double predict(const gtsam::tgeqf::State& xi);
   static gtsam::tgeqf::DepthMeasurement::Jacobian jacobian_C(
@@ -778,8 +776,6 @@ class TGEqF {
         const gtsam::tgeqf::TGElement& X0);
 
   void set_reset_step(bool enable);
-  void set_virtual_bias_anchor(
-      bool enable, const std::optional<gtsam::Matrix3>& R_vb = std::nullopt);
 
   gtsam::tgeqf::TGEqF::MatrixM resetMatrix(
       const gtsam::tgeqf::TGEqF::TangentVector& delta_xi,
@@ -803,7 +799,6 @@ class TGEqF {
                     double horizontal_variance);
   void update_depth_direct(double z_depth,
                            const gtsam::tgeqf::TGEqF::Covariance1& R_depth);
-  void update_virtual_bias(const gtsam::tgeqf::TGEqF::Covariance3& R_vb);
 
   gtsam::tgeqf::State errorState(const gtsam::tgeqf::State& xi_true) const;
   gtsam::tgeqf::TGEqF::TangentVector errorStateVector(
