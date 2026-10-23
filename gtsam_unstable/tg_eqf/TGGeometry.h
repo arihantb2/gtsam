@@ -24,6 +24,8 @@ struct State {
 
   /// Tangent vector of the state manifold, in the origin chart.
   using TangentVector = Eigen::Matrix<double, 18, 1>;
+  /// Jacobian of a map between tangent spaces of the state manifold.
+  using Jacobian = Eigen::Matrix<double, 18, 18>;
 
   static State identity() { return {}; }
 
@@ -48,7 +50,7 @@ template <>
 struct traits<tgeqf::State> {
   using ManifoldType = tgeqf::State;
   using TangentVector = tgeqf::State::TangentVector;
-  using Jacobian = Eigen::Matrix<double, 18, 18>;
+  using Jacobian = tgeqf::State::Jacobian;
   using structure_category = manifold_tag;
 
   static constexpr int dimension = 18;
@@ -99,8 +101,7 @@ struct TGSymmetry {
     explicit Orbit(const State& xi_ref);
 
     /// phi(X, xi_ref) with optional Jacobian d(phi)/dX in R^{18 x 18}.
-    State operator()(const TGElement& X,
-                     Eigen::Matrix<double, 18, 18>* H = nullptr) const;
+    State operator()(const TGElement& X, State::Jacobian* H = nullptr) const;
   };
 
   /// Maps M -> M by acting with a fixed X (diffeomorphism functor).
@@ -110,8 +111,7 @@ struct TGSymmetry {
     explicit Diffeomorphism(const TGElement& X);
 
     /// phi(X, xi) with optional Jacobian d(phi)/dxi in R^{18 x 18}.
-    State operator()(const State& xi,
-                     Eigen::Matrix<double, 18, 18>* H = nullptr) const;
+    State operator()(const State& xi, State::Jacobian* H = nullptr) const;
   };
 };
 

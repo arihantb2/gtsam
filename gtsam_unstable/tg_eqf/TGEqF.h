@@ -42,8 +42,8 @@ struct Lift {
   explicit Lift(const Input& u);
 
   /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{18 x 18}.
-  Eigen::Matrix<double, 18, 1> operator()(
-      const State& xi, OptionalJacobian<18, 18> D_lift = {}) const;
+  State::TangentVector operator()(const State& xi,
+                                  OptionalJacobian<18, 18> D_lift = {}) const;
 };
 
 /// Input orbit psi_u : G -> L.
@@ -313,17 +313,16 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   void computeOriginCaches();
 
   /// Measurement update followed by the covariance reset.
-  void updateWithReset(const Eigen::VectorXd& prediction,
-                       const Eigen::MatrixXd& Cstar, const Eigen::VectorXd& z,
-                       const Eigen::MatrixXd& R);
+  void updateWithReset(const Vector& prediction, const Matrix& Cstar,
+                       const Vector& z, const Matrix& R);
 
   bool reset_step_ = true;
   DvlJacobian dvl_jacobian_ = DvlJacobian::Cstar;
 
   // Fixed-origin caches for the current reference state (xi_ref_).
-  Eigen::Matrix<double, 18, 18> innovation_lift_;
-  Eigen::Matrix<double, 18, 18> orbit_jacobian0_;
-  Eigen::Matrix<double, 18, 18> input_lift_;
+  MatrixM innovation_lift_;
+  MatrixM orbit_jacobian0_;
+  MatrixM input_lift_;
 };
 
 }  // namespace tgeqf

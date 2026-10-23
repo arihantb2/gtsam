@@ -6,11 +6,11 @@ namespace gtsam {
 namespace tgeqf {
 
 // Chart: theta = log_G . phi_this^-1.
-State State::retract(const Eigen::Matrix<double, 18, 1>& delta) const {
+State State::retract(const State::TangentVector& delta) const {
   return phi(TGElement::Expmap(delta), *this);
 }
 
-Eigen::Matrix<double, 18, 1> State::localCoordinates(const State& other) const {
+State::TangentVector State::localCoordinates(const State& other) const {
   return TGElement::Logmap(phiInverse(*this, other));
 }
 
@@ -56,7 +56,7 @@ TGSymmetry::Orbit::Orbit(const State& xi_ref) : xi_ref(xi_ref) {}
 
 // d(phi)/dX is exactly I_18 everywhere, by freeness of phi.
 State TGSymmetry::Orbit::operator()(const TGElement& X,
-                                    Eigen::Matrix<double, 18, 18>* H) const {
+                                    State::Jacobian* H) const {
   const State result = phi(X, xi_ref);
 
   if (H) {
@@ -69,8 +69,8 @@ State TGSymmetry::Orbit::operator()(const TGElement& X,
 TGSymmetry::Diffeomorphism::Diffeomorphism(const TGElement& X) : X(X) {}
 
 // d(phi)/dxi is exactly Ad_{X^-1}, by the right-action axiom and freeness.
-State TGSymmetry::Diffeomorphism::operator()(
-    const State& xi, Eigen::Matrix<double, 18, 18>* H) const {
+State TGSymmetry::Diffeomorphism::operator()(const State& xi,
+                                             State::Jacobian* H) const {
   const State result = phi(X, xi);
 
   if (H) {

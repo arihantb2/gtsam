@@ -6,8 +6,8 @@
 namespace gtsam {
 namespace tgeqf {
 
-Eigen::Matrix<double, 21, 1> Input::vector() const {
-  Eigen::Matrix<double, 21, 1> result;
+Input::Vector21 Input::vector() const {
+  Input::Vector21 result;
   result.segment<3>(0) = w;
   result.segment<3>(3) = a;
   result.segment<3>(6) = v;
@@ -18,7 +18,7 @@ Eigen::Matrix<double, 21, 1> Input::vector() const {
   return result;
 }
 
-Input Input::from_vector(const Eigen::Matrix<double, 21, 1>& v) {
+Input Input::from_vector(const Input::Vector21& v) {
   Input u;
   u.w = v.segment<3>(0);
   u.a = v.segment<3>(3);
@@ -33,9 +33,9 @@ Input Input::from_vector(const Eigen::Matrix<double, 21, 1>& v) {
 Lift::Lift(const Input& u) : u(u) {}
 
 // Closed form; see the Lift functor's doc comment in TGEqF.h.
-Eigen::Matrix<double, 18, 1> Lift::operator()(
-    const State& xi, OptionalJacobian<18, 18> D_lift) const {
-  const Eigen::Matrix3d Rt = xi.T.rotation().transpose();
+State::TangentVector Lift::operator()(const State& xi,
+                                      OptionalJacobian<18, 18> D_lift) const {
+  const Matrix3 Rt = xi.T.rotation().transpose();
   const Vector9& b = xi.b;
   Vector9 Lambda1;
   Lambda1.segment<3>(0) = u.w - b.segment<3>(0);
@@ -50,7 +50,7 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
   const Matrix9 ad_b = ExtendedPose3<2>::adjointMap(b);
   const Vector9 Lambda2 = ad_b * Lambda1 - tau;
 
-  Eigen::Matrix<double, 18, 1> result;
+  State::TangentVector result;
   result.head<9>() = Lambda1;
   result.tail<9>() = Lambda2;
 
@@ -65,7 +65,7 @@ Eigen::Matrix<double, 18, 1> Lift::operator()(
     D_lift->setZero();
     D_lift->block<3, 3>(3, 0) = gtsam::skewSymmetric(Rt * u.g_vec);
     D_lift->block<3, 3>(6, 0) = gtsam::skewSymmetric(Rt * xi.T.x(0));
-    D_lift->block<3, 3>(6, 3) = Eigen::Matrix3d::Identity();
+    D_lift->block<3, 3>(6, 3) = Matrix3::Identity();
     D_lift->block<9, 9>(0, 0) -= db_deps_tau;
     D_lift->block<9, 9>(0, 9) = -db_deps_b;
 
@@ -111,22 +111,23 @@ Vector3 DVLMeasurement::predict(const State& xi) {
   return xi.T.rotation().unrotate(xi.T.x(0));
 }
 
-Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_C0(const State& xi_ref) {
+DVLMeasurement::Jacobian DVLMeasurement::jacobian_C0(const State& xi_ref) {
   const Vector3 y0 = predict(xi_ref);
-  Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
+  Jacobian C0 = Jacobian::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
-  C0.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+  C0.block<3, 3>(0, 3) = Matrix3::Identity();
   return C0;
 }
 
-Eigen::Matrix<double, 3, 18> DVLMeasurement::jacobian_Cstar(
-    const State& xi_ref, const TGElement& g, const Vector3& z_dvl) {
+DVLMeasurement::Jacobian DVLMeasurement::jacobian_Cstar(const State& xi_ref,
+                                                        const TGElement& g,
+                                                        const Vector3& z_dvl) {
   const Vector3 y0 = predict(xi_ref);
   const Vector3 vec = y0 + inverse_output_action(g, z_dvl);
 
-  Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
+  Jacobian Cstar = Jacobian::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
-  Cstar.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+  Cstar.block<3, 3>(0, 3) = Matrix3::Identity();
   return Cstar;
 }
 
@@ -150,23 +151,23 @@ Vector3 PositionMeasurement::predictAtOrigin(const State& xi_ref,
   return y0 - g.first.x(1);
 }
 
-Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_C0(
+PositionMeasurement::Jacobian PositionMeasurement::jacobian_C0(
     const State& xi_ref, const Vector3& pi) {
   const Vector3 y0 = xi_ref.T.rotation().unrotate(pi - xi_ref.T.x(1));
-  Eigen::Matrix<double, 3, 18> C0 = Eigen::Matrix<double, 3, 18>::Zero();
+  Jacobian C0 = Jacobian::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
-  C0.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
+  C0.block<3, 3>(0, 6) = -Matrix3::Identity();
   return C0;
 }
 
-Eigen::Matrix<double, 3, 18> PositionMeasurement::jacobian_Cstar(
+PositionMeasurement::Jacobian PositionMeasurement::jacobian_Cstar(
     const State& xi_ref, const TGElement& g, const Vector3& pi) {
   const Vector3 y0 = xi_ref.T.rotation().unrotate(pi - xi_ref.T.x(1));
   const Vector3 vec = y0 + g.first.x(1);
 
-  Eigen::Matrix<double, 3, 18> Cstar = Eigen::Matrix<double, 3, 18>::Zero();
+  Jacobian Cstar = Jacobian::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
-  Cstar.block<3, 3>(0, 6) = -Eigen::Matrix3d::Identity();
+  Cstar.block<3, 3>(0, 6) = -Matrix3::Identity();
   return Cstar;
 }
 
@@ -177,11 +178,11 @@ Vector3 PositionMeasurement::output_action(const TGElement& X,
 
 double DepthMeasurement::predict(const State& xi) { return xi.T.x(1).z(); }
 
-Eigen::Matrix<double, 1, 18> DepthMeasurement::jacobian_C(const State& xi_ref,
-                                                          const TGElement& g) {
+DepthMeasurement::Jacobian DepthMeasurement::jacobian_C(const State& xi_ref,
+                                                        const TGElement& g) {
   const Vector3 n = xi_ref.T.rotation().unrotate(Vector3::UnitZ());
 
-  Eigen::Matrix<double, 1, 18> C = Eigen::Matrix<double, 1, 18>::Zero();
+  Jacobian C = Jacobian::Zero();
   C.block<1, 3>(0, 0) = g.first.x(1).cross(n).transpose();
   C.block<1, 3>(0, 6) = n.transpose();
   return C;
@@ -198,16 +199,17 @@ namespace {
  * expm(C) = [F11, G; 0, F22] with F22 = exp(A^T dt) and
  * G = exp(-A dt) int_0^dt exp(A s) Qc exp(A^T s) ds, so Qd = F22^T G.
  */
-Eigen::Matrix<double, 18, 18> discretizeNoiseVanLoan(
-    const Eigen::Matrix<double, 18, 18>& A,
-    const Eigen::Matrix<double, 18, 18>& Qc, double dt) {
-  Eigen::Matrix<double, 36, 36> C = Eigen::Matrix<double, 36, 36>::Zero();
+TGEqF::Covariance18 discretizeNoiseVanLoan(const TGEqF::MatrixM& A,
+                                           const TGEqF::Covariance18& Qc,
+                                           double dt) {
+  using VanLoanBlock = Eigen::Matrix<double, 36, 36>;
+  VanLoanBlock C = VanLoanBlock::Zero();
   C.topLeftCorner<18, 18>() = -A;
   C.topRightCorner<18, 18>() = Qc;
   C.bottomRightCorner<18, 18>() = A.transpose();
 
   const Matrix E = expm(C * dt, 4);
-  const Eigen::Matrix<double, 18, 18> Qd =
+  const TGEqF::Covariance18 Qd =
       E.bottomRightCorner<18, 18>().transpose() * E.topRightCorner<18, 18>();
   return 0.5 * (Qd + Qd.transpose());
 }
@@ -223,19 +225,18 @@ Eigen::Matrix<double, 18, 18> discretizeNoiseVanLoan(
  * EquivariantFilter::covariance() applies in the forward direction, and it
  * reduces to the identity when X0 is the identity.
  */
-Eigen::Matrix<double, 18, 18> toOriginChart(
-    const State& xi_ref, const Eigen::Matrix<double, 18, 18>& Sigma0,
-    const TGElement& X0) {
-  Eigen::Matrix<double, 18, 18> J;
+TGEqF::Covariance18 toOriginChart(const State& xi_ref,
+                                  const TGEqF::Covariance18& Sigma0,
+                                  const TGElement& X0) {
+  TGEqF::MatrixM J;
   const TGSymmetry::Diffeomorphism phi_X0(X0);
   phi_X0(xi_ref, &J);
 
   // J = Ad_{X0^-1} is always invertible; Sigma0 symmetric lets the second
   // solve complete the congruence.
-  const Eigen::PartialPivLU<Eigen::Matrix<double, 18, 18>> lu =
-      J.partialPivLu();
-  const Eigen::Matrix<double, 18, 18> half = lu.solve(Sigma0).transpose();
-  const Eigen::Matrix<double, 18, 18> Sigma_eps = lu.solve(half);
+  const Eigen::PartialPivLU<TGEqF::MatrixM> lu = J.partialPivLu();
+  const TGEqF::Covariance18 half = lu.solve(Sigma0).transpose();
+  const TGEqF::Covariance18 Sigma_eps = lu.solve(half);
   return 0.5 * (Sigma_eps + Sigma_eps.transpose());
 }
 
@@ -244,12 +245,10 @@ Eigen::Matrix<double, 18, 18> toOriginChart(
 // private kernel) built from TGElement::adjointMap. The series converges on
 // rotation angle alone, so 28 terms reach machine precision over Logmap's
 // full [-pi, pi] range.
-Eigen::Matrix<double, 18, 18> leftJacobianG(
-    const Eigen::Matrix<double, 18, 1>& gamma) {
-  const Eigen::Matrix<double, 18, 18> ad = TGElement::adjointMap(gamma);
-  Eigen::Matrix<double, 18, 18> term =
-      Eigen::Matrix<double, 18, 18>::Identity();
-  Eigen::Matrix<double, 18, 18> sum = Eigen::Matrix<double, 18, 18>::Zero();
+TGEqF::MatrixM leftJacobianG(const TGEqF::TangentVector& gamma) {
+  const TGEqF::MatrixM ad = TGElement::adjointMap(gamma);
+  TGEqF::MatrixM term = TGEqF::MatrixM::Identity();
+  TGEqF::MatrixM sum = TGEqF::MatrixM::Zero();
   double fact = 1.0;
   for (int k = 0; k < 28; ++k) {
     fact *= (k + 1);
@@ -290,47 +289,43 @@ void TGEqF::computeOriginCaches() {
   innovation_lift_ =
       orbit_jacobian0_.completeOrthogonalDecomposition().pseudoInverse();
 
-  Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
+  MatrixM G = MatrixM::Zero();
   G.block<9, 9>(0, 0).setIdentity();
   G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(xi_ref.b);
   G.block<9, 9>(9, 9) = -Matrix9::Identity();
   input_lift_ = orbit_jacobian0_ * G;
 }
 
-Eigen::Matrix<double, 18, 18> TGEqF::resetMatrix(
-    const Eigen::Matrix<double, 18, 1>& delta_xi,
-    const Eigen::Matrix<double, 18, 1>& delta_x) const {
+TGEqF::MatrixM TGEqF::resetMatrix(const TangentVector& delta_xi,
+                                  const TangentVector& delta_x) const {
   // r(eps) = Local(xi_ref, phi(Xd, Retract(xi_ref, eps))) reduces to
   // Logmap(Expmap(eps) . Xd), whose derivative has a closed form in terms of
   // the group's own left/right Jacobians:
   //
   //   J(eps) = J_r(r(eps))^{-1} Ad_{Xd^{-1}} J_r(eps),   J_r(w) = J_l(-w).
   const TGElement Xd = TGElement::Expmap(-delta_x);
-  const Eigen::Matrix<double, 18, 18> Ad_Xd_inv = Xd.inverse().AdjointMap();
-  const Eigen::Matrix<double, 18, 18> Jr_eps = leftJacobianG(-delta_xi);
+  const MatrixM Ad_Xd_inv = Xd.inverse().AdjointMap();
+  const MatrixM Jr_eps = leftJacobianG(-delta_xi);
 
-  const Eigen::Matrix<double, 18, 1> r =
-      TGElement::Logmap(TGElement::Expmap(delta_xi) * Xd);
-  const Eigen::Matrix<double, 18, 18> Jr_r = leftJacobianG(-r);
+  const TangentVector r = TGElement::Logmap(TGElement::Expmap(delta_xi) * Xd);
+  const MatrixM Jr_r = leftJacobianG(-r);
 
   return Jr_r.partialPivLu().solve(Ad_Xd_inv * Jr_eps);
 }
 
-void TGEqF::updateWithReset(const Eigen::VectorXd& prediction,
-                            const Eigen::MatrixXd& Cstar,
-                            const Eigen::VectorXd& z,
-                            const Eigen::MatrixXd& R) {
-  Eigen::Matrix<double, 18, 1> delta_xi = Eigen::Matrix<double, 18, 1>::Zero();
-  Eigen::Matrix<double, 18, 1> delta_x = Eigen::Matrix<double, 18, 1>::Zero();
+void TGEqF::updateWithReset(const Vector& prediction, const Matrix& Cstar,
+                            const Vector& z, const Matrix& R) {
+  TangentVector delta_xi = TangentVector::Zero();
+  TangentVector delta_x = TangentVector::Zero();
   Base::updateWithVector(prediction, Cstar, z, R,
-                         [&](const Eigen::Matrix<double, 18, 1>& dxi) {
+                         [&](const TangentVector& dxi) {
                            delta_xi = dxi;
                            delta_x = innovation_lift_ * dxi;
                            return delta_x;
                          });
 
   if (reset_step_) {
-    const Eigen::Matrix<double, 18, 18> J = resetMatrix(delta_xi, delta_x);
+    const MatrixM J = resetMatrix(delta_xi, delta_x);
     this->P_ = J * this->P_ * J.transpose();
   }
 }
@@ -370,13 +365,16 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   // channels only. psi_{Xhat^-1}'s own Ad_{Xhat^-1} cancels one power of
   // Ad_hat by lift equivariance, leaving one Ad_hat rather than the
   // Ad_hat * G * Ad_hat a naive reading would suggest.
+  using InputNoiseJacobian = Eigen::Matrix<double, 18, 12>;
+  using InputNoiseCovariance = Eigen::Matrix<double, 12, 12>;
+
   const Matrix9 Ad_hat = groupEstimate().first.AdjointMap();
-  Eigen::Matrix<double, 18, 12> AdSel = Eigen::Matrix<double, 18, 12>::Zero();
+  InputNoiseJacobian AdSel = InputNoiseJacobian::Zero();
   AdSel.block<9, 6>(0, 0) = Ad_hat.leftCols<6>();
   AdSel.block<9, 6>(9, 6) = Ad_hat.leftCols<6>();
-  const Eigen::Matrix<double, 18, 12> B = input_lift_ * AdSel;
+  const InputNoiseJacobian B = input_lift_ * AdSel;
 
-  Eigen::Matrix<double, 12, 12> Sigma = Eigen::Matrix<double, 12, 12>::Zero();
+  InputNoiseCovariance Sigma = InputNoiseCovariance::Zero();
   Sigma.block<3, 3>(0, 0) = noise.gyro.asDiagonal();
   Sigma.block<3, 3>(3, 3) = noise.accel.asDiagonal();
   Sigma.block<3, 3>(6, 6) = noise.gyro_rw.asDiagonal();
@@ -391,7 +389,7 @@ TGEqF::Covariance18 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
 void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const State xi_ref = referenceState();
   const TGElement X = groupEstimate();
-  const Eigen::Matrix3d R_X = X.first.rotation().matrix();
+  const Matrix3 R_X = X.first.rotation().matrix();
 
   // Compared in the origin output space: reference output against the
   // measurement pulled back through the output action.
@@ -399,7 +397,7 @@ void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const Vector3 z = DVLMeasurement::inverse_output_action(X, z_dvl);
   const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
 
-  const Eigen::Matrix<double, 3, 18> C =
+  const DVLMeasurement::Jacobian C =
       dvl_jacobian_ == DvlJacobian::C0
           ? DVLMeasurement::jacobian_C0(xi_ref)
           : DVLMeasurement::jacobian_Cstar(xi_ref, X, z_dvl);
@@ -408,13 +406,13 @@ void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
 
 void TGEqF::update_position(const Vector3& pi, const Covariance3& R_pos) {
   const State xi_ref = referenceState();
-  const Eigen::Matrix3d R0 = xi_ref.T.rotation().matrix();
+  const Matrix3 R0 = xi_ref.T.rotation().matrix();
 
   // C*'s origin output space is the reference rotation frame; R_pos arrives
   // in the global frame, so conjugate it by R0 to match.
   const Vector3 prediction =
       PositionMeasurement::predictAtOrigin(xi_ref, groupEstimate(), pi);
-  const Eigen::Matrix<double, 3, 18> Cstar =
+  const PositionMeasurement::Jacobian Cstar =
       PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi);
 
   const Vector3 z = Vector3::Zero();
@@ -442,7 +440,7 @@ void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
   prediction(0, 0) = DepthMeasurement::predict(state());
   z(0, 0) = z_depth;
 
-  const Eigen::Matrix<double, 1, 18> C =
+  const DepthMeasurement::Jacobian C =
       DepthMeasurement::jacobian_C(referenceState(), groupEstimate());
   updateWithReset(prediction, C, z, R_depth);
 }
