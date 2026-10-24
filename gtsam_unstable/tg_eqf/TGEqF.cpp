@@ -467,5 +467,9 @@ Vector3 TGEqF::bias_accel() const { return state().b.segment<3>(3); }
 
 Vector3 TGEqF::bias_vel() const { return state().b.segment<3>(6); }
 
+ExtendedPose3<2> TGEqF::extended_pose() const { return state().T; }
+
+Vector9 TGEqF::biases() const { return state().b; }
+
 }  // namespace tgeqf
 }  // namespace gtsam

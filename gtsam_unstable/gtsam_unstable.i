@@ -799,6 +799,8 @@ class TGEqF {
   gtsam::Vector3 bias_gyro() const;
   gtsam::Vector3 bias_accel() const;
   gtsam::Vector3 bias_vel() const;
+  gtsam::ExtendedPose3<2> extended_pose() const;
+  gtsam::Vector9 biases() const;
 
   // Inherited from gtsam::EquivariantFilter<State, TGSymmetry>.
   const gtsam::tgeqf::State& state() const;

@@ -307,6 +307,9 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   Vector3 bias_accel() const;
   Vector3 bias_vel() const;
 
+  ExtendedPose3<2> extended_pose() const;
+  Vector9 biases() const;
+
  private:
   // Compute the fixed-origin caches (orbit_jacobian0_, innovation_lift_,
   // input_lift_) from the current referenceState(). Called on construction.
