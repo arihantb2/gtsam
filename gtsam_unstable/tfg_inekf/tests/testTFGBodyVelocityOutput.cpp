@@ -27,7 +27,7 @@ static TwoFrameGroup makeState() {
   return TwoFrameGroup::FromState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(0.3, 0.1, -0.4),
       Eigen::Vector3d(1.0, -2.0, 0.5), Eigen::Vector3d(0.02, -0.01, 0.03),
-      Eigen::Vector3d(-0.04, 0.05, 0.0));
+      Eigen::Vector3d(-0.04, 0.05, 0.0), Eigen::Vector3d(0.08, -0.05, 0.03));
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ TEST(BodyVelocityOutput, OutputEquivariance) {
 }
 
 // ---------------------------------------------------------------------------
-// jacobian: structure  H = [ y_hat^  I  0  0 ]  and FD correctness
+// jacobian: structure  H = [ y_hat^  I  0  0  0  0 ]  and FD correctness
 // ---------------------------------------------------------------------------
 
 TEST(BodyVelocityOutput, JacobianStructure) {
@@ -69,7 +69,7 @@ TEST(BodyVelocityOutput, JacobianStructure) {
   EXPECT(meq(H.block<3, 3>(0, 3), Eigen::Matrix3d::Identity()));  // d_v
   EXPECT(meq(H.block<3, 3>(0, 6), Eigen::Matrix3d::Zero()));      // d_p
   EXPECT(
-      meq(H.block<3, 6>(0, 9), Eigen::Matrix<double, 3, 6>::Zero()));  // bias
+      meq(H.block<3, 9>(0, 9), Eigen::Matrix<double, 3, 9>::Zero()));  // bias
 }
 
 // H must equal the numerical derivative of h_d(Retract(xi, eps)) at eps = 0,
@@ -78,7 +78,7 @@ TEST(BodyVelocityOutput, JacobianMatchesFiniteDifference) {
   auto xi = makeState();
   auto H = BodyVelocityOutput::jacobian(xi);
 
-  const Eigen::Matrix<double, 3, 15> H_num =
+  const Eigen::Matrix<double, 3, 18> H_num =
       numericalDerivative11<Eigen::Vector3d, TwoFrameGroup>(
           [](const TwoFrameGroup& x) { return BodyVelocityOutput::predict(x); },
           xi);

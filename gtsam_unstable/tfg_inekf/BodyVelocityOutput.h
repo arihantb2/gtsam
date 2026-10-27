@@ -17,9 +17,9 @@ struct BodyVelocityOutput {
   static Eigen::Vector3d output_action(const TwoFrameGroup& X,
                                        const Eigen::Vector3d& y);
 
-  /// Output Jacobian H = [ y_hat^  I  0  0 ] in the right-retract chart.
+  /// Output Jacobian H = [ y_hat^  I  0  0  0  0 ] in the right-retract chart.
   /// d_v block is identity (velocity perturbed in rotated frame, not R^T).
-  static Eigen::Matrix<double, 3, 15> jacobian(const TwoFrameGroup& xi_hat);
+  static Eigen::Matrix<double, 3, 18> jacobian(const TwoFrameGroup& xi_hat);
 };
 
 }  // namespace tfg

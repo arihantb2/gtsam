@@ -12,11 +12,11 @@ Eigen::Vector3d BodyVelocityOutput::output_action(const TwoFrameGroup& X,
   return X.R.unrotate(y) + X.R.unrotate(X.v);
 }
 
-Eigen::Matrix<double, 3, 15> BodyVelocityOutput::jacobian(
+Eigen::Matrix<double, 3, 18> BodyVelocityOutput::jacobian(
     const TwoFrameGroup& xi_hat) {
   const Eigen::Vector3d y_hat = predict(xi_hat);
 
-  Eigen::Matrix<double, 3, 15> H = Eigen::Matrix<double, 3, 15>::Zero();
+  Eigen::Matrix<double, 3, 18> H = Eigen::Matrix<double, 3, 18>::Zero();
   H.block<3, 3>(0, 0) = gtsam::skewSymmetric(y_hat);
   H.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
   return H;

@@ -15,6 +15,7 @@ TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi) {
 Tangent lift(const TwoFrameGroup& X, const ImuInput& u) {
   const Vec3 b_omega = X.bias_omega();
   const Vec3 b_accel = X.bias_accel();
+  const Vec3 b_mag = X.bias_mag();
   const Vec3 gyro_err = u.omega - b_omega;
 
   Tangent xi;
@@ -23,6 +24,7 @@ Tangent lift(const TwoFrameGroup& X, const ImuInput& u) {
   xi.segment<3>(6) = X.R.unrotate(X.v);
   xi.segment<3>(9) = b_omega.cross(gyro_err) - u.tau_omega;
   xi.segment<3>(12) = b_accel.cross(gyro_err) - u.tau_accel;
+  xi.segment<3>(15) = b_mag.cross(gyro_err) - u.tau_mag;
   return xi;
 }
 
@@ -33,16 +35,19 @@ Tangent lift(const TwoFrameGroup& X, const ImuInput& u) {
 //   Df[g_w   , theta ] = -omega^ b_w^            Df[g_w   , g_w] =  omega^
 //   Df[g_a   , theta ] = -w_hat^ b_a^ - b_a^ b_w^
 //                        Df[g_a, g_w] = b_a^     Df[g_a   , g_a] =  w_hat^
-Eigen::Matrix<double, 15, 15> liftJacobian(const TwoFrameGroup& X,
-                                           const ImuInput& u) {
+//   Df[g_m   , theta ] = -w_hat^ b_m^ - b_m^ b_w^
+//                        Df[g_m, g_w] = b_m^     Df[g_m   , g_m] =  w_hat^
+TwoFrameGroup::Jacobian liftJacobian(const TwoFrameGroup& X,
+                                     const ImuInput& u) {
   const Vec3 b_omega = X.bias_omega();
   const Vec3 b_accel = X.bias_accel();
+  const Vec3 b_mag = X.bias_mag();
   const Vec3 w_hat = u.omega - b_omega;
   const Vec3 Rt_g = X.R.unrotate(u.g_vec);
   const Vec3 Rt_v = X.R.unrotate(X.v);
   const Matrix3 I3 = Matrix3::Identity();
 
-  Eigen::Matrix<double, 15, 15> Df = Eigen::Matrix<double, 15, 15>::Zero();
+  TwoFrameGroup::Jacobian Df = TwoFrameGroup::Jacobian::Zero();
   Df.block<3, 3>(0, 0) = -skew(b_omega);
   Df.block<3, 3>(0, 9) = I3;
   Df.block<3, 3>(3, 0) = skew(Rt_g) - skew(b_accel);
@@ -55,30 +60,38 @@ Eigen::Matrix<double, 15, 15> liftJacobian(const TwoFrameGroup& X,
       -skew(w_hat) * skew(b_accel) - skew(b_accel) * skew(b_omega);
   Df.block<3, 3>(12, 9) = skew(b_accel);
   Df.block<3, 3>(12, 12) = skew(w_hat);
+  Df.block<3, 3>(15, 0) =
+      -skew(w_hat) * skew(b_mag) - skew(b_mag) * skew(b_omega);
+  Df.block<3, 3>(15, 9) = skew(b_mag);
+  Df.block<3, 3>(15, 15) = skew(w_hat);
   return Df;
 }
 
 // Qd = B diag(sigma^2) B^T dt. Input order: (n_omega, n_accel, tau_omega,
-// tau_accel).
-Eigen::Matrix<double, 15, 15> inputNoiseCov(const TwoFrameGroup& X,
-                                            const ImuNoise& noise, double dt) {
+// tau_accel, tau_mag).
+TwoFrameGroup::Jacobian inputNoiseCov(const TwoFrameGroup& X,
+                                      const ImuNoise& noise, double dt) {
   const Vec3 b_omega = X.bias_omega();
   const Vec3 b_accel = X.bias_accel();
+  const Vec3 b_mag = X.bias_mag();
   const Matrix3 I3 = Matrix3::Identity();
 
-  Eigen::Matrix<double, 15, 12> B = Eigen::Matrix<double, 15, 12>::Zero();
+  Eigen::Matrix<double, 18, 15> B = Eigen::Matrix<double, 18, 15>::Zero();
   B.block<3, 3>(0, 0) = I3;
   B.block<3, 3>(3, 3) = I3;
   B.block<3, 3>(9, 0) = skew(b_omega);
   B.block<3, 3>(9, 6) = -I3;
   B.block<3, 3>(12, 0) = skew(b_accel);
   B.block<3, 3>(12, 9) = -I3;
+  B.block<3, 3>(15, 0) = skew(b_mag);
+  B.block<3, 3>(15, 12) = -I3;
 
-  Eigen::Matrix<double, 12, 1> sig;
+  Eigen::Matrix<double, 15, 1> sig;
   sig.segment<3>(0) = noise.gyro;
   sig.segment<3>(3) = noise.accel;
   sig.segment<3>(6) = noise.gyro_rw;
   sig.segment<3>(9) = noise.accel_rw;
+  sig.segment<3>(12) = noise.mag_bias_rw;
 
   return (B * sig.asDiagonal() * B.transpose() * dt).eval();
 }

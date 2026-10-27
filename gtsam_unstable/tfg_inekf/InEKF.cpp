@@ -1,12 +1,21 @@
 #include <gtsam_unstable/tfg_inekf/InEKF.h>
 
 #include "BodyVelocityOutput.h"
+#include "MagnetometerOutput.h"
 #include "PositionOutput.h"
 
 namespace tfg {
 
 TfgInEKF::TfgInEKF(const TwoFrameGroup& X0, const Covariance& P0)
     : Base(X0, P0) {}
+
+TfgInEKF::Covariance TfgInEKF::initialCovariance(
+    const Covariance15& Sigma_nav, const Covariance3& Sigma_mag_bias) {
+  Covariance P0 = Covariance::Zero();
+  P0.topLeftCorner<15, 15>() = Sigma_nav;
+  P0.block<3, 3>(15, 15) = Sigma_mag_bias;
+  return P0;
+}
 
 namespace {
 ImuInput makeInput(const Eigen::Vector3d& omega, const Eigen::Vector3d& accel,
@@ -53,14 +62,11 @@ void TfgInEKF::propagate(const Eigen::Vector3d& omega,
 }
 
 void TfgInEKF::update_position(const Eigen::Vector3d& pi,
-                               const Covariance3& R_pos, bool use_cstar) {
+                               const Covariance3& R_pos) {
   const TwoFrameGroup& X = this->state();
 
-  const auto variant =
-      use_cstar ? PositionOutput::Variant::Cstar : PositionOutput::Variant::C0;
   const Eigen::Vector3d prediction = PositionOutput::predict(X, pi);
-  const Eigen::Matrix<double, 3, 15> H =
-      PositionOutput::jacobian(X, pi, variant);
+  const Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian(X, pi);
   const Eigen::Vector3d z = Eigen::Vector3d::Zero();
 
   const Eigen::Matrix3d Rm = X.R.matrix();
@@ -75,13 +81,13 @@ void TfgInEKF::update_dvl(const Eigen::Vector3d& z_dvl,
 
   // Body-frame residual; R_dvl used directly (no R^T(.)R rotation).
   const Eigen::Vector3d prediction = BodyVelocityOutput::predict(X);
-  const Eigen::Matrix<double, 3, 15> H = BodyVelocityOutput::jacobian(X);
+  const Eigen::Matrix<double, 3, 18> H = BodyVelocityOutput::jacobian(X);
 
   this->updateWithVector(prediction, H, z_dvl, R_dvl);
 }
 
 void TfgInEKF::update_depth(double z_depth, const Covariance1& R_depth,
-                            double horizontal_variance, bool use_cstar) {
+                            double horizontal_variance) {
   Eigen::Vector3d pseudo_position = position();
   pseudo_position.z() = z_depth;
 
@@ -90,7 +96,19 @@ void TfgInEKF::update_depth(double z_depth, const Covariance1& R_depth,
   R_pseudo(1, 1) = horizontal_variance;
   R_pseudo(2, 2) = R_depth(0, 0);
 
-  update_position(pseudo_position, R_pseudo, use_cstar);
+  update_position(pseudo_position, R_pseudo);
+}
+
+void TfgInEKF::update_magnetometer(const Eigen::Vector3d& z_mag,
+                                   const Eigen::Vector3d& m,
+                                   const Covariance3& R_mag) {
+  const TwoFrameGroup& X = this->state();
+
+  // Body-frame residual; R_mag used directly, as for the DVL.
+  const Eigen::Vector3d prediction = MagnetometerOutput::predict(X, m);
+  const Eigen::Matrix<double, 3, 18> H = MagnetometerOutput::jacobian(X, m);
+
+  this->updateWithVector(prediction, H, z_mag, R_mag);
 }
 
 TfgInEKF::TangentVector TfgInEKF::errorStateVector(
@@ -107,5 +125,6 @@ Eigen::Vector3d TfgInEKF::bias_gyro() const {
 Eigen::Vector3d TfgInEKF::bias_accel() const {
   return this->state().bias_accel();
 }
+Eigen::Vector3d TfgInEKF::bias_mag() const { return this->state().bias_mag(); }
 
 }  // namespace tfg

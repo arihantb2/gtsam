@@ -4,18 +4,20 @@
 
 #include <Eigen/Dense>
 
-// Two-Frames Group G_TF = SO(3) x R^12 (dim 15).
+// Two-Frames Group G_TF = SO(3) x| R^15 (dim 18): attitude, velocity, position
+// and the gyro, accelerometer and magnetometer biases, each bias b stored in
+// the global frame as gamma = -R b.
 
 namespace tfg {
 
 using gtsam::Rot3;
 
-/// Lie algebra g_TF as a 15-vector.
-using Tangent = Eigen::Matrix<double, 15, 1>;
+/// Lie algebra g_TF as an 18-vector, blocks [R v p gamma_w gamma_a gamma_m].
+using Tangent = Eigen::Matrix<double, 18, 1>;
 
 class TwoFrameGroup {
  public:
-  static constexpr int dim = 15;
+  static constexpr int dim = 18;
   using TangentVector = Tangent;
   using Jacobian = Eigen::Matrix<double, dim, dim>;
 
@@ -24,22 +26,25 @@ class TwoFrameGroup {
   Eigen::Vector3d p;
   Eigen::Vector3d gamma_omega;
   Eigen::Vector3d gamma_accel;
+  Eigen::Vector3d gamma_mag;
 
   TwoFrameGroup();
 
   TwoFrameGroup(const Rot3& R, const Eigen::Vector3d& v,
                 const Eigen::Vector3d& p, const Eigen::Vector3d& gamma_omega,
-                const Eigen::Vector3d& gamma_accel);
+                const Eigen::Vector3d& gamma_accel,
+                const Eigen::Vector3d& gamma_mag = Eigen::Vector3d::Zero());
 
   /// Build from physical state (T, b); gamma = -R * b.
-  static TwoFrameGroup FromState(const Rot3& R, const Eigen::Vector3d& v,
-                                 const Eigen::Vector3d& p,
-                                 const Eigen::Vector3d& b_omega,
-                                 const Eigen::Vector3d& b_accel);
+  static TwoFrameGroup FromState(
+      const Rot3& R, const Eigen::Vector3d& v, const Eigen::Vector3d& p,
+      const Eigen::Vector3d& b_omega, const Eigen::Vector3d& b_accel,
+      const Eigen::Vector3d& b_mag = Eigen::Vector3d::Zero());
 
   /// Physical biases b = R^{-1} (-gamma).
   Eigen::Vector3d bias_omega() const;
   Eigen::Vector3d bias_accel() const;
+  Eigen::Vector3d bias_mag() const;
 
   static TwoFrameGroup Identity();
   TwoFrameGroup operator*(const TwoFrameGroup& Y) const;
@@ -48,7 +53,7 @@ class TwoFrameGroup {
   static TwoFrameGroup Expmap(const TangentVector& xi);
   TangentVector Logmap() const;
 
-  /// Adjoint Ad_X (15x15) for InvariantEKF covariance propagation.
+  /// Adjoint Ad_X (18x18) for InvariantEKF covariance propagation.
   Jacobian AdjointMap() const;
 
   /// 5x5 matrix realisation of the SE_2(3) navigation part.
@@ -63,12 +68,13 @@ template <>
 struct traits<tfg::TwoFrameGroup> {
   using ManifoldType = tfg::TwoFrameGroup;
   using TangentVector = tfg::Tangent;
-  using Jacobian = Eigen::Matrix<double, 15, 15>;
-  using ChartJacobian = OptionalJacobian<15, 15>;
+  using Jacobian = tfg::TwoFrameGroup::Jacobian;
+  using ChartJacobian =
+      OptionalJacobian<tfg::TwoFrameGroup::dim, tfg::TwoFrameGroup::dim>;
   using structure_category = lie_group_tag;
   using group_flavor = multiplicative_group_tag;
 
-  static constexpr int dimension = 15;
+  static constexpr int dimension = tfg::TwoFrameGroup::dim;
   static int GetDimension(const tfg::TwoFrameGroup&) { return dimension; }
 
   // Testable

@@ -22,6 +22,9 @@
 namespace tfg::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
+// The magnetometer bias b_m is not simulated here: it stays at zero in both
+// truth and estimate and, with no magnetometer updates, decoupled from the
+// rest.
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -41,21 +44,24 @@ class ScenarioAdapter {
                         ? imu_scenarios::CovarianceFormat::FullUpperTriangle
                         : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
 
+  /// The magnetometer bias b_m is estimate-only: it has no ground-truth
+  /// counterpart in these scenarios.
   std::string csvHeader() const {
-    return imu_scenarios::trajectoryCsvHeader({"v", "p", "bg", "ba"},
-                                              {"v", "p", "bg", "ba"},
-                                              {"R", "v", "p", "bg", "ba"},
-                                              cov_format_);
+    return imu_scenarios::trajectoryCsvHeader(
+        {"v", "p", "bg", "ba"}, {"v", "p", "bg", "ba", "bm"},
+        {"R", "v", "p", "bg", "ba", "bm"}, cov_format_);
   }
 
-  /// Start at the perturbed initial belief, biases included. Every TFG state is
-  /// physical, so P0 is used as given.
+  /// Start at the perturbed initial belief, biases included. P0 covers the
+  /// physical state and is used as given; a unit magnetometer-bias block is
+  /// appended, which no update reaches here.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
                     const imu_scenarios::PhysicalStateCovariance& P0) const {
     const TwoFrameGroup X0 = TwoFrameGroup::FromState(
         initial.nav.attitude(), initial.nav.velocity(), initial.nav.position(),
         initial.bias_gyro, initial.bias_accel);
-    return Filter(X0, P0);
+    return Filter(
+        X0, Filter::initialCovariance(P0, Filter::Covariance3::Identity()));
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,
@@ -98,7 +104,8 @@ class ScenarioAdapter {
         .v3(X_hat.v)
         .v3(X_hat.p)
         .v3(X_hat.bias_omega())
-        .v3(X_hat.bias_accel());
+        .v3(X_hat.bias_accel())
+        .v3(X_hat.bias_mag());
     row.tangent<kDim>(filter.errorStateVector(X_true));
     if (cov_format_ == imu_scenarios::CovarianceFormat::FullUpperTriangle) {
       row.covarianceFullUpper<kDim>(filter.covariance());

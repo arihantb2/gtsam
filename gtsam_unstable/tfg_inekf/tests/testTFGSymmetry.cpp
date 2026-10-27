@@ -22,14 +22,14 @@ static TwoFrameGroup makeX() {
   return TwoFrameGroup(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(0.3, 0.1, -0.4),
       Eigen::Vector3d(1.0, -2.0, 0.5), Eigen::Vector3d(0.1, -0.1, 0.05),
-      Eigen::Vector3d(-0.2, 0.3, 0.0));
+      Eigen::Vector3d(-0.2, 0.3, 0.0), Eigen::Vector3d(0.15, -0.05, 0.1));
 }
 
 static TwoFrameGroup makeXi() {
   return TwoFrameGroup(
       Rot3::Ry(0.3) * Rot3::Rz(-0.1), Eigen::Vector3d(0.2, -0.3, 0.1),
       Eigen::Vector3d(-0.5, 1.0, 2.0), Eigen::Vector3d(0.05, 0.0, -0.05),
-      Eigen::Vector3d(0.1, -0.1, 0.2));
+      Eigen::Vector3d(0.1, -0.1, 0.2), Eigen::Vector3d(-0.1, 0.2, 0.05));
 }
 
 // The symmetry is frame-agnostic -- gravity arrives in ImuInput::g_vec -- so
@@ -83,7 +83,7 @@ TEST(Phi, RightActionAxiom) {
   TwoFrameGroup Y(
       Rot3::Rx(0.5) * Rot3::Ry(0.2), Eigen::Vector3d(-0.1, 0.4, 0.2),
       Eigen::Vector3d(0.7, -0.3, 1.1), Eigen::Vector3d(0.0, 0.2, -0.1),
-      Eigen::Vector3d(0.3, 0.0, -0.2));
+      Eigen::Vector3d(0.3, 0.0, -0.2), Eigen::Vector3d(0.05, -0.1, 0.0));
   auto lhs = phi(X * Y, xi);
   auto rhs = phi(Y, phi(X, xi));
   EXPECT(traits<TwoFrameGroup>::Equals(lhs, rhs, kTolL));
@@ -107,9 +107,10 @@ TEST(Lift, GravityAtIdentity) {
   EXPECT(veq(lam.segment<3>(3), kTestGravity, kTolL));
   // d_p = v = 0  (no velocity at identity)
   EXPECT(veq(lam.segment<3>(6), Eigen::Vector3d::Zero(), kTolL));
-  // d_gw, d_ga = 0  (zero biases, zero rates)
+  // d_gw, d_ga, d_gm = 0  (zero biases, zero rates)
   EXPECT(veq(lam.segment<3>(9), Eigen::Vector3d::Zero(), kTolL));
   EXPECT(veq(lam.segment<3>(12), Eigen::Vector3d::Zero(), kTolL));
+  EXPECT(veq(lam.segment<3>(15), Eigen::Vector3d::Zero(), kTolL));
 }
 
 // Position rate = current velocity  (p_dot = v, Eq. 3c).
@@ -142,34 +143,39 @@ TEST(Lift, RotationRateIsGyroBiasCorrected) {
 }
 
 // Bias rate (Lambda_2): with nonzero biases, d_g encodes the coupling term
-// b_omega x (omega - b_omega) and b_accel x (omega - b_omega)  (Eq. 18).
+// b x (omega - b_omega) for the gyro, accelerometer and magnetometer biases
+// (Eq. 18).
 TEST(Lift, BiasRateEncodesCoupling) {
   const Eigen::Vector3d omega(0.1, -0.05, 0.2);
   const Eigen::Vector3d bw(0.02, -0.01, 0.03);
   const Eigen::Vector3d ba(-0.04, 0.05, 0.0);
+  const Eigen::Vector3d bm(0.08, -0.05, 0.03);
 
   ImuInput u = zeroInput();
   u.omega = omega;
 
   TwoFrameGroup Xi =
       TwoFrameGroup::FromState(Rot3::Identity(), Eigen::Vector3d::Zero(),
-                               Eigen::Vector3d::Zero(), bw, ba);
+                               Eigen::Vector3d::Zero(), bw, ba, bm);
   Tangent lam = lift(Xi, u);
 
   const Eigen::Vector3d gyro_err = omega - bw;
   EXPECT(veq(lam.segment<3>(9), bw.cross(gyro_err), kTolL));
   EXPECT(veq(lam.segment<3>(12), ba.cross(gyro_err), kTolL));
+  EXPECT(veq(lam.segment<3>(15), bm.cross(gyro_err), kTolL));
 }
 
 // Bias random walk drivers tau are subtracted from Lambda_2  (Eq. 18).
 TEST(Lift, TauSubtractedFromBiasRate) {
   const Eigen::Vector3d tau_w(0.001, 0.002, -0.001);
   const Eigen::Vector3d tau_a(0.003, -0.002, 0.001);
+  const Eigen::Vector3d tau_m(-0.002, 0.001, 0.003);
 
   ImuInput u_no_tau = makeInput();
   ImuInput u_tau = makeInput();
   u_tau.tau_omega = tau_w;
   u_tau.tau_accel = tau_a;
+  u_tau.tau_mag = tau_m;
 
   auto Xi = makeXi();
   Tangent lam0 = lift(Xi, u_no_tau);
@@ -177,6 +183,7 @@ TEST(Lift, TauSubtractedFromBiasRate) {
 
   EXPECT(veq(lam0.segment<3>(9) - tau_w, lam1.segment<3>(9), kTolL));
   EXPECT(veq(lam0.segment<3>(12) - tau_a, lam1.segment<3>(12), kTolL));
+  EXPECT(veq(lam0.segment<3>(15) - tau_m, lam1.segment<3>(15), kTolL));
 }
 
 // ---------------------------------------------------------------------------
@@ -213,8 +220,9 @@ TEST(Lift, NavigationBlocksMatchClosedForm) {
 TEST(Lift, PredictStepMatchesWorldDynamics) {
   Rot3 R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
   Eigen::Vector3d v(0.3, 0.1, -0.4), p(1.0, -2.0, 0.5);
-  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0);
-  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba);
+  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0),
+      bm(0.08, -0.05, 0.03);
+  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba, bm);
 
   ImuInput u = makeInput();
   const double dt = 1e-5;  // small for O(dt^2) accuracy
@@ -232,23 +240,27 @@ TEST(Lift, PredictStepMatchesWorldDynamics) {
   // Biases unchanged (tau = 0)
   EXPECT(veq(X1.bias_omega(), bw, 1e-7));
   EXPECT(veq(X1.bias_accel(), ba, 1e-7));
+  EXPECT(veq(X1.bias_mag(), bm, 1e-7));
 }
 
 // Bias evolves by random-walk only:  with tau != 0, b changes by tau*dt.
 TEST(Lift, BiasRandomWalkPropagation) {
   Rot3 R = Rot3::Rz(0.2);
-  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0);
+  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0),
+      bm(0.08, -0.05, 0.03);
   auto X = TwoFrameGroup::FromState(R, Eigen::Vector3d::Zero(),
-                                    Eigen::Vector3d::Zero(), bw, ba);
+                                    Eigen::Vector3d::Zero(), bw, ba, bm);
 
   ImuInput u = makeInput();
   u.tau_omega = Eigen::Vector3d(0.001, 0.0, -0.001);
   u.tau_accel = Eigen::Vector3d(0.0, 0.002, 0.0);
+  u.tau_mag = Eigen::Vector3d(-0.002, 0.0, 0.001);
   const double dt = 1e-5;
 
   auto X1 = X * increment(X, u, dt);
   EXPECT(veq(X1.bias_omega(), bw + u.tau_omega * dt, 1e-7));
   EXPECT(veq(X1.bias_accel(), ba + u.tau_accel * dt, 1e-7));
+  EXPECT(veq(X1.bias_mag(), bm + u.tau_mag * dt, 1e-7));
 }
 
 // ---------------------------------------------------------------------------
@@ -261,16 +273,56 @@ TEST(Lift, BiasRandomWalkPropagation) {
 TEST(Lift, JacobianMatchesFiniteDifference) {
   Rot3 R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
   Eigen::Vector3d v(0.3, 0.1, -0.4), p(1.0, -2.0, 0.5);
-  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0);
-  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba);
+  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0),
+      bm(0.08, -0.05, 0.03);
+  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba, bm);
   ImuInput u = makeInput();
 
-  const Eigen::Matrix<double, 15, 15> Df = liftJacobian(X, u);
+  const TwoFrameGroup::Jacobian Df = liftJacobian(X, u);
 
-  const Eigen::Matrix<double, 15, 15> Df_num =
+  const TwoFrameGroup::Jacobian Df_num =
       numericalDerivative11<Tangent, TwoFrameGroup>(
           [&u](const TwoFrameGroup& x) { return lift(x, u); }, X);
   EXPECT(assert_equal((Matrix)Df, (Matrix)Df_num, 1e-6));
+}
+
+// inputNoiseCov is B diag(sigma^2) B^T dt with B the derivative of the lift
+// with respect to the input channels (n_omega, n_accel, tau_w, tau_a, tau_m):
+// the noise entering through the gyro reaches every bias row, the
+// magnetometer bias's through b_m^.
+TEST(Lift, InputNoiseCovMatchesNumericalInputJacobian) {
+  const auto X = TwoFrameGroup::FromState(
+      Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(0.3, 0.1, -0.4),
+      Eigen::Vector3d(1.0, -2.0, 0.5), Eigen::Vector3d(0.02, -0.01, 0.03),
+      Eigen::Vector3d(-0.04, 0.05, 0.0), Eigen::Vector3d(0.08, -0.05, 0.03));
+  const ImuInput u0 = makeInput();
+  using InputVector = Eigen::Matrix<double, 15, 1>;
+  const auto liftOfInput = [&](const InputVector& d) {
+    ImuInput u = u0;
+    u.omega += d.segment<3>(0);
+    u.accel += d.segment<3>(3);
+    u.tau_omega += d.segment<3>(6);
+    u.tau_accel += d.segment<3>(9);
+    u.tau_mag += d.segment<3>(12);
+    return lift(X, u);
+  };
+  const Eigen::Matrix<double, 18, 15> B =
+      numericalDerivative11<Tangent, InputVector>(liftOfInput,
+                                                  InputVector::Zero());
+
+  ImuNoise noise;
+  noise.gyro = Eigen::Vector3d(1e-4, 2e-4, 3e-4);
+  noise.accel = Eigen::Vector3d(1e-3, 2e-3, 3e-3);
+  noise.gyro_rw = Eigen::Vector3d(1e-6, 2e-6, 3e-6);
+  noise.accel_rw = Eigen::Vector3d(1e-5, 2e-5, 3e-5);
+  noise.mag_bias_rw = Eigen::Vector3d(4e-6, 5e-6, 6e-6);
+  InputVector sigma;
+  sigma << noise.gyro, noise.accel, noise.gyro_rw, noise.accel_rw,
+      noise.mag_bias_rw;
+  const double dt = 0.01;
+
+  EXPECT(assert_equal((Matrix)(B * sigma.asDiagonal() * B.transpose() * dt),
+                      (Matrix)inputNoiseCov(X, noise, dt), 1e-10));
 }
 
 // ---------------------------------------------------------------------------

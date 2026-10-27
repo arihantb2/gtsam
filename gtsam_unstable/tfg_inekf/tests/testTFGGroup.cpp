@@ -1,6 +1,6 @@
 /**
  * @file  testTFGGroup.cpp
- * @brief Unit tests for the Two-Frames Group G_TF = SO(3) |x (R^6 + R^6).
+ * @brief Unit tests for the Two-Frames Group G_TF = SO(3) |x R^15.
  */
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
@@ -13,7 +13,7 @@ using namespace gtsam;
 static constexpr double kTol = 1e-9;
 static constexpr double kTolL = 1e-7;  // looser for trig-composed operations
 
-using Vec15 = Eigen::Matrix<double, 15, 1>;
+using Vec18 = TwoFrameGroup::TangentVector;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,13 +32,13 @@ static TwoFrameGroup makeX() {
   return TwoFrameGroup(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(0.3, 0.1, -0.4),
       Eigen::Vector3d(1.0, -2.0, 0.5), Eigen::Vector3d(0.1, -0.1, 0.05),
-      Eigen::Vector3d(-0.2, 0.3, 0.0));
+      Eigen::Vector3d(-0.2, 0.3, 0.0), Eigen::Vector3d(0.15, -0.05, 0.1));
 }
 static TwoFrameGroup makeY() {
   return TwoFrameGroup(
       Rot3::Ry(0.3) * Rot3::Rz(-0.1), Eigen::Vector3d(0.2, -0.3, 0.1),
       Eigen::Vector3d(-0.5, 1.0, 2.0), Eigen::Vector3d(0.05, 0.0, -0.05),
-      Eigen::Vector3d(0.1, -0.1, 0.2));
+      Eigen::Vector3d(0.1, -0.1, 0.2), Eigen::Vector3d(-0.1, 0.2, 0.05));
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +52,7 @@ TEST(TwoFrameGroup, Identity) {
   EXPECT(veq(I.p, Eigen::Vector3d::Zero()));
   EXPECT(veq(I.gamma_omega, Eigen::Vector3d::Zero()));
   EXPECT(veq(I.gamma_accel, Eigen::Vector3d::Zero()));
+  EXPECT(veq(I.gamma_mag, Eigen::Vector3d::Zero()));
 }
 
 TEST(TwoFrameGroup, CMatrixBlocks) {
@@ -87,7 +88,8 @@ TEST(TwoFrameGroup, Associativity) {
   auto X = makeX(), Y = makeY();
   auto Z = TwoFrameGroup(
       Rot3::Rx(0.5), Eigen::Vector3d(0, 0, 1), Eigen::Vector3d(0.2, -0.1, 0.0),
-      Eigen::Vector3d(0.0, 0.1, 0.0), Eigen::Vector3d(-0.1, 0.0, 0.2));
+      Eigen::Vector3d(0.0, 0.1, 0.0), Eigen::Vector3d(-0.1, 0.0, 0.2),
+      Eigen::Vector3d(0.05, 0.05, -0.1));
   EXPECT(traits<TwoFrameGroup>::Equals((X * Y) * Z, X * (Y * Z), kTolL));
 }
 
@@ -98,13 +100,16 @@ TEST(TwoFrameGroup, Associativity) {
 TEST(TwoFrameGroup, FromStateBiasRoundTrip) {
   Rot3 R = Rot3::Rz(0.4) * Rot3::Rx(0.2);
   Eigen::Vector3d v(0.3, 0.1, -0.4), p(1.0, -2.0, 0.5);
-  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0);
-  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba);
+  Eigen::Vector3d bw(0.02, -0.01, 0.03), ba(-0.04, 0.05, 0.0),
+      bm(0.08, -0.05, 0.03);
+  auto X = TwoFrameGroup::FromState(R, v, p, bw, ba, bm);
   EXPECT(X.R.equals(R, kTol));
   EXPECT(veq(X.v, v));
   EXPECT(veq(X.p, p));
   EXPECT(veq(X.bias_omega(), bw, kTolL));
   EXPECT(veq(X.bias_accel(), ba, kTolL));
+  EXPECT(veq(X.bias_mag(), bm, kTolL));
+  EXPECT(veq(X.gamma_mag, -(R * bm), kTolL));
 }
 
 // ---------------------------------------------------------------------------
@@ -112,19 +117,19 @@ TEST(TwoFrameGroup, FromStateBiasRoundTrip) {
 // ---------------------------------------------------------------------------
 
 TEST(TwoFrameGroup, ExpmapAtZeroIsIdentity) {
-  auto X = TwoFrameGroup::Expmap(Vec15::Zero());
+  auto X = TwoFrameGroup::Expmap(Vec18::Zero());
   EXPECT(traits<TwoFrameGroup>::Equals(X, TwoFrameGroup::Identity(), kTol));
 }
 
 TEST(TwoFrameGroup, LogmapOfIdentityIsZero) {
-  EXPECT(assert_equal((Vector)Vec15::Zero(),
+  EXPECT(assert_equal((Vector)Vec18::Zero(),
                       (Vector)TwoFrameGroup::Identity().Logmap(), kTol));
 }
 
 TEST(TwoFrameGroup, ExpLogRoundTrip) {
-  Vec15 xi;
+  Vec18 xi;
   xi << 0.2, -0.3, 0.1, 0.3, -0.5, 0.2, -0.1, 0.4, -0.2, 0.05, 0.1, -0.05, -0.2,
-      0.3, 0.0;
+      0.3, 0.0, 0.15, -0.1, 0.25;
   auto rec = TwoFrameGroup::Expmap(xi).Logmap();
   EXPECT(assert_equal((Vector)xi, (Vector)rec, kTolL));
 }
@@ -133,9 +138,10 @@ TEST(TwoFrameGroup, ExpLogRoundTrip) {
 // Adjoint
 // ---------------------------------------------------------------------------
 
-TEST(TwoFrameGroup, AdjointAtIdentityIsI15) {
+// The adjoint of the identity is the identity map on the algebra.
+TEST(TwoFrameGroup, AdjointAtIdentityIsIdentity) {
   auto Ad = traits<TwoFrameGroup>::AdjointMap(TwoFrameGroup::Identity());
-  EXPECT(meq(Ad, Eigen::Matrix<double, 15, 15>::Identity()));
+  EXPECT(meq(Ad, TwoFrameGroup::Jacobian::Identity()));
 }
 
 // Ad is a homomorphism: Ad_{XY} == Ad_X Ad_Y.
@@ -150,9 +156,9 @@ TEST(TwoFrameGroup, AdjointHomomorphism) {
 // Defining property of the adjoint:  Exp(Ad_X xi) == X Exp(xi) X^{-1}.
 TEST(TwoFrameGroup, AdjointConjugationIdentity) {
   auto X = makeX();
-  Vec15 xi;
+  Vec18 xi;
   xi << 0.05, -0.1, 0.03, 0.2, -0.3, 0.1, -0.1, 0.2, -0.05, 0.01, 0.02, -0.01,
-      0.05, 0.0, -0.05;
+      0.05, 0.0, -0.05, 0.04, -0.02, 0.06;
   auto lhs = TwoFrameGroup::Expmap(traits<TwoFrameGroup>::AdjointMap(X) * xi);
   auto rhs = X * TwoFrameGroup::Expmap(xi) * X.inverse();
   EXPECT(traits<TwoFrameGroup>::Equals(lhs, rhs, kTolL));
@@ -163,24 +169,24 @@ TEST(TwoFrameGroup, AdjointConjugationIdentity) {
 // ---------------------------------------------------------------------------
 
 TEST(TwoFrameGroup, ExpmapJacobian) {
-  Vec15 xi;
+  Vec18 xi;
   xi << 0.2, -0.3, 0.1, 0.3, -0.5, 0.2, -0.1, 0.4, -0.2, 0.05, 0.1, -0.05, -0.2,
-      0.3, 0.0;
-  Eigen::Matrix<double, 15, 15> H;
+      0.3, 0.0, 0.15, -0.1, 0.25;
+  TwoFrameGroup::Jacobian H;
   traits<TwoFrameGroup>::Expmap(xi, H);
-  auto num = numericalDerivative11<TwoFrameGroup, Vec15>(
-      [](const Vec15& x) { return traits<TwoFrameGroup>::Expmap(x); }, xi);
+  auto num = numericalDerivative11<TwoFrameGroup, Vec18>(
+      [](const Vec18& x) { return traits<TwoFrameGroup>::Expmap(x); }, xi);
   EXPECT(meq(H, num, 1e-6));
 }
 
 TEST(TwoFrameGroup, LogmapJacobian) {
-  Vec15 xi;
+  Vec18 xi;
   xi << 0.2, -0.3, 0.1, 0.3, -0.5, 0.2, -0.1, 0.4, -0.2, 0.05, 0.1, -0.05, -0.2,
-      0.3, 0.0;
+      0.3, 0.0, 0.15, -0.1, 0.25;
   auto X = TwoFrameGroup::Expmap(xi);
-  Eigen::Matrix<double, 15, 15> H;
+  TwoFrameGroup::Jacobian H;
   traits<TwoFrameGroup>::Logmap(X, H);
-  auto num = numericalDerivative11<Vec15, TwoFrameGroup>(
+  auto num = numericalDerivative11<Vec18, TwoFrameGroup>(
       [](const TwoFrameGroup& Y) { return traits<TwoFrameGroup>::Logmap(Y); },
       X);
   EXPECT(meq(H, num, 1e-6));
@@ -191,9 +197,9 @@ TEST(TwoFrameGroup, LogmapJacobian) {
 // ---------------------------------------------------------------------------
 
 TEST(TwoFrameGroup, RetractLocalFromIdentity) {
-  Vec15 d;
+  Vec18 d;
   d << 0.05, -0.1, 0.03, 0.2, -0.3, 0.1, -0.1, 0.2, -0.05, 0.01, 0.02, -0.01,
-      0.05, 0.0, -0.05;
+      0.05, 0.0, -0.05, 0.04, -0.02, 0.06;
   auto I = TwoFrameGroup::Identity();
   auto X = traits<TwoFrameGroup>::Retract(I, d);
   EXPECT(assert_equal((Vector)d, (Vector)traits<TwoFrameGroup>::Local(I, X),
@@ -202,9 +208,9 @@ TEST(TwoFrameGroup, RetractLocalFromIdentity) {
 
 TEST(TwoFrameGroup, RetractLocalFromNonIdentity) {
   auto X = makeX();
-  Vec15 d;
+  Vec18 d;
   d << 0.02, -0.05, 0.01, 0.1, -0.1, 0.05, -0.05, 0.1, 0.0, 0.005, 0.0, -0.005,
-      0.01, -0.01, 0.0;
+      0.01, -0.01, 0.0, 0.02, 0.01, -0.03;
   auto Y = traits<TwoFrameGroup>::Retract(X, d);
   EXPECT(assert_equal((Vector)d, (Vector)traits<TwoFrameGroup>::Local(X, Y),
                       kTolL));
@@ -223,6 +229,7 @@ TEST(TwoFrameGroup, ComposeMatchesMatrixRealisation) {
   EXPECT(meq(XY.C_matrix(), X.C_matrix() * Y.C_matrix(), kTolL));
   EXPECT(veq(XY.gamma_omega, X.gamma_omega + X.R * Y.gamma_omega, kTolL));
   EXPECT(veq(XY.gamma_accel, X.gamma_accel + X.R * Y.gamma_accel, kTolL));
+  EXPECT(veq(XY.gamma_mag, X.gamma_mag + X.R * Y.gamma_mag, kTolL));
 }
 
 // Inverse nav part equals the inverse 5x5 matrix; gamma block = -R^T gamma.
@@ -232,6 +239,7 @@ TEST(TwoFrameGroup, InverseMatchesMatrixRealisation) {
   EXPECT(meq(Xi.C_matrix(), X.C_matrix().inverse(), kTolL));
   EXPECT(veq(Xi.gamma_omega, -(X.R.unrotate(X.gamma_omega)), kTolL));
   EXPECT(veq(Xi.gamma_accel, -(X.R.unrotate(X.gamma_accel)), kTolL));
+  EXPECT(veq(Xi.gamma_mag, -(X.R.unrotate(X.gamma_mag)), kTolL));
 }
 
 // Adjoint block structure (closed form): diagonal A on every block, and the
@@ -242,40 +250,45 @@ TEST(TwoFrameGroup, AdjointMapBlockStructure) {
   const Matrix3 A = X.R.matrix();
 
   // Diagonal rotation blocks
-  for (int b : {0, 3, 6, 9, 12}) EXPECT(meq(Ad.block<3, 3>(b, b), A));
+  for (int b : {0, 3, 6, 9, 12, 15}) EXPECT(meq(Ad.block<3, 3>(b, b), A));
   // Coupling columns under d_theta
   EXPECT(meq(Ad.block<3, 3>(3, 0), skewSymmetric(X.v) * A, kTolL));
   EXPECT(meq(Ad.block<3, 3>(6, 0), skewSymmetric(X.p) * A, kTolL));
   EXPECT(meq(Ad.block<3, 3>(9, 0), skewSymmetric(X.gamma_omega) * A, kTolL));
   EXPECT(meq(Ad.block<3, 3>(12, 0), skewSymmetric(X.gamma_accel) * A, kTolL));
+  EXPECT(meq(Ad.block<3, 3>(15, 0), skewSymmetric(X.gamma_mag) * A, kTolL));
   // Off-diagonal vector-to-vector blocks are zero (no inter-block coupling)
   EXPECT(meq(Ad.block<3, 3>(3, 6), Matrix3::Zero()));
   EXPECT(meq(Ad.block<3, 3>(9, 12), Matrix3::Zero()));
+  EXPECT(meq(Ad.block<3, 3>(12, 15), Matrix3::Zero()));
 }
 
 // Expmap closed-form spot checks: pure rotation, and pure translation (theta=0
 // => left Jacobian = I, so vector blocks pass through unchanged).
 TEST(TwoFrameGroup, ExpmapKnownValues) {
   // Pure rotation: only R set, all vectors zero.
-  Vec15 r = Vec15::Zero();
+  Vec18 r = Vec18::Zero();
   r.segment<3>(0) = Eigen::Vector3d(0.1, -0.2, 0.3);
   auto Xr = TwoFrameGroup::Expmap(r);
   EXPECT(Xr.R.equals(Rot3::Expmap(r.segment<3>(0)), kTol));
   EXPECT(veq(Xr.v, Eigen::Vector3d::Zero()));
   EXPECT(veq(Xr.gamma_accel, Eigen::Vector3d::Zero()));
+  EXPECT(veq(Xr.gamma_mag, Eigen::Vector3d::Zero()));
 
   // Zero rotation: vector blocks map identically (Jl = I).
-  Vec15 t = Vec15::Zero();
+  Vec18 t = Vec18::Zero();
   t.segment<3>(3) = Eigen::Vector3d(1.0, 2.0, 3.0);
   t.segment<3>(6) = Eigen::Vector3d(-1.0, 0.5, 0.2);
   t.segment<3>(9) = Eigen::Vector3d(0.1, 0.0, -0.1);
   t.segment<3>(12) = Eigen::Vector3d(0.0, -0.3, 0.4);
+  t.segment<3>(15) = Eigen::Vector3d(0.2, 0.1, -0.2);
   auto Xt = TwoFrameGroup::Expmap(t);
   EXPECT(Xt.R.equals(Rot3::Identity(), kTol));
   EXPECT(veq(Xt.v, t.segment<3>(3)));
   EXPECT(veq(Xt.p, t.segment<3>(6)));
   EXPECT(veq(Xt.gamma_omega, t.segment<3>(9)));
   EXPECT(veq(Xt.gamma_accel, t.segment<3>(12)));
+  EXPECT(veq(Xt.gamma_mag, t.segment<3>(15)));
 }
 
 /* ************************************************************************* */
