@@ -1,7 +1,8 @@
 /**
  * @file  testTGGroup.cpp
  * @brief Group axioms for G_TG = TangentLieGroup<ExtendedPose3<2>>, the
- *        tangent group of SE_2(3) under its adjoint action.
+ *        tangent group of SE_2(3) under its adjoint action, and for the
+ *        filter's symmetry group G_TG ⋉ R^3 that adds the magnetometer bias.
  *
  * Layer above testTGState.cpp: the symmetry group the observer state lives
  * on. TGElement is a plain alias for gtsam's generic TangentLieGroup<G>, so
@@ -202,6 +203,123 @@ TEST(TGElement, ChartJacobiansMatchNumerical) {
 }
 
 }  // namespace exponential
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace mag_group {
+
+using Tangent21 = Eigen::Matrix<double, 21, 1>;
+
+TGMagElement makeX() {
+  return TGMagElement(fixture::makeX(), Vector3(0.2, -0.1, 0.3));
+}
+
+TGMagElement makeY() {
+  return TGMagElement(fixture::makeY(), Vector3(-0.4, 0.05, 0.1));
+}
+
+TGMagElement makeZ() {
+  return TGMagElement(fixture::makeZ(), Vector3(0.1, 0.2, -0.15));
+}
+
+Tangent21 makeDelta() {
+  Tangent21 delta;
+  delta << fixture::makeDelta(), 0.04, -0.03, 0.02;
+  return delta;
+}
+
+// The product is (A1 A2, a1 + Ad_{A1} a2, d1 + R_{A1} d2), the law the
+// magnetometer-bias action R_A^T (bm - d) needs to be a right action.
+TEST(TGMagElement, ProductMatchesTheSemidirectLaw) {
+  const TGMagElement X = makeX(), Y = makeY();
+  const TGMagElement XY = X * Y;
+
+  EXPECT(traits<TGElement>::Equals(X.first * Y.first, XY.first, fixture::kTol));
+  EXPECT(assert_equal(
+      (Vector)(X.second + X.first.first.rotation().rotate(Y.second)),
+      (Vector)XY.second, fixture::kTol));
+}
+
+// The identity is neutral and inverse() is a two-sided inverse.
+TEST(TGMagElement, IdentityAndInverse) {
+  const TGMagElement X = makeX();
+  const TGMagElement I = TGMagElement::Identity();
+  EXPECT(traits<TGMagElement>::Equals(I * X, X, fixture::kTol));
+  EXPECT(traits<TGMagElement>::Equals(X * I, X, fixture::kTol));
+  EXPECT(traits<TGMagElement>::Equals(X.inverse() * X, I, fixture::kTol));
+  EXPECT(traits<TGMagElement>::Equals(X * X.inverse(), I, fixture::kTol));
+}
+
+// The product is associative.
+TEST(TGMagElement, ProductIsAssociative) {
+  const TGMagElement X = makeX(), Y = makeY(), Z = makeZ();
+  EXPECT(
+      traits<TGMagElement>::Equals((X * Y) * Z, X * (Y * Z), fixture::kTolL));
+}
+
+// The 21x21 AdjointMap is a homomorphism and reduces to the identity at id.
+TEST(TGMagElement, AdjointMapIsAHomomorphism) {
+  const TGMagElement X = makeX(), Y = makeY();
+  using Tr = traits<TGMagElement>;
+
+  EXPECT(fixture::meq(Tr::AdjointMap(X * Y),
+                      Tr::AdjointMap(X) * Tr::AdjointMap(Y), fixture::kTolL));
+  EXPECT(fixture::meq(Tr::AdjointMap(TGMagElement::Identity()),
+                      Eigen::Matrix<double, 21, 21>::Identity(),
+                      fixture::kTol));
+}
+
+// Exp and Log invert each other, and Exp intertwines the adjoint.
+TEST(TGMagElement, ExpmapLogmapRoundTrip) {
+  const Tangent21 v = makeDelta();
+  EXPECT(assert_equal((Vector)v,
+                      (Vector)TGMagElement::Logmap(TGMagElement::Expmap(v)),
+                      fixture::kTolL));
+
+  const TGMagElement X = makeX();
+  EXPECT(traits<TGMagElement>::Equals(
+      TGMagElement::Expmap(traits<TGMagElement>::AdjointMap(X) * v),
+      X * TGMagElement::Expmap(v) * X.inverse(), fixture::kTolL));
+}
+
+// Dropping d is a homomorphism onto the tangent group, so the navigation and
+// IMU-bias parts of the filter evolve exactly as without the magnetometer.
+TEST(TGMagElement, ProjectionToTheTangentGroupIsAHomomorphism) {
+  const TGMagElement X = makeX(), Y = makeY();
+  EXPECT(traits<TGElement>::Equals((X * Y).first, X.first * Y.first,
+                                   fixture::kTol));
+  EXPECT(traits<TGElement>::Equals(X.inverse().first, X.first.inverse(),
+                                   fixture::kTol));
+
+  const Tangent21 v = makeDelta();
+  EXPECT(traits<TGElement>::Equals(TGMagElement::Expmap(v).first,
+                                   TGElement::Expmap(v.head<18>()),
+                                   fixture::kTolL));
+}
+
+// The action R_A d carries analytic Jacobians for the right perturbation of
+// X and for d, which AdjointMap() reads at the identity.
+TEST(MagBiasAction, JacobiansMatchNumerical) {
+  const TGElement X = fixture::makeX();
+  const Vector3 d(0.3, -0.2, 0.5);
+  const MagBiasAction action;
+
+  Eigen::Matrix<double, 3, 18> HX;
+  Matrix3 Hd;
+  const Vector3 result = action(X, d, HX, Hd);
+  EXPECT(assert_equal((Vector)X.first.rotation().rotate(d), (Vector)result,
+                      fixture::kTol));
+
+  const auto act = [&action](const TGElement& g, const Vector3& h) {
+    return action(g, h);
+  };
+  EXPECT(fixture::meq(
+      numericalDerivative21<Vector3, TGElement, Vector3>(act, X, d), HX, 1e-6));
+  EXPECT(fixture::meq(
+      numericalDerivative22<Vector3, TGElement, Vector3>(act, X, d), Hd, 1e-6));
+}
+
+}  // namespace mag_group
 /* ************************************************************************* */
 
 /* ************************************************************************* */

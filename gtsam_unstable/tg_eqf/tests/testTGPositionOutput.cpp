@@ -21,7 +21,7 @@ namespace fixture {
 constexpr double kTol = 1e-9;
 constexpr double kTolL = 1e-7;
 
-using Tangent = Eigen::Matrix<double, 18, 1>;
+using Tangent = State::TangentVector;
 
 const Vector3 kPi(2.5, -1.0, 1.2);
 
@@ -37,18 +37,22 @@ State makeXi() {
   xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
   xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
              .finished();
+  xi.bm = Vector3(0.2, -0.1, 0.3);
   return xi;
 }
 
-TGElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
-                      const Vector9& a) {
+/// Group element with a nonzero magnetometer-bias part d, which the
+/// output actions here must ignore.
+TGMagElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
+                         const Vector9& a) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
-  return TGElement(ExtendedPose3<2>(R, vp), a);
+  return TGMagElement(TGElement(ExtendedPose3<2>(R, vp), a),
+                      Vector3(0.1, -0.2, 0.05));
 }
 
-TGElement makeX() {
+TGMagElement makeX() {
   return makeElement(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Vector3(1.0, -2.0, 0.5),
       Vector3(0.3, 0.1, -0.4),
@@ -56,7 +60,7 @@ TGElement makeX() {
           .finished());
 }
 
-TGElement makeY() {
+TGMagElement makeY() {
   return makeElement(
       Rot3::Ry(0.3) * Rot3::Rz(-0.1), Vector3(-0.5, 1.0, 2.0),
       Vector3(0.2, -0.3, 0.1),
@@ -73,10 +77,10 @@ namespace output_action {
 // psi is a right action on the output space.
 TEST(PositionOutput, IsARightAction) {
   const Vector3 y(0.3, -0.1, 0.2);
-  const TGElement X = fixture::makeX(), Y = fixture::makeY();
+  const TGMagElement X = fixture::makeX(), Y = fixture::makeY();
 
   EXPECT(fixture::veq(
-      y, PositionMeasurement::output_action(TGElement::Identity(), y)));
+      y, PositionMeasurement::output_action(TGMagElement::Identity(), y)));
   EXPECT(fixture::veq(PositionMeasurement::output_action(X * Y, y),
                       PositionMeasurement::output_action(
                           Y, PositionMeasurement::output_action(X, y)),
@@ -88,12 +92,12 @@ TEST(PositionOutput, IsARightAction) {
 TEST(PositionOutput, IsEquivariant) {
   const State xi = fixture::makeXi();
 
-  Eigen::Matrix<double, 18, 1> logX;
+  fixture::Tangent logX;
   logX << 0.15, -0.1, 0.05, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.1, -0.1, 0.05,
-      -0.2, 0.3, 0.0, 0.0, 0.1, -0.1;
+      -0.2, 0.3, 0.0, 0.0, 0.1, -0.1, 0.2, -0.3, 0.1;
 
-  for (const TGElement& X :
-       {TGElement::Identity(), fixture::makeX(), TGElement::Expmap(logX)}) {
+  for (const TGMagElement& X : {TGMagElement::Identity(), fixture::makeX(),
+                                TGMagElement::Expmap(logX)}) {
     EXPECT(fixture::veq(PositionMeasurement::predict(phi(X, xi), fixture::kPi),
                         PositionMeasurement::output_action(
                             X, PositionMeasurement::predict(xi, fixture::kPi)),
@@ -111,7 +115,7 @@ namespace output_matrix {
 // measured position held fixed.
 TEST(PositionOutput, C0MatchesNumerical) {
   const State xi_ref = fixture::makeXi();
-  const Eigen::Matrix<double, 3, 18> H_num =
+  const Eigen::Matrix<double, 3, 21> H_num =
       numericalDerivative11<Vector3, State>(
           [](const State& x) {
             return PositionMeasurement::predict(x, fixture::kPi);
@@ -131,8 +135,9 @@ TEST(PositionOutput, CstarMeetsC0AtConvergence) {
   // Group element whose acted position is exactly pi: p_hat = R0 g.p + p0.
   Eigen::Matrix<double, 3, 2> vp = Eigen::Matrix<double, 3, 2>::Zero();
   vp.col(1) = xi_ref.T.rotation().unrotate(fixture::kPi - xi_ref.T.x(1));
-  const TGElement g(ExtendedPose3<2>(Rot3::Identity(), vp),
-                    Eigen::Matrix<double, 9, 1>::Zero());
+  const TGMagElement g(TGElement(ExtendedPose3<2>(Rot3::Identity(), vp),
+                                 Eigen::Matrix<double, 9, 1>::Zero()),
+                       Vector3(0.1, -0.2, 0.05));
   EXPECT(fixture::veq(fixture::kPi, phi(g, xi_ref).T.x(1)));
 
   EXPECT(assert_equal(
@@ -148,7 +153,7 @@ TEST(PositionOutput, CstarMeetsC0AtConvergence) {
 namespace accuracy {
 
 const State kXiRef = fixture::makeXi();
-const TGElement kG = fixture::makeX();
+const TGMagElement kG = fixture::makeX();
 
 /// Position the true state at eps reports to the filter.
 Vector3 measurementAt(const fixture::Tangent& eps) {

@@ -33,31 +33,34 @@ State makeXi() {
   xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
   xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
              .finished();
+  xi.bm = Vector3(0.3, -0.2, 0.4);
   return xi;
 }
 
-TGElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
-                      const Vector9& a) {
+TGMagElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
+                         const Vector9& a, const Vector3& d) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
-  return TGElement(ExtendedPose3<2>(R, vp), a);
+  return TGMagElement(TGElement(ExtendedPose3<2>(R, vp), a), d);
 }
 
-TGElement makeX() {
+TGMagElement makeX() {
   return makeElement(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Vector3(1.0, -2.0, 0.5),
       Vector3(0.3, 0.1, -0.4),
       (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
-          .finished());
+          .finished(),
+      Vector3(0.1, 0.2, -0.3));
 }
 
-TGElement makeY() {
+TGMagElement makeY() {
   return makeElement(
       Rot3::Ry(0.3) * Rot3::Rz(-0.1), Vector3(-0.5, 1.0, 2.0),
       Vector3(0.2, -0.3, 0.1),
       (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0, 0.05)
-          .finished());
+          .finished(),
+      Vector3(-0.2, 0.05, 0.15));
 }
 
 Input makeU() {
@@ -68,25 +71,27 @@ Input makeU() {
   u.tau_w = Vector3(0.01, -0.02, 0.0);
   u.tau_a = Vector3(0.02, 0.0, 0.01);
   u.tau_v = Vector3(0.0, 0.03, -0.01);
+  u.tau_m = Vector3(-0.01, 0.02, 0.03);
   u.g_vec = Vector3(0.0, 0.0, -9.81);
   return u;
 }
 
 /// Pack an Input into a comparable vector, gravity included.
-Eigen::Matrix<double, 21, 1> pack(const Input& u) {
-  Eigen::Matrix<double, 21, 1> out;
-  out << u.w, u.a, u.v, u.tau_w, u.tau_a, u.tau_v, u.g_vec;
+Input::Vector24 pack(const Input& u) {
+  Input::Vector24 out;
+  out << u.w, u.a, u.v, u.tau_w, u.tau_a, u.tau_v, u.tau_m, u.g_vec;
   return out;
 }
 
+using Tangent = State::TangentVector;
+
 /// Lambda(phi(X, xi), psi(X, u)) - Ad_{X^-1} Lambda(xi, u), the lift condition
 /// residual: zero exactly when the lift is equivariant.
-Eigen::Matrix<double, 18, 1> liftConditionResidual(const TGElement& X,
-                                                   const State& xi,
-                                                   const Input& u) {
-  const Eigen::Matrix<double, 18, 1> lhs = Lift(InputOrbit(u)(X))(phi(X, xi));
-  const Eigen::Matrix<double, 18, 1> rhs =
-      traits<TGElement>::AdjointMap(X.inverse()) * Lift(u)(xi);
+Tangent liftConditionResidual(const TGMagElement& X, const State& xi,
+                              const Input& u) {
+  const Tangent lhs = Lift(InputOrbit(u)(X))(phi(X, xi));
+  const Tangent rhs =
+      traits<TGMagElement>::AdjointMap(X.inverse()) * Lift(u)(xi);
   return lhs - rhs;
 }
 
@@ -96,9 +101,10 @@ Eigen::Matrix<double, 18, 1> liftConditionResidual(const TGElement& X,
 /* ************************************************************************* */
 namespace closed_form {
 
-// Lift::operator() evaluates a closed form. This checks both slots against the
-// literal definition, Lambda_1 = (W - B + N) + T^-1 (G - N) T and
-// Lambda_2 = [B, Lambda_1] - tau, built here from 5x5 matrices only.
+// Lift::operator() evaluates a closed form. This checks the tangent-group slots
+// against the literal definition, Lambda_1 = (W - B + N) + T^-1 (G - N) T and
+// Lambda_2 = [B, Lambda_1] - tau, built here from 5x5 matrices only, and the
+// magnetometer slot against Lambda_3 = bm^ (w - b_w) - tau_m.
 TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   const State xi = fixture::makeXi();
   const Input u = fixture::makeU();
@@ -127,9 +133,26 @@ TEST(Lift, ClosedFormMatchesMatrixConstruction) {
   const Vector9 expected_1 = Se23::Vee(L1);
   const Vector9 expected_2 = Se23::Vee(B * L1 - L1 * B - Se23::Hat(tau));
 
-  const Eigen::Matrix<double, 18, 1> Lambda = Lift(u)(xi);
-  EXPECT(fixture::veq(expected_1, Lambda.head<9>()));
-  EXPECT(fixture::veq(expected_2, Lambda.tail<9>()));
+  const fixture::Tangent Lambda = Lift(u)(xi);
+  EXPECT(fixture::veq(expected_1, Lambda.segment<9>(0)));
+  EXPECT(fixture::veq(expected_2, Lambda.segment<9>(9)));
+  EXPECT(fixture::veq(skewSymmetric(xi.bm) * (u.w - xi.b.head<3>()) - u.tau_m,
+                      Lambda.segment<3>(18)));
+}
+
+// The lift generates the true dynamics through the action. For the
+// magnetometer bias that is bm_dot = tau_m, read here as the finite-difference
+// rate of phi(Exp(t Lambda), xi).bm.
+TEST(Lift, ReproducesTheMagBiasRandomWalk) {
+  const State xi = fixture::makeXi();
+  const Input u = fixture::makeU();
+  const fixture::Tangent Lambda = Lift(u)(xi);
+
+  const double h = 1e-6;
+  const Vector3 rate = (phi(TGMagElement::Expmap(h * Lambda), xi).bm -
+                        phi(TGMagElement::Expmap(-h * Lambda), xi).bm) /
+                       (2.0 * h);
+  EXPECT(fixture::veq(u.tau_m, rate, 1e-8));
 }
 
 // The position-rate slot carries dp = v. With the virtual input cancelling its
@@ -156,29 +179,29 @@ TEST(Lift, SatisfiesTheLiftCondition) {
   const State xi = fixture::makeXi();
   const Input u = fixture::makeU();
 
-  Eigen::Matrix<double, 18, 1> logX;
+  fixture::Tangent logX;
   logX << 0.15, -0.1, 0.05, 1.0, -2.0, 0.5, 0.3, 0.1, -0.4, 0.1, -0.1, 0.05,
-      -0.2, 0.3, 0.0, 0.0, 0.1, -0.1;
+      -0.2, 0.3, 0.0, 0.0, 0.1, -0.1, 0.2, -0.3, 0.1;
 
-  for (const TGElement& X :
-       {TGElement::Identity(), fixture::makeX(), TGElement::Expmap(logX)}) {
-    EXPECT(fixture::veq(Eigen::Matrix<double, 18, 1>::Zero(),
+  for (const TGMagElement& X : {TGMagElement::Identity(), fixture::makeX(),
+                                TGMagElement::Expmap(logX)}) {
+    EXPECT(fixture::veq(fixture::Tangent::Zero(),
                         fixture::liftConditionResidual(X, xi, u),
                         fixture::kTolL));
   }
 }
 
-// The analytic lift differential is the true derivative in the State chart.
+// The analytic lift differential is the true derivative in the State chart,
+// including the magnetometer rows at a nonzero bm.
 TEST(Lift, JacobianMatchesNumerical) {
   const State xi = fixture::makeXi();
   const Lift lift(fixture::makeU());
 
-  Eigen::Matrix<double, 18, 18> H;
+  State::Jacobian H;
   lift(xi, &H);
 
-  const Eigen::Matrix<double, 18, 18> H_num =
-      numericalDerivative11<Eigen::Matrix<double, 18, 1>, State>(
-          [&lift](const State& x) { return lift(x); }, xi);
+  const State::Jacobian H_num = numericalDerivative11<fixture::Tangent, State>(
+      [&lift](const State& x) { return lift(x); }, xi);
   EXPECT(assert_equal((Matrix)H, (Matrix)H_num, 1e-5));
 }
 
@@ -192,10 +215,10 @@ namespace input_action {
 // condition composable across group elements.
 TEST(InputOrbit, IsARightAction) {
   const Input u = fixture::makeU();
-  const TGElement X = fixture::makeX(), Y = fixture::makeY();
+  const TGMagElement X = fixture::makeX(), Y = fixture::makeY();
 
   EXPECT(fixture::veq(fixture::pack(u),
-                      fixture::pack(InputOrbit(u)(TGElement::Identity()))));
+                      fixture::pack(InputOrbit(u)(TGMagElement::Identity()))));
   EXPECT(fixture::veq(fixture::pack(InputOrbit(u)(X * Y)),
                       fixture::pack(InputOrbit(InputOrbit(u)(X))(Y)),
                       fixture::kTolL));
@@ -206,6 +229,15 @@ TEST(InputOrbit, IsARightAction) {
 TEST(InputOrbit, LeavesGravityUntouched) {
   const Input u = fixture::makeU();
   EXPECT(fixture::veq(u.g_vec, InputOrbit(u)(fixture::makeX()).g_vec));
+}
+
+// The bias random walk is a body-frame rate, so it only rotates: tau_m ->
+// R_A^T tau_m, independent of d.
+TEST(InputOrbit, RotatesTheMagBiasRandomWalk) {
+  const Input u = fixture::makeU();
+  const TGMagElement X = fixture::makeX();
+  EXPECT(fixture::veq(X.first.first.rotation().unrotate(u.tau_m),
+                      InputOrbit(u)(X).tau_m));
 }
 
 }  // namespace input_action

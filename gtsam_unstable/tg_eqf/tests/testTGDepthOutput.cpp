@@ -22,7 +22,7 @@ namespace fixture {
 
 constexpr double kTol = 1e-9;
 
-using Tangent = Eigen::Matrix<double, 18, 1>;
+using Tangent = State::TangentVector;
 
 State makeXi() {
   Eigen::Matrix<double, 3, 2> vp;
@@ -32,16 +32,19 @@ State makeXi() {
   xi.T = ExtendedPose3<2>(Rot3::Rz(0.3) * Rot3::Rx(0.1), vp);
   xi.b = (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
              .finished();
+  xi.bm = Vector3(0.2, -0.1, 0.3);
   return xi;
 }
 
-TGElement makeX() {
+TGMagElement makeX() {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = Vector3(1.0, -2.0, 0.5);
   vp.col(1) = Vector3(0.3, 0.1, -0.4);
   const Vector9 a =
       (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1).finished();
-  return TGElement(ExtendedPose3<2>(Rot3::Rz(0.4) * Rot3::Rx(0.2), vp), a);
+  return TGMagElement(
+      TGElement(ExtendedPose3<2>(Rot3::Rz(0.4) * Rot3::Rx(0.2), vp), a),
+      Vector3(0.1, -0.2, 0.05));
 }
 
 }  // namespace fixture
@@ -64,14 +67,14 @@ TEST(DepthOutput, CMatchesNumericalAtTheOrigin) {
       [](const State& xi) { return DepthMeasurement::predict(xi); }, xi_ref);
 
   EXPECT(assert_equal(
-      (Matrix)DepthMeasurement::jacobian_C(xi_ref, TGElement::Identity()),
+      (Matrix)DepthMeasurement::jacobian_C(xi_ref, TGMagElement::Identity()),
       H_num, 1e-5));
 }
 
 // C is an honest first derivative, so it is checked directly. The
 // non-identity xi_ref is the only case exercising the n = R0^T e_3 factor.
 TEST(DepthOutput, CMatchesNumericalAtANonIdentityEstimate) {
-  const TGElement X = fixture::makeX();
+  const TGMagElement X = fixture::makeX();
 
   auto check = [&](const State& xi_ref) {
     const Matrix H_num = numericalDerivative11<double, State>(
@@ -106,7 +109,7 @@ TEST(DepthOutput, HasNoEquivariantOutputAction) {
   EXPECT_DOUBLES_EQUAL(DepthMeasurement::predict(xi_a),
                        DepthMeasurement::predict(xi_b), fixture::kTol);
 
-  const TGElement X = fixture::makeX();  // X.p != 0
+  const TGMagElement X = fixture::makeX();  // X.p != 0
   const double y_a = DepthMeasurement::predict(phi(X, xi_a));
   const double y_b = DepthMeasurement::predict(phi(X, xi_b));
 
@@ -120,7 +123,7 @@ TEST(DepthOutput, HasNoEquivariantOutputAction) {
 namespace accuracy {
 
 const State kXiRef = fixture::makeXi();
-const TGElement kG = fixture::makeX();
+const TGMagElement kG = fixture::makeX();
 
 /// Depth reading of the true state at eps, xi_true = phi(kG, Retract(xi_ref,
 /// eps)).

@@ -30,14 +30,17 @@ bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
+using Jacobian = State::Jacobian;
+
 State makeState(const Rot3& R, const Vector3& v, const Vector3& p,
-                const Vector9& b) {
+                const Vector9& b, const Vector3& bm) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
   State xi;
   xi.T = ExtendedPose3<2>(R, vp);
   xi.b = b;
+  xi.bm = bm;
   return xi;
 }
 
@@ -46,7 +49,8 @@ State makeXi() {
       Rot3::Rz(0.3) * Rot3::Rx(0.1), Vector3(1.0, -2.0, 0.5),
       Vector3(0.3, 0.1, -0.4),
       (Vector9() << 0.01, -0.02, 0.03, -0.1, 0.05, 0.0, 0.0, 0.1, -0.05)
-          .finished());
+          .finished(),
+      Vector3(0.05, -0.1, 0.2));
 }
 
 /// A second state, unrelated to makeXi().
@@ -55,44 +59,44 @@ State makeXiEst() {
       Rot3::Ry(-0.2) * Rot3::Rz(0.5), Vector3(-0.7, 0.4, 1.2),
       Vector3(2.0, -1.5, 0.6),
       (Vector9() << -0.03, 0.01, 0.02, 0.2, -0.15, 0.07, 0.05, 0.0, -0.02)
-          .finished());
+          .finished(),
+      Vector3(-0.2, 0.3, 0.05));
 }
 
-TGElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
-                      const Vector9& a) {
+TGMagElement makeElement(const Rot3& R, const Vector3& v, const Vector3& p,
+                         const Vector9& a, const Vector3& d) {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = v;
   vp.col(1) = p;
-  return TGElement(ExtendedPose3<2>(R, vp), a);
+  return TGMagElement(TGElement(ExtendedPose3<2>(R, vp), a), d);
 }
 
-TGElement makeX() {
+TGMagElement makeX() {
   return makeElement(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Vector3(1.0, -2.0, 0.5),
       Vector3(0.3, 0.1, -0.4),
-      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1)
-          .finished());
+      (Vector9() << 0.1, -0.1, 0.05, -0.2, 0.3, 0.0, 0.0, 0.1, -0.1).finished(),
+      Vector3(0.1, 0.2, -0.3));
 }
 
-TGElement makeY() {
+TGMagElement makeY() {
   return makeElement(
       Rot3::Ry(0.3) * Rot3::Rz(-0.1), Vector3(-0.5, 1.0, 2.0),
       Vector3(0.2, -0.3, 0.1),
       (Vector9() << 0.05, 0.0, -0.05, 0.1, -0.1, 0.2, -0.1, 0.0, 0.05)
-          .finished());
+          .finished(),
+      Vector3(-0.15, 0.05, 0.25));
 }
 
-Eigen::Matrix<double, 18, 18> orbitJacobian(const TGElement& X,
-                                            const State& xi_ref) {
-  Eigen::Matrix<double, 18, 18> H;
+Jacobian orbitJacobian(const TGMagElement& X, const State& xi_ref) {
+  Jacobian H;
   const TGSymmetry::Orbit orbit(xi_ref);
   orbit(X, &H);
   return H;
 }
 
-Eigen::Matrix<double, 18, 18> diffeoJacobian(const TGElement& X,
-                                             const State& xi) {
-  Eigen::Matrix<double, 18, 18> H;
+Jacobian diffeoJacobian(const TGMagElement& X, const State& xi) {
+  Jacobian H;
   const TGSymmetry::Diffeomorphism diffeo(X);
   diffeo(xi, &H);
   return H;
@@ -108,9 +112,9 @@ namespace action_axioms {
 // followed by phi(Y, .). The fiber term is what makes the order matter.
 TEST(Phi, IsARightAction) {
   const State xi = fixture::makeXi();
-  const TGElement X = fixture::makeX(), Y = fixture::makeY();
+  const TGMagElement X = fixture::makeX(), Y = fixture::makeY();
 
-  EXPECT(fixture::seq(phi(TGElement::Identity(), xi), xi));
+  EXPECT(fixture::seq(phi(TGMagElement::Identity(), xi), xi));
   EXPECT(fixture::seq(phi(X * Y, xi), phi(Y, phi(X, xi)), fixture::kTolL));
   EXPECT(fixture::seq(phi(X.inverse(), phi(X, xi)), xi, fixture::kTolL));
 }
@@ -121,9 +125,25 @@ TEST(Phi, IsARightAction) {
 // direction.
 TEST(Phi, RightTranslatesTheExtendedPose) {
   const State xi = fixture::makeXi();
-  const TGElement X = fixture::makeX();
-  EXPECT(fixture::meq(phi(X, xi).T_matrix(), xi.T_matrix() * X.first.matrix(),
-                      fixture::kTolL));
+  const TGMagElement X = fixture::makeX();
+  EXPECT(fixture::meq(phi(X, xi).T_matrix(),
+                      xi.T_matrix() * X.first.first.matrix(), fixture::kTolL));
+}
+
+// On the magnetometer bias the action is bm -> R_A^T (bm - d), and it leaves
+// the navigation and IMU-bias blocks as the tangent-group part alone would.
+TEST(Phi, ActsOnTheMagBiasThroughTheAttitude) {
+  const State xi = fixture::makeXi();
+  const TGMagElement X = fixture::makeX();
+  const State result = phi(X, xi);
+
+  EXPECT(
+      assert_equal((Vector)X.first.first.rotation().unrotate(xi.bm - X.second),
+                   (Vector)result.bm, fixture::kTol));
+
+  const State without_d = phi(TGMagElement(X.first, Vector3::Zero()), xi);
+  EXPECT(result.T.equals(without_d.T, fixture::kTol));
+  EXPECT(assert_equal((Vector)without_d.b, (Vector)result.b, fixture::kTol));
 }
 
 // The action is transitive and free: phiInverse returns the one element taking
@@ -131,12 +151,12 @@ TEST(Phi, RightTranslatesTheExtendedPose) {
 TEST(PhiInverse, InvertsTheOrbitMap) {
   const State xi_ref = fixture::makeXi();
   const State xi_est = fixture::makeXiEst();
-  const TGElement X = fixture::makeX();
+  const TGMagElement X = fixture::makeX();
 
   EXPECT(fixture::seq(phi(phiInverse(xi_ref, xi_est), xi_ref), xi_est,
                       fixture::kTolL));
-  EXPECT(traits<TGElement>::Equals(phiInverse(xi_ref, phi(X, xi_ref)), X,
-                                   fixture::kTolL));
+  EXPECT(traits<TGMagElement>::Equals(phiInverse(xi_ref, phi(X, xi_ref)), X,
+                                      fixture::kTolL));
 }
 
 }  // namespace action_axioms
@@ -149,7 +169,7 @@ namespace functors {
 // same phi, so their values must agree with it.
 TEST(Symmetry, FunctorsAgreeWithPhi) {
   const State xi = fixture::makeXi();
-  const TGElement X = fixture::makeX();
+  const TGMagElement X = fixture::makeX();
 
   const TGSymmetry::Orbit orbit(xi);
   const TGSymmetry::Diffeomorphism diffeo(X);
@@ -170,11 +190,10 @@ TEST(Symmetry, FunctorsAgreeWithPhi) {
 // for the underlying axiom.
 TEST(Diffeomorphism, JacobianMatchesNumerical) {
   const State xi = fixture::makeXi();
-  const TGElement X = fixture::makeX();
+  const TGMagElement X = fixture::makeX();
 
-  const Eigen::Matrix<double, 18, 18> diffeo_num =
-      numericalDerivative11<State, State>(
-          [&X](const State& x) { return phi(X, x); }, xi);
+  const fixture::Jacobian diffeo_num = numericalDerivative11<State, State>(
+      [&X](const State& x) { return phi(X, x); }, xi);
   EXPECT(fixture::meq(fixture::diffeoJacobian(X, xi), diffeo_num, 1e-5));
 }
 
@@ -182,9 +201,9 @@ TEST(Diffeomorphism, JacobianMatchesNumerical) {
 // rather than through a numerical derivative (see the comment above).
 TEST(Orbit, JacobianIsIdentity) {
   for (const State& xi_ref : {State::identity(), fixture::makeXi()}) {
-    for (const TGElement& X : {TGElement::Identity(), fixture::makeX()}) {
+    for (const TGMagElement& X : {TGMagElement::Identity(), fixture::makeX()}) {
       EXPECT(fixture::meq(fixture::orbitJacobian(X, xi_ref),
-                          Eigen::Matrix<double, 18, 18>::Identity()));
+                          fixture::Jacobian::Identity()));
     }
   }
 }
@@ -194,12 +213,11 @@ TEST(Orbit, JacobianIsIdentity) {
 // adjoint acts on, which a value check at a single point does not.
 TEST(Diffeomorphism, JacobianInvertsThatOfTheInverseAction) {
   const State xi = fixture::makeXi();
-  const TGElement X = fixture::makeX();
+  const TGMagElement X = fixture::makeX();
 
   EXPECT(fixture::meq(fixture::diffeoJacobian(X.inverse(), phi(X, xi)) *
                           fixture::diffeoJacobian(X, xi),
-                      Eigen::Matrix<double, 18, 18>::Identity(),
-                      fixture::kTolL));
+                      fixture::Jacobian::Identity(), fixture::kTolL));
 }
 
 }  // namespace functors

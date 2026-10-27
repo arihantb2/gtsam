@@ -22,13 +22,16 @@ State makeXi() {
   xi.T = ExtendedPose3<2>(Rot3::Rz(0.5) * Rot3::Rx(0.3), vp);
   xi.b = (Vector9() << 0.01, -0.01, 0.02, -0.1, 0.0, 0.1, 0.05, 0.0, -0.05)
              .finished();
+  xi.bm = Vector3(0.05, -0.02, 0.1);
   return xi;
 }
 
-Eigen::Matrix<double, 18, 1> makeDelta() {
-  Eigen::Matrix<double, 18, 1> delta;
+using Tangent = State::TangentVector;
+
+Tangent makeDelta() {
+  Tangent delta;
   delta << 0.1, -0.2, 0.05, 1.0, 2.0, 3.0, -1.0, 0.5, 0.2, 0.01, 0.02, 0.03,
-      -0.01, 0.0, 0.01, 0.0, -0.02, 0.01;
+      -0.01, 0.0, 0.01, 0.0, -0.02, 0.01, 0.03, -0.04, 0.02;
   return delta;
 }
 
@@ -65,6 +68,10 @@ TEST(State, EqualsSeparatesStates) {
   State c = a;
   c.b(8) += 1.0;
   EXPECT(!traits<State>::Equals(a, c, fixture::kTol));
+
+  State d = a;
+  d.bm(2) += 1.0;
+  EXPECT(!traits<State>::Equals(a, d, fixture::kTol));
 }
 
 }  // namespace equality
@@ -77,8 +84,7 @@ namespace chart {
 // says.
 TEST(State, ChartIsCentredAtItsBasePoint) {
   const State xi = fixture::makeXi();
-  const Eigen::Matrix<double, 18, 1> zero =
-      Eigen::Matrix<double, 18, 1>::Zero();
+  const fixture::Tangent zero = fixture::Tangent::Zero();
 
   EXPECT(traits<State>::Equals(xi, traits<State>::Retract(xi, zero),
                                fixture::kTol));
@@ -89,7 +95,7 @@ TEST(State, ChartIsCentredAtItsBasePoint) {
 // Local inverts Retract, at the manifold identity and away from it. The
 // SE_2(3) logarithm makes these two genuinely different code paths.
 TEST(State, RetractLocalRoundTrip) {
-  const Eigen::Matrix<double, 18, 1> delta = fixture::makeDelta();
+  const fixture::Tangent delta = fixture::makeDelta();
 
   for (const State& xi_ref : {State::identity(), fixture::makeXi()}) {
     const State xi = traits<State>::Retract(xi_ref, delta);
@@ -123,8 +129,22 @@ TEST(State, BiasBlockIsLinearAtZeroNavigationDisplacement) {
   State xi = xi_ref;
   xi.b.segment<3>(3) += Vector3(0.3, -0.2, 0.1);
 
-  Eigen::Matrix<double, 18, 1> expected = Eigen::Matrix<double, 18, 1>::Zero();
+  fixture::Tangent expected = fixture::Tangent::Zero();
   expected.segment<3>(12) = -Vector3(0.3, -0.2, 0.1);
+
+  EXPECT(assert_equal((Vector)expected,
+                      (Vector)traits<State>::Local(xi_ref, xi), fixture::kTol));
+}
+
+// The same holds for the magnetometer-bias block, which the semidirect
+// exponential moves by -eps_bm when the attitude is not displaced.
+TEST(State, MagBiasBlockIsLinearAtZeroNavigationDisplacement) {
+  const State xi_ref = fixture::makeXi();
+  State xi = xi_ref;
+  xi.bm += Vector3(0.2, 0.1, -0.3);
+
+  fixture::Tangent expected = fixture::Tangent::Zero();
+  expected.segment<3>(18) = -Vector3(0.2, 0.1, -0.3);
 
   EXPECT(assert_equal((Vector)expected,
                       (Vector)traits<State>::Local(xi_ref, xi), fixture::kTol));

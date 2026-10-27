@@ -8,7 +8,7 @@
 namespace gtsam {
 namespace tgeqf {
 
-/// Extended input u in R^21.
+/// Extended input u in R^24.
 struct Input {
   Vector3 w = Vector3::Zero();
   Vector3 a = Vector3::Zero();
@@ -16,13 +16,14 @@ struct Input {
   Vector3 tau_w = Vector3::Zero();
   Vector3 tau_a = Vector3::Zero();
   Vector3 tau_v = Vector3::Zero();
+  Vector3 tau_m = Vector3::Zero();  // magnetometer-bias random walk
   Vector3 g_vec = Vector3::Zero();
 
   /// Coefficient vector of the extended input.
-  using Vector21 = Eigen::Matrix<double, 21, 1>;
+  using Vector24 = Eigen::Matrix<double, 24, 1>;
 
-  Vector21 vector() const;
-  static Input from_vector(const Vector21& v);
+  Vector24 vector() const;
+  static Input from_vector(const Vector24& v);
 };
 
 /**
@@ -35,24 +36,29 @@ struct Input {
  *   Lambda_1.a = a - b_a + R^T g
  *   Lambda_1.v = nu - b_v + R^T v
  *   Lambda_2   = ad_b[Lambda_1] - tau
+ *   Lambda_3   = bm^ (w - b_w) - tau_m
+ *
+ * Lambda_3 is fixed by the lift condition on bm -> R_A^T (bm - d), so that
+ * the action reproduces bm_dot = tau_m.
  */
 struct Lift {
   Input u;
 
   explicit Lift(const Input& u);
 
-  /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{18 x 18}.
+  /// Lambda(xi, u) with optional Jacobian d(Lambda)/d(xi) in R^{21 x 21}.
   State::TangentVector operator()(const State& xi,
-                                  OptionalJacobian<18, 18> D_lift = {}) const;
+                                  OptionalJacobian<21, 21> D_lift = {}) const;
 };
 
-/// Input orbit psi_u : G -> L.
+/// Input orbit psi_u : G -> L. The tangent-group part acts as in TG-EqF and
+/// the bias random walk transforms as tau_m -> R_A^T tau_m.
 struct InputOrbit {
   Input u;
 
   explicit InputOrbit(const Input& u);
 
-  Input operator()(const TGElement& X) const;
+  Input operator()(const TGMagElement& X) const;
 };
 
 /**
@@ -61,15 +67,16 @@ struct InputOrbit {
  * Jacobians below are already in error coordinates at the reference state --
  * pass to TGEqF::updateWithReset() unchanged. The measurement arrives in the
  * true state's body frame; pull it back with inverse_output_action() first.
+ * The output action reads only the SE_2(3) part A of X.
  */
 struct DVLMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
-  using Jacobian = Eigen::Matrix<double, 3, 18>;
+  using Jacobian = Eigen::Matrix<double, 3, 21>;
 
   static Vector3 predict(const State& xi);
 
   /**
-   * Origin-chart Jacobian, C0 = [ y0^  I_3  0  0 ], y0 = R0^T v0.
+   * Origin-chart Jacobian, C0 = [ y0^  I_3  0  0  0 ], y0 = R0^T v0.
    *
    * The output differential at the origin output alone: second order in the
    * state error. C* below is what the filter actually uses; C0 is the
@@ -78,7 +85,7 @@ struct DVLMeasurement {
   static Jacobian jacobian_C0(const State& xi_ref);
 
   /**
-   * Equivariant output matrix, C* = [ 0.5 (y0 + y_tilde)^  I_3  0  0 ], with
+   * Equivariant output matrix, C* = [ 0.5 (y0 + y_tilde)^  I_3  0  0  0 ], with
    * y0 = R0^T v0 and y_tilde = psi_X^{-1}(z) (the measurement pulled back to
    * the origin output space).
    *
@@ -86,15 +93,15 @@ struct DVLMeasurement {
    * y0 alone makes the linearization error third order rather than second --
    * this is the matrix the filter uses.
    */
-  static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
+  static Jacobian jacobian_Cstar(const State& xi_ref, const TGMagElement& g,
                                  const Vector3& z_dvl);
 
   /// Output group action psi_X(y) = R_X^T y + R_X^T v_X.
-  static Vector3 output_action(const TGElement& X, const Vector3& y);
+  static Vector3 output_action(const TGMagElement& X, const Vector3& y);
 
   /// Inverse output action psi_X^{-1}(y) = R_X y - v_X; carries a measurement
   /// from the true state's body frame to the origin output space.
-  static Vector3 inverse_output_action(const TGElement& X, const Vector3& y);
+  static Vector3 inverse_output_action(const TGMagElement& X, const Vector3& y);
 };
 
 /**
@@ -108,28 +115,28 @@ struct DVLMeasurement {
  */
 struct PositionMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
-  using Jacobian = Eigen::Matrix<double, 3, 18>;
+  using Jacobian = Eigen::Matrix<double, 3, 21>;
 
   /// General single-state residual R^T(pi - p).
   static Vector3 predict(const State& xi, const Vector3& pi);
 
   /// y0 - g.p, with y0 = R0^T(pi - p0); equals R0^T(pi - p_hat) since the
   /// estimate satisfies p_hat = R0 * g.p + p0.
-  static Vector3 predictAtOrigin(const State& xi_ref, const TGElement& g,
+  static Vector3 predictAtOrigin(const State& xi_ref, const TGMagElement& g,
                                  const Vector3& pi);
 
-  /// Origin-chart Jacobian, C0 = [ y0^  0  -I_3  0 ], y0 = R0^T(pi - p0). Same
-  /// rationale as DVLMeasurement::jacobian_C0, reading p instead of v.
+  /// Origin-chart Jacobian, C0 = [ y0^  0  -I_3  0  0 ], y0 = R0^T(pi - p0).
+  /// Same rationale as DVLMeasurement::jacobian_C0, reading p instead of v.
   static Jacobian jacobian_C0(const State& xi_ref, const Vector3& pi);
 
-  /// Equivariant output matrix, C* = [ 0.5 (y0 + p_X)^  0  -I_3  0 ], with
+  /// Equivariant output matrix, C* = [ 0.5 (y0 + p_X)^  0  -I_3  0  0 ], with
   /// p_X = g.p the transported measurement. Same rationale as
   /// DVLMeasurement::jacobian_Cstar, reading p instead of v.
-  static Jacobian jacobian_Cstar(const State& xi_ref, const TGElement& g,
+  static Jacobian jacobian_Cstar(const State& xi_ref, const TGMagElement& g,
                                  const Vector3& pi);
 
   /// Output group action psi_X(y) = R_X^T (y - p_X).
-  static Vector3 output_action(const TGElement& X, const Vector3& y);
+  static Vector3 output_action(const TGMagElement& X, const Vector3& y);
 };
 
 /**
@@ -141,39 +148,83 @@ struct PositionMeasurement {
  */
 struct DepthMeasurement {
   /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
-  using Jacobian = Eigen::Matrix<double, 1, 18>;
+  using Jacobian = Eigen::Matrix<double, 1, 21>;
 
   /// Vertical position e_3^T p.
   static double predict(const State& xi);
 
   /**
-   * C = [ (g.p x n)^T  0  n^T  0 ], n = R0^T e_3: the exact chart derivative
+   * C = [ (g.p x n)^T  0  n^T  0  0 ], n = R0^T e_3: the exact chart derivative
    * of eps -> h(phi(g, Retract(xi_ref, eps))) at eps = 0.
    *
    * Retract is phi(Expmap_G(eps), xi_ref), and phi is a right action, so the
    * composed map is h(phi(Expmap_G(eps) g, xi_ref)); its position slot is
    * R0 (Exp_SO3(eps_R) g.p + J_l(eps_R) eps_p) + p0, giving the two blocks.
    */
-  static Jacobian jacobian_C(const State& xi_ref, const TGElement& g);
+  static Jacobian jacobian_C(const State& xi_ref, const TGMagElement& g);
 };
 
 /**
- * Continuous-time IMU noise PSDs, mapped through the lift differential B
+ * Equivariant biased magnetometer output h_m(xi) = R^T m + bm, with m the
+ * known reference field in the global frame (e.g. from the World Magnetic
+ * Model, in the units of the sensor) and bm the hard-iron bias.
+ *
+ * The output action psi_X(y) = R_A^T (y - d) makes h_m equivariant, so the
+ * measurement is pulled back to the origin output space with
+ * inverse_output_action() and compared with the reference output
+ * y0 = R0^T m + bm0. At the identity origin the pulled-back measurement is
+ * the bias-corrected field in the global frame, R_hat (z - bm_hat).
+ * Jacobians below are already in error coordinates at the reference state.
+ */
+struct MagnetometerMeasurement {
+  /// Output matrix in error coordinates, d(output)/d(eps) at eps = 0.
+  using Jacobian = Eigen::Matrix<double, 3, 21>;
+
+  /// Body-frame field R^T m + bm.
+  static Vector3 predict(const State& xi, const Vector3& m);
+
+  /// Origin-chart Jacobian, C0 = [ y0^  0  0  0  -I_3 ], y0 = R0^T m + bm0.
+  /// Second order in the state error; kept as the ablation baseline.
+  static Jacobian jacobian_C0(const State& xi_ref, const Vector3& m);
+
+  /**
+   * Equivariant output matrix, C* = [ 0.5 (y0 + y_tilde)^  0  0  0  -I_3 ],
+   * with y_tilde = psi_X^{-1}(z_mag). Same rationale as
+   * DVLMeasurement::jacobian_Cstar: the midpoint makes the linearization
+   * error third order.
+   */
+  static Jacobian jacobian_Cstar(const State& xi_ref, const TGMagElement& g,
+                                 const Vector3& m, const Vector3& z_mag);
+
+  /// Output group action psi_X(y) = R_A^T (y - d).
+  static Vector3 output_action(const TGMagElement& X, const Vector3& y);
+
+  /// Inverse output action psi_X^{-1}(y) = R_A y + d; carries a measurement
+  /// from the true state's body frame to the origin output space.
+  static Vector3 inverse_output_action(const TGMagElement& X, const Vector3& y);
+};
+
+/**
+ * Continuous-time process noise PSDs, mapped through the lift differential B
  * into process noise (see inputNoiseCov()). Per-axis, not isotropic.
  *
  * No channel for the virtual input nu (held at zero, not measured) or its
  * bias b_v (driven only by whatever the lift couples into it from the
- * gyro/accel channels below).
+ * gyro/accel channels below). mag_bias_rw is not an IMU channel; it lives here
+ * so that propagate() takes a single noise description.
  */
 struct ImuNoise {
   Vector3 gyro = Vector3::Zero();
   Vector3 accel = Vector3::Zero();
   Vector3 gyro_rw = Vector3::Zero();
   Vector3 accel_rw = Vector3::Zero();
+  /// PSD of the magnetometer hard-iron bias random walk tau_m.
+  Vector3 mag_bias_rw = Vector3::Zero();
 };
 
 /**
- * TG-EqF biased INS filter on G = SE_2(3) ⋉ se_2(3).
+ * TG-EqF biased INS filter on G = (SE_2(3) ⋉ se_2(3)) ⋉ R^3, the tangent group
+ * extended by the magnetometer hard-iron bias.
  *
  * The base class keeps every matrix in **error coordinates**, the tangent space
  * at the fixed reference state xi_ref, so every measurement here supplies an
@@ -183,7 +234,7 @@ struct ImuNoise {
 class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
  public:
   using Base = gtsam::EquivariantFilter<State, TGSymmetry>;
-  using Covariance18 = Eigen::Matrix<double, 18, 18>;
+  using Covariance21 = Eigen::Matrix<double, 21, 21>;
   using Covariance15 = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
   using Covariance1 = Eigen::Matrix<double, 1, 1>;
@@ -196,15 +247,17 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   static constexpr double kVirtualBiasInitialSigma = 1e-6;
 
   /**
-   * Initial covariance built from the physical-state block [R,v,p,b_w,b_a];
-   * the virtual-bias block is kVirtualBiasInitialSigma^2 * I, uncorrelated.
+   * Initial covariance built from the physical-state block [R,v,p,b_w,b_a]
+   * and the magnetometer-bias block; the virtual-bias block is
+   * kVirtualBiasInitialSigma^2 * I. The three blocks are uncorrelated.
    *
    * v and p are read in State's chart (SE_2(3) logarithm coordinates), so
    * they're plain global-frame variances only at identity rotation --
    * otherwise they're resolved in that state's body frame and couple to the
    * rotation block.
    */
-  static Covariance18 initialCovariance(const Covariance15& Sigma_physical);
+  static Covariance21 initialCovariance(const Covariance15& Sigma_physical,
+                                        const Covariance3& Sigma_mag_bias);
 
   /**
    * Construct at the identity origin (xi_ref = identity). This is the
@@ -213,7 +266,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * @param X0  Initial group estimate; state is X0.
    * @param P0  Initial covariance of X0, expressed in the tangent chart at X0.
    */
-  explicit TGEqF(const TGElement& X0, const Covariance18& P0);
+  explicit TGEqF(const TGMagElement& X0, const Covariance21& P0);
 
   /**
    * Construct at an arbitrary reference state xi_ref. Exposed for testing;
@@ -228,8 +281,8 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    *                identity.
    * @param X0      Initial group estimate; state is phi(X0, xi_ref).
    */
-  explicit TGEqF(const State& xi_ref, const Covariance18& P0,
-                 const TGElement& X0 = TGElement::Identity());
+  explicit TGEqF(const State& xi_ref, const Covariance21& P0,
+                 const TGMagElement& X0 = TGMagElement::Identity());
 
   // Enable/disable covariance reset after each update.
   void set_reset_step(bool enable) { reset_step_ = enable; }
@@ -239,6 +292,11 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   /// second-order chart derivative, kept for ablation comparisons.
   enum class DvlJacobian { Cstar, C0 };
   void set_dvl_jacobian(DvlJacobian mode) { dvl_jacobian_ = mode; }
+
+  /// Magnetometer Jacobian update_magnetometer() uses; same choice as
+  /// DvlJacobian.
+  enum class MagJacobian { Cstar, C0 };
+  void set_mag_jacobian(MagJacobian mode) { mag_jacobian_ = mode; }
 
   /// Reset transport J(delta_xi, delta_x); P <- J P J^T. Exposed for testing.
   MatrixM resetMatrix(const TangentVector& delta_xi,
@@ -250,7 +308,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    * Use the ImuNoise overload for lift-mapped process noise instead.
    */
   void propagate(const Vector3& w_meas, const Vector3& a_meas,
-                 const Vector3& g_vec, const Covariance18& Qc, double dt);
+                 const Vector3& g_vec, const Covariance21& Qc, double dt);
 
   /**
    * IMU propagation with Qc = B Sigma B^T from IMU PSDs through the lift
@@ -261,10 +319,12 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   // Qc_eff = B Sigma B^T, the continuous-time density; propagate() applies
   // the Van Loan discretization. For testing.
-  Covariance18 inputNoiseCov(const ImuNoise& noise) const;
+  Covariance21 inputNoiseCov(const ImuNoise& noise) const;
 
-  /// Fixed-origin input lift orbit_jacobian0_ * G; reduces to G itself since
-  /// orbit_jacobian0_ is always I_18. For testing.
+  /// Fixed-origin input lift orbit_jacobian0_ * G, with G the derivative of
+  /// the lift at xi_ref with respect to the origin input [w (9), tau (9),
+  /// tau_m (3)]; reduces to G itself since orbit_jacobian0_ is always I_21.
+  /// For testing.
   MatrixM input_lift() const { return input_lift_; }
 
   // DVL body-velocity update via h(xi) = R^T v, using the output matrix
@@ -295,6 +355,17 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
    */
   void update_depth_direct(double z_depth, const Covariance1& R_depth);
 
+  /**
+   * Magnetometer update via h_m(xi) = R^T m + bm, using the output matrix
+   * selected by set_mag_jacobian() (the equivariant C* by default).
+   *
+   * @param z_mag  Measured body-frame field, soft-iron calibrated.
+   * @param m      Reference field in the global frame, same units.
+   * @param R_mag  Body-frame measurement noise covariance.
+   */
+  void update_magnetometer(const Vector3& z_mag, const Vector3& m,
+                           const Covariance3& R_mag);
+
   // Error state and vector in the fixed-origin chart.
   State errorState(const State& xi_true) const;
   TangentVector errorStateVector(const State& xi_true) const;
@@ -306,6 +377,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
   Vector3 bias_gyro() const;
   Vector3 bias_accel() const;
   Vector3 bias_vel() const;
+  Vector3 bias_mag() const;
 
   ExtendedPose3<2> extended_pose() const;
   Vector9 biases() const;
@@ -321,6 +393,7 @@ class TGEqF : public gtsam::EquivariantFilter<State, TGSymmetry> {
 
   bool reset_step_ = true;
   DvlJacobian dvl_jacobian_ = DvlJacobian::Cstar;
+  MagJacobian mag_jacobian_ = MagJacobian::Cstar;
 
   // Fixed-origin caches for the current reference state (xi_ref_).
   MatrixM innovation_lift_;

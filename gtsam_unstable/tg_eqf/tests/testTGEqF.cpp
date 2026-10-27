@@ -1,7 +1,8 @@
 /**
  * @file  testTGEqF.cpp
- * @brief The TGEqF filter: construction, propagation, the three updates, the
- *        covariance reset, and input-mapped process noise.
+ * @brief The TGEqF filter: construction, propagation, the DVL, position,
+ *        depth and magnetometer updates, the covariance reset, and
+ *        input-mapped process noise.
  *
  * Top of the unit suite. The layers below have already pinned the chart, the
  * group, the action, the lift and the output matrices, so the tests here are
@@ -26,7 +27,7 @@ namespace fixture {
 
 constexpr double kTol = 1e-6;
 
-using Vector18 = Eigen::Matrix<double, 18, 1>;
+using Vector21 = State::TangentVector;
 
 const Vector3 kGravity(0.0, 0.0, -9.81);
 
@@ -34,22 +35,23 @@ bool veq(const Vector3& a, const Vector3& b, double tol = kTol) {
   return assert_equal((Vector)a, (Vector)b, tol);
 }
 
-TGEqF::Covariance18 defaultSigma() {
-  return 0.01 * TGEqF::Covariance18::Identity();
+TGEqF::Covariance21 defaultSigma() {
+  return 0.01 * TGEqF::Covariance21::Identity();
 }
 
-TGEqF::Covariance18 anisotropicSigma() {
-  TGEqF::Covariance18 Sigma0 = TGEqF::Covariance18::Zero();
-  for (int i = 0; i < 18; ++i) {
+TGEqF::Covariance21 anisotropicSigma() {
+  TGEqF::Covariance21 Sigma0 = TGEqF::Covariance21::Zero();
+  for (int i = 0; i < 21; ++i) {
     Sigma0(i, i) = 1e-4 * (1.0 + i);
   }
   return Sigma0;
 }
 
 // Tangent order [att(0:3), vel(3:6), pos(6:9), b_w(9:12), b_a(12:15),
-// b_v(15:18)]: accel noise drives velocity, accel bias RW drives b_a.
-TGEqF::Covariance18 defaultQc() {
-  TGEqF::Covariance18 Qc = TGEqF::Covariance18::Zero();
+// b_v(15:18), b_m(18:21)]: accel noise drives velocity, accel bias RW drives
+// b_a.
+TGEqF::Covariance21 defaultQc() {
+  TGEqF::Covariance21 Qc = TGEqF::Covariance21::Zero();
   Qc.block<3, 3>(0, 0) = 1e-4 * Eigen::Matrix3d::Identity();
   Qc.block<3, 3>(3, 3) = 1e-3 * Eigen::Matrix3d::Identity();
   Qc.block<3, 3>(9, 9) = 1e-6 * Eigen::Matrix3d::Identity();
@@ -57,25 +59,27 @@ TGEqF::Covariance18 defaultQc() {
   return Qc;
 }
 
-/// Group element with phi(X0, identity) = (Rz(90 deg), (2,0,0), (5,-3,1), 0).
-TGElement rotatedX0() {
+/// Group element with phi(X0, identity) = (Rz(90 deg), (2,0,0), (5,-3,1), 0,
+/// 0).
+TGMagElement rotatedX0() {
   Eigen::Matrix<double, 3, 2> vp;
   vp.col(0) = Vector3(2.0, 0.0, 0.0);
   vp.col(1) = Vector3(5.0, -3.0, 1.0);
-  return TGElement(ExtendedPose3<2>(Rot3::Rz(M_PI / 2), vp),
-                   Eigen::Matrix<double, 9, 1>::Zero());
+  return TGMagElement(TGElement(ExtendedPose3<2>(Rot3::Rz(M_PI / 2), vp),
+                                Eigen::Matrix<double, 9, 1>::Zero()),
+                      Vector3::Zero());
 }
 
-Eigen::Matrix<double, 18, 18> orbitJacobian0(const State& xi_ref) {
-  Eigen::Matrix<double, 18, 18> H;
+Eigen::Matrix<double, 21, 21> orbitJacobian0(const State& xi_ref) {
+  Eigen::Matrix<double, 21, 21> H;
   const TGSymmetry::Orbit orbit(xi_ref);
-  orbit(TGElement::Identity(), &H);
+  orbit(TGMagElement::Identity(), &H);
   return H;
 }
 
-Eigen::Matrix<double, 18, 18> diffeoJacobian(const TGElement& X,
+Eigen::Matrix<double, 21, 21> diffeoJacobian(const TGMagElement& X,
                                              const State& xi) {
-  Eigen::Matrix<double, 18, 18> H;
+  Eigen::Matrix<double, 21, 21> H;
   const TGSymmetry::Diffeomorphism diffeo(X);
   diffeo(xi, &H);
   return H;
@@ -94,8 +98,8 @@ TEST(TGEqF, InitializesAtTheReferenceState) {
   TGEqF filter(xi_ref, fixture::defaultSigma());
 
   EXPECT(traits<State>::Equals(xi_ref, filter.state(), fixture::kTol));
-  EXPECT(traits<TGElement>::Equals(TGElement::Identity(),
-                                   filter.groupEstimate(), fixture::kTol));
+  EXPECT(traits<TGMagElement>::Equals(TGMagElement::Identity(),
+                                      filter.groupEstimate(), fixture::kTol));
   EXPECT(assert_equal(fixture::defaultSigma(), filter.errorCovariance(),
                       fixture::kTol));
 
@@ -105,6 +109,7 @@ TEST(TGEqF, InitializesAtTheReferenceState) {
   EXPECT(fixture::veq(Vector3::Zero(), filter.bias_gyro()));
   EXPECT(fixture::veq(Vector3::Zero(), filter.bias_accel()));
   EXPECT(fixture::veq(Vector3::Zero(), filter.bias_vel()));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.bias_mag()));
 }
 
 // Sigma0 is given in the chart at the initial estimate, so the constructor
@@ -114,22 +119,22 @@ TEST(TGEqF, InitializesAtTheReferenceState) {
 // transport.
 TEST(TGEqF, ConstructorTransportsCovarianceToTheOriginChart) {
   const State xi_ref = State::identity();
-  const TGElement X0 = fixture::rotatedX0();
-  const TGEqF::Covariance18 Sigma0 = fixture::anisotropicSigma();
+  const TGMagElement X0 = fixture::rotatedX0();
+  const TGEqF::Covariance21 Sigma0 = fixture::anisotropicSigma();
   TGEqF filter(xi_ref, Sigma0, X0);
 
   EXPECT(assert_equal((Matrix)Sigma0, (Matrix)filter.covariance(), 1e-9));
 
-  const Eigen::Matrix<double, 18, 18> J_inv =
+  const Eigen::Matrix<double, 21, 21> J_inv =
       fixture::diffeoJacobian(X0, xi_ref).inverse();
-  const Eigen::Matrix<double, 18, 18> expected =
+  const Eigen::Matrix<double, 21, 21> expected =
       J_inv * Sigma0 * J_inv.transpose();
   EXPECT(
       assert_equal((Matrix)expected, (Matrix)filter.errorCovariance(), 1e-9));
   EXPECT((J_inv.transpose() * Sigma0 * J_inv - expected).norm() > 1e-3);
 
   // At the group identity the transport is the identity.
-  TGEqF at_identity(xi_ref, Sigma0, TGElement::Identity());
+  TGEqF at_identity(xi_ref, Sigma0, TGMagElement::Identity());
   EXPECT(assert_equal((Matrix)Sigma0, (Matrix)at_identity.errorCovariance(),
                       1e-12));
 }
@@ -142,7 +147,7 @@ namespace propagation {
 
 struct IntegrationResult {
   State state;
-  TGEqF::Covariance18 covariance;
+  TGEqF::Covariance21 covariance;
 };
 
 template <size_t K>
@@ -252,8 +257,8 @@ TEST(TGEqF, PropagateFeedsZeroVirtualInput) {
   TGEqF via_lift(xi_ref, fixture::defaultSigma());
   via_lift.predict<1>(Lift(u), InputOrbit(u), fixture::defaultQc(), dt);
 
-  EXPECT(traits<TGElement>::Equals(via_propagate.groupEstimate(),
-                                   via_lift.groupEstimate(), 1e-9));
+  EXPECT(traits<TGMagElement>::Equals(via_propagate.groupEstimate(),
+                                      via_lift.groupEstimate(), 1e-9));
 }
 
 }  // namespace propagation
@@ -306,15 +311,15 @@ namespace away_from_the_reference {
 // output frames.
 TEST(TGEqF, OriginChartJacobianTransportsByTheOutputAction) {
   const State xi_ref = State::identity();
-  const TGElement X0 = fixture::rotatedX0();
+  const TGMagElement X0 = fixture::rotatedX0();
 
-  const Eigen::Matrix<double, 3, 18> H_num =
+  const Eigen::Matrix<double, 3, 21> H_num =
       numericalDerivative11<Vector3, State>(
           [&X0](const State& x) { return DVLMeasurement::predict(phi(X0, x)); },
           xi_ref);
 
   EXPECT(assert_equal((Matrix)H_num,
-                      (Matrix)(X0.first.rotation().matrix().transpose() *
+                      (Matrix)(X0.first.first.rotation().matrix().transpose() *
                                DVLMeasurement::jacobian_C0(xi_ref)),
                       1e-5));
 }
@@ -325,7 +330,7 @@ TEST(TGEqF, DvlUpdateMovesVelocityInTheGlobalFrame) {
   // The 2 m/s speed makes attitude twice as sensitive as velocity to a body
   // velocity reading, so an isotropic prior would spend the innovation on yaw.
   // Pin attitude to isolate the velocity correction under test.
-  TGEqF::Covariance18 Sigma0 = fixture::defaultSigma();
+  TGEqF::Covariance21 Sigma0 = fixture::defaultSigma();
   Sigma0.block<3, 3>(0, 0) = 1e-8 * Eigen::Matrix3d::Identity();
   TGEqF filter(State::identity(), Sigma0, fixture::rotatedX0());
 
@@ -361,30 +366,30 @@ TEST(TGEqF, PositionUpdateMovesEstimateInTheGlobalFrame) {
 /* ************************************************************************* */
 namespace reset_step {
 
-using fixture::Vector18;
+using fixture::Vector21;
 
 /// The re-centring map the group correction applies to the error state.
-Vector18 recentre(const State& xi_ref, const TGElement& Xd,
-                  const Vector18& eps) {
+Vector21 recentre(const State& xi_ref, const TGMagElement& Xd,
+                  const Vector21& eps) {
   return traits<State>::Local(xi_ref,
                               phi(Xd, traits<State>::Retract(xi_ref, eps)));
 }
 
 /// Independent oracle for resetMatrix: shares no code with it.
-Eigen::Matrix<double, 18, 18> numericalResetJacobian(const State& xi_ref,
-                                                     const Vector18& delta_xi,
-                                                     const Vector18& delta_x) {
-  const TGElement Xd = TGElement::Expmap(-delta_x);
-  return numericalDerivative11<Vector18, Vector18>(
-      [&](const Vector18& eps) { return recentre(xi_ref, Xd, eps); }, delta_xi);
+Eigen::Matrix<double, 21, 21> numericalResetJacobian(const State& xi_ref,
+                                                     const Vector21& delta_xi,
+                                                     const Vector21& delta_x) {
+  const TGMagElement Xd = TGMagElement::Expmap(-delta_x);
+  return numericalDerivative11<Vector21, Vector21>(
+      [&](const Vector21& eps) { return recentre(xi_ref, Xd, eps); }, delta_xi);
 }
 
 /// A correction large enough that the chart factors are far from the identity.
 /// At 1e-4 they are the identity to within 1e-8 and there is nothing to check.
-Vector18 bigDeltaXi() {
-  Vector18 delta_xi;
+Vector21 bigDeltaXi() {
+  Vector21 delta_xi;
   delta_xi << 0.35, -0.25, 0.4, 0.2, -0.15, 0.1, 0.3, -0.2, 0.15, 0.05, -0.04,
-      0.03, -0.06, 0.02, -0.01, 0.02, -0.03, 0.01;
+      0.03, -0.06, 0.02, -0.01, 0.02, -0.03, 0.01, 0.1, -0.08, 0.12;
   return delta_xi;
 }
 
@@ -398,6 +403,7 @@ State offOriginRef() {
   xi_ref.b =
       (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, 0.02, 0.1, -0.08, 0.06)
           .finished();
+  xi_ref.bm = Vector3(0.2, -0.1, 0.3);
   return xi_ref;
 }
 
@@ -406,27 +412,27 @@ State offOriginRef() {
 /// Xd comes from the public group estimates alone: X_after = Exp(delta_x)
 /// X_before, so Xd = Exp(-delta_x) = X_before * X_after^-1.
 struct UpdatePair {
-  Eigen::Matrix<double, 18, 18> P_with, P_without, J;
+  Eigen::Matrix<double, 21, 21> P_with, P_without, J;
 };
 
-UpdatePair positionUpdatePair(const TGEqF::Covariance18& Sigma0,
+UpdatePair positionUpdatePair(const TGEqF::Covariance21& Sigma0,
                               double offset_scale = 1.0) {
   const State xi_ref = State::identity();
-  const TGElement X0 = fixture::rotatedX0();
+  const TGMagElement X0 = fixture::rotatedX0();
   TGEqF with_reset(xi_ref, Sigma0, X0);
   TGEqF without_reset(xi_ref, Sigma0, X0);
   without_reset.set_reset_step(false);
 
-  const TGElement X_before = with_reset.groupEstimate();
+  const TGMagElement X_before = with_reset.groupEstimate();
   const Vector3 pi =
       with_reset.position() + offset_scale * Vector3(0.5, 0.3, -0.2);
   const TGEqF::Covariance3 R = 1e-2 * TGEqF::Covariance3::Identity();
   with_reset.update_position(pi, R);
   without_reset.update_position(pi, R);
 
-  const TGElement Xd = X_before * with_reset.groupEstimate().inverse();
-  const Vector18 delta_x = -TGElement::Logmap(Xd);
-  const Vector18 delta_xi = fixture::orbitJacobian0(xi_ref) * delta_x;
+  const TGMagElement Xd = X_before * with_reset.groupEstimate().inverse();
+  const Vector21 delta_x = -TGMagElement::Logmap(Xd);
+  const Vector21 delta_xi = fixture::orbitJacobian0(xi_ref) * delta_x;
   return {with_reset.errorCovariance(), without_reset.errorCovariance(),
           with_reset.resetMatrix(delta_xi, delta_x)};
 }
@@ -440,11 +446,11 @@ UpdatePair positionUpdatePair(const TGEqF::Covariance18& Sigma0,
 TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
   for (const State& xi_ref : {State::identity(), offOriginRef()}) {
     TGEqF filter(xi_ref, fixture::defaultSigma());
-    const Vector18 delta_xi = bigDeltaXi();
-    const Vector18 matched =
+    const Vector21 delta_xi = bigDeltaXi();
+    const Vector21 matched =
         fixture::orbitJacobian0(xi_ref).inverse() * delta_xi;
 
-    for (const Vector18& delta_x : {matched, Vector18(-0.5 * matched)}) {
+    for (const Vector21& delta_x : {matched, Vector21(-0.5 * matched)}) {
       EXPECT(assert_equal(
           (Matrix)numericalResetJacobian(xi_ref, delta_xi, delta_x),
           (Matrix)filter.resetMatrix(delta_xi, delta_x), 1e-6));
@@ -452,7 +458,7 @@ TEST(TGEqF, ResetMatrixMatchesNumericalDerivative) {
 
     // The Jacobian belongs at eps = delta_xi, the post-update mean of the
     // error, not at eps = 0; linearizing at zero is wrong by O(|delta_xi|).
-    EXPECT((filter.resetMatrix(Vector18::Zero(), matched) -
+    EXPECT((filter.resetMatrix(Vector21::Zero(), matched) -
             filter.resetMatrix(delta_xi, matched))
                .norm() > 1e-3);
   }
@@ -464,26 +470,27 @@ TEST(TGEqF, ResetAtZeroCorrectionIsIdentity) {
   TGEqF filter(xi_ref, fixture::defaultSigma());
 
   EXPECT(assert_equal(
-      (Matrix)Eigen::Matrix<double, 18, 18>::Identity(),
-      (Matrix)filter.resetMatrix(Vector18::Zero(), Vector18::Zero()), 1e-12));
+      (Matrix)Eigen::Matrix<double, 21, 21>::Identity(),
+      (Matrix)filter.resetMatrix(Vector21::Zero(), Vector21::Zero()), 1e-12));
 }
 
-// A pure-fiber correction's reset transport is I_18 plus a
+// A pure-fiber correction's reset transport is I_21 plus a
 // 0.5 adjointMap(z0) coupling block, not the identity.
 TEST(TGEqF, ResetAtPureFiberCorrectionHasAdCoupling) {
   const State xi_ref = State::identity();
   TGEqF filter(xi_ref, fixture::defaultSigma());
 
-  Vector18 fiber_only = Vector18::Zero();
-  fiber_only.tail<9>() << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01, 0.03;
-  // orbitJacobian0(xi_ref) is I_18 in this chart, so delta_xi = delta_x here.
-  const Eigen::Matrix<double, 18, 18> J = filter.resetMatrix(
+  Vector21 fiber_only = Vector21::Zero();
+  fiber_only.segment<9>(9) << 0.2, -0.15, 0.1, 0.05, 0.04, -0.03, 0.02, -0.01,
+      0.03;
+  // orbitJacobian0(xi_ref) is I_21 in this chart, so delta_xi = delta_x here.
+  const Eigen::Matrix<double, 21, 21> J = filter.resetMatrix(
       fixture::orbitJacobian0(xi_ref) * fiber_only, fiber_only);
 
-  Eigen::Matrix<double, 18, 18> expected =
-      Eigen::Matrix<double, 18, 18>::Identity();
+  Eigen::Matrix<double, 21, 21> expected =
+      Eigen::Matrix<double, 21, 21>::Identity();
   expected.block<9, 9>(9, 0) =
-      0.5 * ExtendedPose3<2>::adjointMap(fiber_only.tail<9>());
+      0.5 * ExtendedPose3<2>::adjointMap(fiber_only.segment<9>(9));
 
   EXPECT(assert_equal((Matrix)expected, (Matrix)J, 1e-6));
 }
@@ -502,12 +509,12 @@ TEST(TGEqF, ResetTracksTheGroupCorrectionTheUpdateApplies) {
   xi_true.T = ExtendedPose3<2>(xi_true.T.rotation(), vp_true);
 
   const State e_before = filter.errorState(xi_true);
-  const TGElement X_before = filter.groupEstimate();
+  const TGMagElement X_before = filter.groupEstimate();
 
   filter.update_position(xi_true.T.x(1) + Vector3(0.05, -0.03, 0.02),
                          1e-2 * TGEqF::Covariance3::Identity());
 
-  const TGElement Xd = X_before * filter.groupEstimate().inverse();
+  const TGMagElement Xd = X_before * filter.groupEstimate().inverse();
   EXPECT(traits<State>::Equals(phi(Xd, e_before), filter.errorState(xi_true),
                                1e-9));
 }
@@ -523,7 +530,7 @@ TEST(TGEqF, ResetTransportsTheUpdatedCovariance) {
   EXPECT((u.J.transpose() * u.P_without * u.J - u.P_with).norm() > 1e-3);
   EXPECT(assert_equal((Matrix)u.P_with, (Matrix)u.P_with.transpose(), 1e-12));
 
-  Eigen::LLT<Eigen::Matrix<double, 18, 18>> llt(u.P_with);
+  Eigen::LLT<Eigen::Matrix<double, 21, 21>> llt(u.P_with);
   EXPECT(llt.info() == Eigen::Success);
 }
 
@@ -545,7 +552,7 @@ TEST(TGEqF, ResetEffectScalesWithTheCorrection) {
 // the default is worth pinning.
 TEST(TGEqF, ResetStepIsOnByDefault) {
   const State xi_ref = State::identity();
-  const TGElement X0 = fixture::rotatedX0();
+  const TGMagElement X0 = fixture::rotatedX0();
   TGEqF by_default(xi_ref, fixture::anisotropicSigma(), X0);
   TGEqF turned_off(xi_ref, fixture::anisotropicSigma(), X0);
   turned_off.set_reset_step(false);
@@ -571,17 +578,18 @@ ImuNoise makeNoise() {
   nz.accel = Vector3::Constant(3e-3);
   nz.gyro_rw = Vector3::Constant(1e-6);
   nz.accel_rw = Vector3::Constant(5e-5);
+  nz.mag_bias_rw = Vector3::Constant(4e-6);
   return nz;
 }
 
 // At the origin the lift differential has no state or transport coupling, so
 // the PSDs land one per block: gyro on attitude, accel on velocity, and the
 // random walks on their own biases. Position and virtual bias get none, and
-// there is no gyro-to-bias coupling -- that needs b_ref != 0.
+// there is no gyro-to-bias coupling -- that needs b_ref != 0 or bm_ref != 0.
 TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   const ImuNoise nz = makeNoise();
-  const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
+  const TGEqF::Covariance21 Q = filter.inputNoiseCov(nz);
 
   EXPECT(assert_equal((Matrix)nz.gyro.asDiagonal(), (Matrix)Q.block<3, 3>(0, 0),
                       1e-6));
@@ -597,6 +605,51 @@ TEST(TGEqF, InputNoiseCovIsBlockDiagonalAtTheOrigin) {
                       (Matrix)Q.block<3, 3>(15, 15), 1e-6));
   EXPECT(assert_equal((Matrix)Eigen::Matrix3d::Zero(),
                       (Matrix)Q.block<3, 3>(9, 0), 1e-6));
+  EXPECT(assert_equal((Matrix)nz.mag_bias_rw.asDiagonal(),
+                      (Matrix)Q.block<3, 3>(18, 18), 1e-12));
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 3, 18>::Zero(),
+                      (Matrix)Q.block<3, 18>(18, 0), 1e-12));
+}
+
+// Away from the identity the bias random walk enters through -R_hat (the
+// notes' B_t block), so its covariance is R_hat Sigma_m R_hat^T: an
+// anisotropic PSD is rotated with the estimate.
+TEST(TGEqF, MagBiasNoiseIsRotatedIntoTheOriginFrame) {
+  TGEqF filter(State::identity(), fixture::defaultSigma(),
+               fixture::rotatedX0());
+  ImuNoise nz;
+  nz.mag_bias_rw = Vector3(1e-6, 4e-6, 9e-6);
+  const TGEqF::Covariance21 Q = filter.inputNoiseCov(nz);
+
+  const Matrix3 R_hat = filter.attitude().matrix();
+  EXPECT(assert_equal(
+      (Matrix)(R_hat * nz.mag_bias_rw.asDiagonal() * R_hat.transpose()),
+      (Matrix)Q.block<3, 3>(18, 18), 1e-15));
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 18>::Zero(),
+                      (Matrix)Q.topLeftCorner<18, 18>(), 1e-15));
+}
+
+// At the identity origin the error dynamics keep the navigation block of the
+// tangent-group filter and add the last block row [0 0 (w0)^], with
+// w0 = R_hat (w - b_w_hat) the origin gyro input (notes, eq. option-b-row).
+TEST(TGEqF, ErrorDynamicsHaveTheMagBiasBlockRow) {
+  const TGEqF filter(State::identity(), fixture::defaultSigma(),
+                     fixture::rotatedX0());
+  Input u;
+  u.w = Vector3(0.1, -0.05, 0.3);
+  u.a = Vector3(0.3, 0.2, 9.6);
+  u.g_vec = fixture::kGravity;
+
+  const Eigen::Matrix<double, 21, 21> A =
+      filter.computeErrorDynamicsMatrix<Lift>(InputOrbit(u));
+  const Vector3 omega0 = filter.attitude().rotate(u.w - filter.bias_gyro());
+
+  Eigen::Matrix<double, 3, 21> expected_row =
+      Eigen::Matrix<double, 3, 21>::Zero();
+  expected_row.rightCols<3>() = skewSymmetric(omega0);
+  EXPECT(assert_equal((Matrix)expected_row, (Matrix)A.bottomRows<3>(), 1e-9));
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 3>::Zero(),
+                      (Matrix)A.topRightCorner<18, 3>(), 1e-12));
 }
 
 // The cached factorization B = input_lift * blkdiag(Ad, Ad) * selector must
@@ -612,52 +665,57 @@ TEST(TGEqF, InputNoiseCovMatchesTheNumericalLiftDifferential) {
   const Vector3 accel(0.3, 0.2, 9.6);
 
   const State xi_ref = State::identity();
-  const TGElement Xhat_inv = filter.groupEstimate().inverse();
-  const Eigen::Matrix<double, 18, 18> Dphi0 = fixture::orbitJacobian0(xi_ref);
+  const TGMagElement Xhat_inv = filter.groupEstimate().inverse();
+  const Eigen::Matrix<double, 21, 21> Dphi0 = fixture::orbitJacobian0(xi_ref);
 
   Input u;
   u.w = omega;
   u.a = accel;
   u.g_vec = fixture::kGravity;
   const auto lambda_origin = [&](const Input& uu) {
-    return Eigen::Matrix<double, 18, 1>(Dphi0 *
+    return Eigen::Matrix<double, 21, 1>(Dphi0 *
                                         Lift(InputOrbit(uu)(Xhat_inv))(xi_ref));
   };
 
-  const Eigen::Matrix<double, 18, 1> L0 = lambda_origin(u);
+  const Eigen::Matrix<double, 21, 1> L0 = lambda_origin(u);
   const double h = 1e-7;
-  Eigen::Matrix<double, 18, 12> B_num;
-  for (int j = 0; j < 12; ++j) {
+  Eigen::Matrix<double, 21, 15> B_num;
+  for (int j = 0; j < 15; ++j) {
     Input uu = u;
-    Vector3* slot[4] = {&uu.w, &uu.a, &uu.tau_w, &uu.tau_a};
+    Vector3* slot[5] = {&uu.w, &uu.a, &uu.tau_w, &uu.tau_a, &uu.tau_m};
     (*slot[j / 3])(j % 3) += h;
     B_num.col(j) = (lambda_origin(uu) - L0) / h;
   }
 
-  Eigen::Matrix<double, 12, 12> Sigma = Eigen::Matrix<double, 12, 12>::Zero();
+  Eigen::Matrix<double, 15, 15> Sigma = Eigen::Matrix<double, 15, 15>::Zero();
   Sigma.block<3, 3>(0, 0) = nz.gyro.asDiagonal();
   Sigma.block<3, 3>(3, 3) = nz.accel.asDiagonal();
   Sigma.block<3, 3>(6, 6) = nz.gyro_rw.asDiagonal();
   Sigma.block<3, 3>(9, 9) = nz.accel_rw.asDiagonal();
+  Sigma.block<3, 3>(12, 12) = nz.mag_bias_rw.asDiagonal();
 
-  const TGEqF::Covariance18 Q = filter.inputNoiseCov(nz);
+  const TGEqF::Covariance21 Q = filter.inputNoiseCov(nz);
   EXPECT(assert_equal((Matrix)(B_num * Sigma * B_num.transpose()), (Matrix)Q,
                       1e-6));
 }
 
-// input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart.
+// input_lift_ = orbit_jacobian0_ * G collapses to G itself in this chart. A
+// nonzero bm_ref couples the gyro into the magnetometer bias through bm^.
 TEST(TGEqF, InputLiftMatchesGAtNonzeroBiasReference) {
   State xi_ref = State::identity();
   xi_ref.b =
       (Vector9() << 0.01, -0.02, 0.03, -0.05, 0.04, -0.01, 0.02, 0.02, -0.03)
           .finished();
+  xi_ref.bm = Vector3(0.2, -0.3, 0.1);
 
   const TGEqF filter(xi_ref, fixture::defaultSigma());
 
-  Eigen::Matrix<double, 18, 18> G = Eigen::Matrix<double, 18, 18>::Zero();
+  Eigen::Matrix<double, 21, 21> G = Eigen::Matrix<double, 21, 21>::Zero();
   G.block<9, 9>(0, 0).setIdentity();
   G.block<9, 9>(9, 0) = ExtendedPose3<2>::adjointMap(xi_ref.b);
   G.block<9, 9>(9, 9) = -Matrix9::Identity();
+  G.block<3, 3>(18, 0) = skewSymmetric(xi_ref.bm);
+  G.block<3, 3>(18, 18) = -Matrix3::Identity();
 
   EXPECT(assert_equal((Matrix)G, (Matrix)filter.input_lift(), 1e-12));
 }
@@ -681,8 +739,8 @@ TEST(TGEqF, PropagateWithImuNoiseDelegatesToInputNoiseCov) {
 
   EXPECT(assert_equal(via_qc.errorCovariance(), via_noise.errorCovariance(),
                       1e-10));
-  EXPECT(traits<TGElement>::Equals(via_qc.groupEstimate(),
-                                   via_noise.groupEstimate(), 1e-10));
+  EXPECT(traits<TGMagElement>::Equals(via_qc.groupEstimate(),
+                                      via_noise.groupEstimate(), 1e-10));
 }
 
 }  // namespace process_noise
@@ -720,9 +778,9 @@ TEST(TGEqF, DepthUpdateShrinksVerticalCovariance) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   filter.set_reset_step(false);
 
-  const Eigen::Matrix<double, 18, 18> before = filter.errorCovariance();
+  const Eigen::Matrix<double, 21, 21> before = filter.errorCovariance();
   filter.update_depth(-0.8, depthNoise(0.01));
-  const Eigen::Matrix<double, 18, 18> after = filter.errorCovariance();
+  const Eigen::Matrix<double, 21, 21> after = filter.errorCovariance();
 
   const double drop_z = before(8, 8) - after(8, 8);
   EXPECT(drop_z > 0.0);
@@ -732,7 +790,7 @@ TEST(TGEqF, DepthUpdateShrinksVerticalCovariance) {
 
 // update_depth is exactly the pseudo-position update it documents.
 TEST(TGEqF, DepthUpdateMatchesTheEquivalentPositionUpdate) {
-  const TGElement X0 = fixture::rotatedX0();
+  const TGMagElement X0 = fixture::rotatedX0();
   TGEqF via_depth(State::identity(), fixture::defaultSigma(), X0);
   TGEqF via_position(State::identity(), fixture::defaultSigma(), X0);
 
@@ -757,7 +815,7 @@ TEST(TGEqF, DepthUpdateMatchesTheEquivalentPositionUpdate) {
 // correlates p_x with p_z, which gives the depth channel a horizontal path to
 // act through.
 TEST(TGEqF, DepthUpdateRespectsTheHorizontalVariance) {
-  TGEqF::Covariance18 Sigma0 = fixture::defaultSigma();
+  TGEqF::Covariance21 Sigma0 = fixture::defaultSigma();
   Sigma0(6, 8) = Sigma0(8, 6) = 0.008;  // 2x2 block stays SPD
 
   TGEqF inflated(State::identity(), Sigma0);
@@ -774,9 +832,9 @@ TEST(TGEqF, DirectDepthUpdateShrinksVerticalCovariance) {
   TGEqF filter(State::identity(), fixture::defaultSigma());
   filter.set_reset_step(false);
 
-  const Eigen::Matrix<double, 18, 18> before = filter.errorCovariance();
+  const Eigen::Matrix<double, 21, 21> before = filter.errorCovariance();
   filter.update_depth_direct(-0.8, depthNoise(0.01));
-  const Eigen::Matrix<double, 18, 18> after = filter.errorCovariance();
+  const Eigen::Matrix<double, 21, 21> after = filter.errorCovariance();
 
   const double drop_z = before(8, 8) - after(8, 8);
   EXPECT(drop_z > 0.0);
@@ -789,7 +847,7 @@ TEST(TGEqF, DirectDepthUpdateShrinksVerticalCovariance) {
 // coincide as sigma_xy^2 -> infinity. The tolerance is loose because the
 // neglected terms fall off only as 1/sigma_xy^2.
 TEST(TGEqF, DirectDepthUpdateMatchesThePseudoPositionUpdateInTheInflatedLimit) {
-  const TGElement X0 = fixture::rotatedX0();
+  const TGMagElement X0 = fixture::rotatedX0();
   TGEqF via_pseudo(State::identity(), fixture::defaultSigma(), X0);
   TGEqF via_direct(State::identity(), fixture::defaultSigma(), X0);
 
@@ -808,7 +866,7 @@ TEST(TGEqF, DirectDepthUpdateMatchesThePseudoPositionUpdateInTheInflatedLimit) {
 // prior correlating p_x with p_z and horizontal_variance pinned at 1e-6
 // instead, the two are genuinely different models.
 TEST(TGEqF, DirectDepthUpdateDiffersWhenTheHorizontalChannelIsActive) {
-  TGEqF::Covariance18 Sigma0 = fixture::defaultSigma();
+  TGEqF::Covariance21 Sigma0 = fixture::defaultSigma();
   Sigma0(6, 8) = Sigma0(8, 6) = 0.008;  // 2x2 block stays SPD
 
   TGEqF via_pseudo(State::identity(), Sigma0);
@@ -822,6 +880,177 @@ TEST(TGEqF, DirectDepthUpdateDiffersWhenTheHorizontalChannelIsActive) {
 }
 
 }  // namespace depth_update
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace mag_update {
+
+/// Reference field in the global frame: horizontal north and east parts and
+/// a steeper downward part, as at mid latitudes (normalized units).
+const Vector3 kField(0.4, 0.05, 0.9);
+
+/// Prior with the attitude and magnetometer-bias variances set separately.
+TGEqF::Covariance21 magSigma(double attitude_variance,
+                             double mag_bias_variance) {
+  TGEqF::Covariance21 Sigma0 = fixture::defaultSigma();
+  Sigma0.block<3, 3>(0, 0) = attitude_variance * Matrix3::Identity();
+  Sigma0.block<3, 3>(18, 18) = mag_bias_variance * Matrix3::Identity();
+  return Sigma0;
+}
+
+// With the bias and the roll and pitch known (a level vehicle), a tight
+// magnetometer reading of a yawed body pulls the heading onto the truth: the
+// field's horizontal part constrains yaw. Roll and pitch are pinned because
+// an isotropic attitude prior would spend part of the innovation on rotation
+// about the field direction, which the magnetometer cannot see.
+TEST(TGEqF, MagUpdateCorrectsHeadingWithKnownBias) {
+  TGEqF::Covariance21 Sigma0 = magSigma(1e-12, 1e-12);
+  Sigma0(2, 2) = 0.01;
+  TGEqF filter(State::identity(), Sigma0);
+  const Rot3 R_true = Rot3::Rz(0.1);
+
+  filter.update_magnetometer(R_true.unrotate(kField), kField,
+                             1e-8 * TGEqF::Covariance3::Identity());
+
+  EXPECT(std::abs(filter.attitude().yaw() - 0.1) < 1e-3);
+  EXPECT(fixture::veq(Vector3::Zero(), filter.bias_mag(), 1e-6));
+}
+
+// With the attitude known, the same update estimates the hard-iron bias as
+// the difference between the reading and the predicted field.
+TEST(TGEqF, MagUpdateCorrectsBiasAtKnownAttitude) {
+  TGEqF filter(State::identity(), magSigma(1e-12, 0.01));
+  const Vector3 bm_true(0.05, -0.03, 0.02);
+
+  filter.update_magnetometer(kField + bm_true, kField,
+                             1e-8 * TGEqF::Covariance3::Identity());
+
+  EXPECT(fixture::veq(bm_true, filter.bias_mag(), 1e-5));
+  EXPECT(filter.attitude().equals(Rot3::Identity(), 1e-6));
+}
+
+// Away from the reference the update is the EqF update in the origin output
+// space: innovation psi_X^{-1}(z) - y0 with C* at the transported
+// measurement, noise R_hat R_mag R_hat^T, and correction Exp(K iota) X. This
+// rebuilds it by hand, with an anisotropic R_mag so the noise transport
+// matters.
+TEST(TGEqF, MagUpdateMatchesTheHandBuiltEqFUpdate) {
+  const State xi_ref = State::identity();
+  TGEqF filter(xi_ref, fixture::anisotropicSigma(), fixture::rotatedX0());
+  filter.set_reset_step(false);
+
+  const Vector3 z_mag =
+      Rot3::Rz(M_PI / 2 + 0.05).unrotate(kField) + Vector3(0.01, -0.02, 0.0);
+  const TGEqF::Covariance3 R_mag =
+      Vector3(1e-4, 4e-4, 9e-4).asDiagonal().toDenseMatrix();
+
+  const TGMagElement X = filter.groupEstimate();
+  const TGEqF::Covariance21 P = filter.errorCovariance();
+  const Matrix3 R_hat = filter.attitude().matrix();
+  const Vector3 iota =
+      MagnetometerMeasurement::inverse_output_action(X, z_mag) - kField;
+  const Eigen::Matrix<double, 3, 21> C =
+      MagnetometerMeasurement::jacobian_Cstar(xi_ref, X, kField, z_mag);
+  const Matrix3 R_eff = R_hat * R_mag * R_hat.transpose();
+  const Eigen::Matrix<double, 21, 3> K =
+      P * C.transpose() * (C * P * C.transpose() + R_eff).inverse();
+  const Eigen::Matrix<double, 21, 21> I_KC =
+      Eigen::Matrix<double, 21, 21>::Identity() - K * C;
+
+  filter.update_magnetometer(z_mag, kField, R_mag);
+
+  EXPECT(traits<TGMagElement>::Equals(TGMagElement::Expmap(K * iota) * X,
+                                      filter.groupEstimate(), 1e-9));
+  EXPECT(assert_equal(
+      (Matrix)(I_KC * P * I_KC.transpose() + K * R_eff * K.transpose()),
+      (Matrix)filter.errorCovariance(), 1e-12));
+}
+
+// With an uncorrelated prior the magnetometer reaches only attitude and its
+// own bias; at the identity estimate velocity, position and IMU biases stay.
+TEST(TGEqF, MagUpdateOnlyCorrectsAttitudeAndMagBias) {
+  TGEqF filter(State::identity(), fixture::defaultSigma());
+
+  filter.update_magnetometer(
+      Rot3::Rz(0.2).unrotate(kField) + Vector3(0.02, 0.0, -0.01), kField,
+      1e-4 * TGEqF::Covariance3::Identity());
+
+  EXPECT(!filter.attitude().equals(Rot3::Identity(), 1e-3));
+  EXPECT(filter.bias_mag().norm() > 1e-3);
+  EXPECT(fixture::veq(Vector3::Zero(), filter.velocity(), 1e-12));
+  EXPECT(fixture::veq(Vector3::Zero(), filter.position(), 1e-12));
+  EXPECT(assert_equal((Vector)Vector9::Zero(), (Vector)filter.biases(), 1e-12));
+}
+
+// set_mag_jacobian() selects the output matrix. Away from convergence C0 and
+// C* differ, so the two modes give different corrections.
+TEST(TGEqF, MagJacobianModeSelectsTheOutputMatrix) {
+  const Vector3 z_mag = Rot3::Rz(M_PI / 2 + 0.3).unrotate(kField);
+  const TGEqF::Covariance3 R_mag = 1e-4 * TGEqF::Covariance3::Identity();
+
+  TGEqF with_cstar(State::identity(), fixture::defaultSigma(),
+                   fixture::rotatedX0());
+  TGEqF with_c0(State::identity(), fixture::defaultSigma(),
+                fixture::rotatedX0());
+  with_c0.set_mag_jacobian(TGEqF::MagJacobian::C0);
+
+  with_cstar.update_magnetometer(z_mag, kField, R_mag);
+  with_c0.update_magnetometer(z_mag, kField, R_mag);
+
+  EXPECT(!traits<State>::Equals(with_cstar.state(), with_c0.state(), 1e-6));
+}
+
+}  // namespace mag_update
+/* ************************************************************************* */
+
+/* ************************************************************************* */
+namespace decoupling {
+
+/// Propagate with every noise channel, including the bias random walk, and
+/// apply DVL, position and depth updates, but no magnetometer update.
+TGEqF runWithoutMagUpdates(double mag_bias_variance) {
+  TGEqF::Covariance21 Sigma0 = fixture::anisotropicSigma();
+  Sigma0.bottomRightCorner<3, 3>() = mag_bias_variance * Matrix3::Identity();
+  TGEqF filter(State::identity(), Sigma0, fixture::rotatedX0());
+
+  ImuNoise nz;
+  nz.gyro = Vector3::Constant(2e-4);
+  nz.accel = Vector3::Constant(3e-3);
+  nz.gyro_rw = Vector3::Constant(1e-6);
+  nz.accel_rw = Vector3::Constant(5e-5);
+  nz.mag_bias_rw = Vector3::Constant(1e-5);
+  for (int step = 0; step < 20; ++step) {
+    filter.propagate(Vector3(0.05, -0.02, 0.2), Vector3(0.3, -0.1, 9.9),
+                     fixture::kGravity, nz, 0.05);
+  }
+  filter.update_dvl(Vector3(2.0, 0.1, -0.05),
+                    1e-3 * TGEqF::Covariance3::Identity());
+  filter.update_position(filter.position() + Vector3(0.2, -0.1, 0.05),
+                         1e-2 * TGEqF::Covariance3::Identity());
+  TGEqF::Covariance1 R_depth;
+  R_depth(0, 0) = 1e-4;
+  filter.update_depth_direct(filter.position().z() + 0.05, R_depth);
+  return filter;
+}
+
+// Without magnetometer updates the bias block never couples to the rest
+// (notes, Prop. nav-exact): the cross-covariance stays zero, and the
+// navigation estimate and covariance do not depend on the bias prior.
+TEST(TGEqF, NavigationIsUnaffectedByTheMagBlockWithoutMagUpdates) {
+  const TGEqF tight = runWithoutMagUpdates(1e-4);
+  const TGEqF loose = runWithoutMagUpdates(1.0);
+
+  EXPECT(assert_equal((Matrix)Eigen::Matrix<double, 18, 3>::Zero(),
+                      (Matrix)tight.errorCovariance().topRightCorner<18, 3>(),
+                      1e-12));
+  EXPECT(tight.extended_pose().equals(loose.extended_pose(), 1e-12));
+  EXPECT(assert_equal((Vector)tight.biases(), (Vector)loose.biases(), 1e-12));
+  EXPECT(assert_equal((Matrix)tight.errorCovariance().topLeftCorner<18, 18>(),
+                      (Matrix)loose.errorCovariance().topLeftCorner<18, 18>(),
+                      1e-12));
+}
+
+}  // namespace decoupling
 /* ************************************************************************* */
 
 /* ************************************************************************* */

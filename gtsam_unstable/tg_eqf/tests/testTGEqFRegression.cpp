@@ -1,7 +1,8 @@
 /**
  * @file  testTGEqFRegression.cpp
- * @brief 30 s scenario regressions for the TG-EqF filter (biased IMU with and
- * without position aiding).
+ * @brief Scenario regressions for the TG-EqF filter: 30 s biased IMU with and
+ * without position aiding, and magnetometer heading aiding with and without
+ * yaw turns.
  *
  * Scenario-level accuracy lives here; the unit tests live in testTGEqF.cpp.
  */
@@ -66,18 +67,19 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   vp0.col(1) = gt0.position();
   xi0.T = ExtendedPose3<2>(gt0.attitude(), vp0);  // biases start at zero
 
-  TGEqF::Covariance18 P0 = TGEqF::Covariance18::Zero();
+  TGEqF::Covariance21 P0 = TGEqF::Covariance21::Zero();
   P0.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * 1e-4;    // attitude
   P0.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * 1e-2;    // velocity
   P0.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * 1e-2;    // position
   P0.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * 1e-3;    // gyro bias
   P0.block<3, 3>(12, 12) = Eigen::Matrix3d::Identity() * 1e-2;  // accel bias
   P0.block<3, 3>(15, 15) = Eigen::Matrix3d::Identity() * 1e-4;  // virtual bias
+  P0.block<3, 3>(18, 18) = Eigen::Matrix3d::Identity() * 1e-2;  // mag bias
   TGEqF ekf(xi0, P0);
 
   // Continuous-time process noise (origin-chart densities, P += Qc*dt): gyro on
   // attitude, accel on velocity, random walks on their own bias blocks.
-  TGEqF::Covariance18 Qc = TGEqF::Covariance18::Zero();
+  TGEqF::Covariance21 Qc = TGEqF::Covariance21::Zero();
   Qc.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity() * 1e-6;    // gyro
   Qc.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * 1e-4;    // accel
   Qc.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * 1e-9;    // gyro RW
@@ -108,8 +110,8 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   r.ba_est = ekf.bias_accel();
   r.bg_err = r.bg_est - true_bg;
   r.ba_err = r.ba_est - true_ba;
-  // Origin-chart covariance: canonical [att,vel,pos,b_w,b_a,b_v] block order.
-  const TGEqF::Covariance18 P = ekf.errorCovariance();
+  // Origin-chart covariance: canonical [att,vel,pos,b_w,b_a,b_v,b_m] order.
+  const TGEqF::Covariance21 P = ekf.errorCovariance();
   r.pos_cov_trace = P.block<3, 3>(6, 6).trace();
   r.bg_cov_trace = P.block<3, 3>(9, 9).trace();
   r.ba_cov_trace = P.block<3, 3>(12, 12).trace();
@@ -181,6 +183,122 @@ TEST(TGEqF, Regression30sAidedVsImuOnly) {
   // The filter knows it: position covariance grows instead of shrinking.
   EXPECT(imu_only.pos_cov_trace > 10.0 * aided.pos_cov_trace);
   EXPECT(imu_only.min_eig > 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// Magnetometer heading aiding (notes, Sec. Observability of Option B).
+//
+// DVL alone leaves heading unobservable. A magnetometer with an unknown
+// hard-iron bias bm only sees R^T m + bm, so at a fixed heading an error in
+// yaw is matched by a bias change. Yaw turns rotate that matching bias in the
+// body frame, which separates the two. Both runs below start with a 0.2 rad
+// heading error and a zero bias estimate against a true bias of ~0.1; the
+// only difference is the yaw rate. IMU and magnetometer data are noise-free
+// and the IMU is unbiased, so the runs are deterministic.
+// ---------------------------------------------------------------------------
+
+struct HeadingResult {
+  double yaw_err = 0.0;    // final |heading error| (rad)
+  double yaw_sigma = 0.0;  // final heading standard deviation (rad)
+  Vector3 bm_err;          // final magnetometer-bias error
+  double min_eig = 0.0;    // min eigenvalue of final covariance
+};
+
+static HeadingResult runMagHeading60s(double yaw_rate) {
+  const gtsam::ConstantTwistScenario scenario(Vector3(0, 0, yaw_rate),
+                                              Vector3(2.0, 0, 0));
+  const Vector3 field(0.4, 0.05, 0.9);       // reference field, normalized
+  const Vector3 true_bm(0.08, -0.05, 0.03);  // hard-iron bias
+  const double initial_yaw_error = 0.2;      // rad
+
+  const double dt = 0.01, duration = 60.0;  // 100 Hz IMU, 60 s
+  const int num_steps = static_cast<int>(duration / dt);
+  const int aiding_decim = 10;  // 10 Hz DVL and magnetometer
+  const Vector3 g(0.0, 0.0, -9.81);
+
+  // Origin at the true initial state with the heading rotated by the initial
+  // error, bias estimate zero.
+  const gtsam::NavState gt0 = scenario.navState(0.0);
+  State xi0 = State::identity();
+  Eigen::Matrix<double, 3, 2> vp0;
+  vp0.col(0) = gt0.velocity();
+  vp0.col(1) = gt0.position();
+  xi0.T = ExtendedPose3<2>(Rot3::Rz(initial_yaw_error) * gt0.attitude(), vp0);
+
+  TGEqF::Covariance21 P0 = TGEqF::Covariance21::Zero();
+  P0.block<3, 3>(0, 0) = Vector3(1e-4, 1e-4, 0.09).asDiagonal();  // attitude
+  P0.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity() * 1e-1;      // velocity
+  P0.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity() * 1e-2;      // position
+  P0.block<3, 3>(9, 9) = Eigen::Matrix3d::Identity() * 1e-8;      // gyro bias
+  P0.block<3, 3>(12, 12) = Eigen::Matrix3d::Identity() * 1e-6;    // accel bias
+  P0.block<3, 3>(15, 15) = Eigen::Matrix3d::Identity() * 1e-8;  // virtual bias
+  P0.block<3, 3>(18, 18) = Eigen::Matrix3d::Identity() * 1e-2;  // mag bias
+  TGEqF ekf(xi0, P0);
+
+  ImuNoise noise;
+  noise.gyro = Vector3::Constant(1e-8);
+  noise.accel = Vector3::Constant(1e-6);
+  noise.gyro_rw = Vector3::Constant(1e-12);
+  noise.accel_rw = Vector3::Constant(1e-10);
+  noise.mag_bias_rw = Vector3::Constant(1e-10);
+  const TGEqF::Covariance3 R_dvl = TGEqF::Covariance3::Identity() * 1e-4;
+  const TGEqF::Covariance3 R_mag = TGEqF::Covariance3::Identity() * 2.5e-5;
+
+  double t = 0.0;
+  for (int k = 0; k < num_steps; ++k) {
+    const gtsam::NavState gt = scenario.navState(t);
+    const Vector3 omega_meas = scenario.omega_b(t);
+    const Vector3 accel_meas =
+        gt.attitude().unrotate(scenario.acceleration_n(t) - g);
+    ekf.propagate(omega_meas, accel_meas, g, noise, dt);
+    t += dt;
+    if ((k + 1) % aiding_decim == 0) {
+      const gtsam::NavState gt_now = scenario.navState(t);
+      ekf.update_dvl(gt_now.bodyVelocity(), R_dvl);
+      ekf.update_magnetometer(gt_now.attitude().unrotate(field) + true_bm,
+                              field, R_mag);
+    }
+  }
+
+  const gtsam::NavState gt_end = scenario.navState(duration);
+  HeadingResult r;
+  r.yaw_err =
+      std::abs(Rot3::Logmap(gt_end.attitude().between(ekf.attitude())).z());
+  // covariance() is in the chart at the estimate, whose attitude block is a
+  // body-frame rotation; heading is rotation about the global z axis.
+  const TGEqF::Covariance21 P_est = ekf.covariance();
+  const Vector3 up_body = ekf.attitude().unrotate(Vector3::UnitZ());
+  r.yaw_sigma =
+      std::sqrt(up_body.transpose() * P_est.block<3, 3>(0, 0) * up_body);
+  r.bm_err = ekf.bias_mag() - true_bm;
+  r.min_eig = minEig(ekf.errorCovariance());
+  return r;
+}
+
+// With repeated yaw turns the magnetometer recovers both the heading and the
+// hard-iron bias from a 0.2 rad heading error and an unknown bias.
+TEST(TGEqF, YawTurnsSeparateHeadingFromHardIron) {
+  const HeadingResult r = runMagHeading60s(/*yaw_rate=*/0.3);
+  printf("[mag turning] yaw_err=%.4e  yaw_sigma=%.4e  bm_err=%.4e\n", r.yaw_err,
+         r.yaw_sigma, r.bm_err.norm());
+
+  EXPECT(r.yaw_err < 0.01);
+  EXPECT(r.bm_err.norm() < 0.01);
+  EXPECT(r.min_eig > 0.0);
+}
+
+// Without yaw turns the heading error and the horizontal bias stay entangled:
+// the heading is neither corrected nor claimed as known, while the turning
+// run pins it down.
+TEST(TGEqF, StraightRunLeavesHeadingEntangledWithHardIron) {
+  const HeadingResult turning = runMagHeading60s(/*yaw_rate=*/0.3);
+  const HeadingResult straight = runMagHeading60s(/*yaw_rate=*/0.0);
+  printf("[mag straight] yaw_err=%.4e  yaw_sigma=%.4e  bm_err=%.4e\n",
+         straight.yaw_err, straight.yaw_sigma, straight.bm_err.norm());
+
+  EXPECT(straight.yaw_err > 0.03);
+  EXPECT(straight.yaw_err < 3.0 * straight.yaw_sigma);  // still consistent
+  EXPECT(straight.yaw_sigma > 5.0 * turning.yaw_sigma);
 }
 
 /* ************************************************************************* */
