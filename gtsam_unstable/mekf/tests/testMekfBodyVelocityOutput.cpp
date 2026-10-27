@@ -27,7 +27,7 @@ static MekfState exampleState() {
   return MekfState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
-      Eigen::Vector3d(-0.05, 0.1, 0.0));
+      Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
 }
 
 // ---------------------------------------------------------------------------
@@ -44,12 +44,12 @@ TEST(MekfBodyVelocityOutput, PredictReturnsBodyVelocity) {
 // jacobian
 // ---------------------------------------------------------------------------
 
-// H = [ [R^T v]^x | R^T | 0 | 0 | 0 ]; other blocks vanish.
+// H = [ [R^T v]^x | R^T | 0 | 0 | 0 | 0 ]; other blocks vanish.
 TEST(MekfBodyVelocityOutput, JacobianStructure) {
   const MekfState X = exampleState();
-  const Eigen::Matrix<double, 3, 15> H = BodyVelocityOutput::jacobian(X);
+  const Eigen::Matrix<double, 3, 18> H = BodyVelocityOutput::jacobian(X);
 
-  Eigen::Matrix<double, 3, 15> expected = Eigen::Matrix<double, 3, 15>::Zero();
+  Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 0) = skewSymmetric(X.R.unrotate(X.v));
   expected.block<3, 3>(0, 3) = X.R.matrix().transpose();
   EXPECT(meq(H, expected));
@@ -58,9 +58,9 @@ TEST(MekfBodyVelocityOutput, JacobianStructure) {
 // Finite-difference check: H = d h(Retract(X, eps)) / d eps at eps = 0.
 TEST(MekfBodyVelocityOutput, JacobianMatchesFiniteDifference) {
   const MekfState X = exampleState();
-  const Eigen::Matrix<double, 3, 15> H = BodyVelocityOutput::jacobian(X);
+  const Eigen::Matrix<double, 3, 18> H = BodyVelocityOutput::jacobian(X);
 
-  const Eigen::Matrix<double, 3, 15> Hfd =
+  const Eigen::Matrix<double, 3, 18> Hfd =
       numericalDerivative11<Eigen::Vector3d, MekfState>(
           [](const MekfState& x) { return BodyVelocityOutput::predict(x); }, X);
   EXPECT(meq(H, Hfd, 1e-6));

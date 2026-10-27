@@ -19,7 +19,8 @@ MekfState propagateMean(const MekfState& X, const ImuInput& u, double dt);
 
 /// Finite-difference transition Jacobian F (state-dependent, recomputed each
 /// step).
-Eigen::Matrix<double, 15, 15> transitionJacobian(const MekfState& X,
-                                                 const ImuInput& u, double dt);
+gtsam::traits<MekfState>::Jacobian transitionJacobian(const MekfState& X,
+                                                      const ImuInput& u,
+                                                      double dt);
 
 }  // namespace mekf

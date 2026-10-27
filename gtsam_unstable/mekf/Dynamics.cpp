@@ -4,6 +4,7 @@
 //   R+ = R * Exp((omega - b_gyro) dt)
 //   v+ = v + (R (accel - b_accel) + g) dt   (g = u.g_vec, caller's frame)
 //   p+ = p + v dt
+// Biases (gyro, accel, magnetometer) are held constant.
 // F: finite-diff of discrete map in local coords, re-evaluated each step.
 
 namespace mekf {
@@ -20,18 +21,20 @@ MekfState propagateMean(const MekfState& X, const ImuInput& u, double dt) {
   Xn.p = X.p + X.v * dt;
   Xn.b_gyro = X.b_gyro;
   Xn.b_accel = X.b_accel;
+  Xn.b_mag = X.b_mag;
   return Xn;
 }
 
-Eigen::Matrix<double, 15, 15> transitionJacobian(const MekfState& X,
-                                                 const ImuInput& u, double dt) {
-  using Tangent = Eigen::Matrix<double, 15, 1>;
+gtsam::traits<MekfState>::Jacobian transitionJacobian(const MekfState& X,
+                                                      const ImuInput& u,
+                                                      double dt) {
+  using Tangent = gtsam::traits<MekfState>::TangentVector;
   constexpr double h = 1e-7;
 
   const MekfState Xn_ref = propagateMean(X, u, dt);
 
-  Eigen::Matrix<double, 15, 15> F;
-  for (int j = 0; j < 15; ++j) {
+  gtsam::traits<MekfState>::Jacobian F;
+  for (int j = 0; j < MekfState::dimension; ++j) {
     Tangent e = Tangent::Zero();
     e(j) = h;
     const MekfState Xp = gtsam::traits<MekfState>::Retract(X, e);

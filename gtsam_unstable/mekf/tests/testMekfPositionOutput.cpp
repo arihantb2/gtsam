@@ -28,7 +28,7 @@ static MekfState exampleState() {
   return MekfState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
-      Eigen::Vector3d(-0.05, 0.1, 0.0));
+      Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
 }
 
 // ---------------------------------------------------------------------------
@@ -45,14 +45,15 @@ TEST(MekfPositionOutput, PredictReturnsPosition) {
 // jacobian
 // ---------------------------------------------------------------------------
 
-// H selects the d_p block: H = [0 0 I 0 0].
+// H selects the d_p block: H = [0 0 I 0 0 0].
 TEST(MekfPositionOutput, JacobianStructure) {
-  Eigen::Matrix<double, 3, 15> H = PositionOutput::jacobian();
-  Eigen::Matrix<double, 3, 15> expected = Eigen::Matrix<double, 3, 15>::Zero();
+  Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian();
+  Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 6) = Eigen::Matrix3d::Identity();
   EXPECT(meq(H, expected));
 }
 
+// The position Jacobian does not depend on the state.
 TEST(MekfPositionOutput, JacobianIsConstant) {
   EXPECT(meq(PositionOutput::jacobian(), PositionOutput::jacobian()));
 }
@@ -60,9 +61,9 @@ TEST(MekfPositionOutput, JacobianIsConstant) {
 // Finite-difference check: H = d h(Retract(X, eps)) / d eps at eps = 0.
 TEST(MekfPositionOutput, JacobianMatchesFiniteDifference) {
   const MekfState X = exampleState();
-  const Eigen::Matrix<double, 3, 15> H = PositionOutput::jacobian();
+  const Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian();
 
-  const Eigen::Matrix<double, 3, 15> Hfd =
+  const Eigen::Matrix<double, 3, 18> Hfd =
       numericalDerivative11<Eigen::Vector3d, MekfState>(
           [](const MekfState& x) { return PositionOutput::predict(x); }, X);
   EXPECT(meq(H, Hfd, 1e-6));

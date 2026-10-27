@@ -8,6 +8,14 @@ namespace mekf {
 MultiplicativeEKF::MultiplicativeEKF(const MekfState& X0, const Covariance& P0)
     : Base(X0, P0) {}
 
+MultiplicativeEKF::Covariance MultiplicativeEKF::initialCovariance(
+    const Covariance15& Sigma_nav, const Covariance3& Sigma_mag_bias) {
+  Covariance P0 = Covariance::Zero();
+  P0.topLeftCorner<15, 15>() = Sigma_nav;
+  P0.block<3, 3>(15, 15) = Sigma_mag_bias;
+  return P0;
+}
+
 void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
                                   const Eigen::Vector3d& accel,
                                   const Eigen::Vector3d& g_vec,
@@ -39,20 +47,23 @@ void MultiplicativeEKF::propagate(const Eigen::Vector3d& omega,
   if ((noise.accel_rw.array() > 0.0).any()) {
     Qc.block<3, 3>(12, 12) = noise.accel_rw.asDiagonal();
   }
+  if ((noise.mag_bias_rw.array() > 0.0).any()) {
+    Qc.block<3, 3>(15, 15) = noise.mag_bias_rw.asDiagonal();
+  }
   propagate(omega, accel, g_vec, Qc, dt);
 }
 
 void MultiplicativeEKF::update_position(const Eigen::Vector3d& pi,
                                         const Covariance3& R_pos) {
   const Eigen::Vector3d prediction = PositionOutput::predict(this->state());
-  const Eigen::Matrix<double, 3, 15> H = PositionOutput::jacobian();
+  const Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian();
   this->updateWithVector(prediction, H, pi, R_pos);
 }
 
 void MultiplicativeEKF::update_dvl(const Eigen::Vector3d& z_dvl,
                                    const Covariance3& R_dvl) {
   const Eigen::Vector3d prediction = BodyVelocityOutput::predict(this->state());
-  const Eigen::Matrix<double, 3, 15> H =
+  const Eigen::Matrix<double, 3, 18> H =
       BodyVelocityOutput::jacobian(this->state());
   this->updateWithVector(prediction, H, z_dvl, R_dvl);
 }
@@ -70,6 +81,16 @@ void MultiplicativeEKF::update_depth(double z_depth, const Covariance1& R_depth,
   update_position(pseudo_position, R_pseudo);
 }
 
+void MultiplicativeEKF::update_magnetometer(const Eigen::Vector3d& z_mag,
+                                            const Eigen::Vector3d& m,
+                                            const Covariance3& R_mag) {
+  const Eigen::Vector3d prediction =
+      MagnetometerOutput::predict(this->state(), m);
+  const Eigen::Matrix<double, 3, 18> H =
+      MagnetometerOutput::jacobian(this->state(), m);
+  this->updateWithVector(prediction, H, z_mag, R_mag);
+}
+
 MultiplicativeEKF::TangentVector MultiplicativeEKF::errorStateVector(
     const MekfState& X_true) const {
   return gtsam::traits<MekfState>::Local(this->state(), X_true);
@@ -83,6 +104,9 @@ Eigen::Vector3d MultiplicativeEKF::bias_gyro() const {
 }
 Eigen::Vector3d MultiplicativeEKF::bias_accel() const {
   return this->state().b_accel;
+}
+Eigen::Vector3d MultiplicativeEKF::bias_mag() const {
+  return this->state().b_mag;
 }
 
 }  // namespace mekf

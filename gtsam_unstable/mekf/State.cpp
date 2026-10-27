@@ -8,12 +8,14 @@ MekfState::MekfState()
     : v(Eigen::Vector3d::Zero()),
       p(Eigen::Vector3d::Zero()),
       b_gyro(Eigen::Vector3d::Zero()),
-      b_accel(Eigen::Vector3d::Zero()) {}
+      b_accel(Eigen::Vector3d::Zero()),
+      b_mag(Eigen::Vector3d::Zero()) {}
 
 MekfState::MekfState(const gtsam::Rot3& R, const Eigen::Vector3d& v,
                      const Eigen::Vector3d& p, const Eigen::Vector3d& b_gyro,
-                     const Eigen::Vector3d& b_accel)
-    : R(R), v(v), p(p), b_gyro(b_gyro), b_accel(b_accel) {}
+                     const Eigen::Vector3d& b_accel,
+                     const Eigen::Vector3d& b_mag)
+    : R(R), v(v), p(p), b_gyro(b_gyro), b_accel(b_accel), b_mag(b_mag) {}
 
 MekfState MekfState::identity() { return MekfState(); }
 
@@ -29,6 +31,7 @@ mekf::MekfState traits<mekf::MekfState>::Retract(const mekf::MekfState& xi,
   result.p = xi.p + delta.segment<3>(6);
   result.b_gyro = xi.b_gyro + delta.segment<3>(9);
   result.b_accel = xi.b_accel + delta.segment<3>(12);
+  result.b_mag = xi.b_mag + delta.segment<3>(15);
   return result;
 }
 
@@ -40,6 +43,7 @@ traits<mekf::MekfState>::TangentVector traits<mekf::MekfState>::Local(
   delta.segment<3>(6) = xi.p - xi_ref.p;
   delta.segment<3>(9) = xi.b_gyro - xi_ref.b_gyro;
   delta.segment<3>(12) = xi.b_accel - xi_ref.b_accel;
+  delta.segment<3>(15) = xi.b_mag - xi_ref.b_mag;
   return delta;
 }
 
@@ -47,7 +51,8 @@ bool traits<mekf::MekfState>::Equals(const mekf::MekfState& a,
                                      const mekf::MekfState& b, double tol) {
   return a.R.equals(b.R, tol) && (a.v - b.v).norm() < tol &&
          (a.p - b.p).norm() < tol && (a.b_gyro - b.b_gyro).norm() < tol &&
-         (a.b_accel - b.b_accel).norm() < tol;
+         (a.b_accel - b.b_accel).norm() < tol &&
+         (a.b_mag - b.b_mag).norm() < tol;
 }
 
 void traits<mekf::MekfState>::Print(const mekf::MekfState& xi,
@@ -57,7 +62,8 @@ void traits<mekf::MekfState>::Print(const mekf::MekfState& xi,
   std::cout << "  v:       " << xi.v.transpose() << "\n"
             << "  p:       " << xi.p.transpose() << "\n"
             << "  b_gyro:  " << xi.b_gyro.transpose() << "\n"
-            << "  b_accel: " << xi.b_accel.transpose() << "\n";
+            << "  b_accel: " << xi.b_accel.transpose() << "\n"
+            << "  b_mag:   " << xi.b_mag.transpose() << "\n";
 }
 
 }  // namespace gtsam

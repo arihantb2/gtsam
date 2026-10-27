@@ -7,10 +7,10 @@ Eigen::Vector3d BodyVelocityOutput::predict(const MekfState& X) {
   return X.R.unrotate(X.v);
 }
 
-Eigen::Matrix<double, 3, 15> BodyVelocityOutput::jacobian(const MekfState& X) {
+Eigen::Matrix<double, 3, 18> BodyVelocityOutput::jacobian(const MekfState& X) {
   const Eigen::Vector3d body_v = predict(X);
 
-  Eigen::Matrix<double, 3, 15> H = Eigen::Matrix<double, 3, 15>::Zero();
+  Eigen::Matrix<double, 3, 18> H = Eigen::Matrix<double, 3, 18>::Zero();
   H.block<3, 3>(0, 0) = gtsam::skewSymmetric(body_v);
   H.block<3, 3>(0, 3) = X.R.matrix().transpose();
   return H;

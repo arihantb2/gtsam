@@ -13,8 +13,8 @@ using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
 
-using Tangent = Eigen::Matrix<double, 15, 1>;
-using Mat15 = Eigen::Matrix<double, 15, 15>;
+using Tangent = Eigen::Matrix<double, 18, 1>;
+using Mat18 = Eigen::Matrix<double, 18, 18>;
 
 static bool veq(const Eigen::Vector3d& a, const Eigen::Vector3d& b,
                 double tol = kTol) {
@@ -113,15 +113,17 @@ TEST(MekfDynamics, PropagateVelocityUsesAccelBias) {
 
 // Biases are constant through propagation.
 TEST(MekfDynamics, PropagateBiasesUnchanged) {
-  const Eigen::Vector3d bg(0.01, -0.02, 0.03), ba(-0.1, 0.2, 0.0);
+  const Eigen::Vector3d bg(0.01, -0.02, 0.03), ba(-0.1, 0.2, 0.0),
+      bm(0.05, -0.08, 0.03);
   MekfState X(Rot3::Ry(0.2), Eigen::Vector3d(1, 2, 3), Eigen::Vector3d(4, 5, 6),
-              bg, ba);
+              bg, ba, bm);
   ImuInput u = gravityInput();
   u.omega = Eigen::Vector3d(0.1, 0.2, 0.3);
   u.accel = Eigen::Vector3d(0.5, 0.0, 9.0);
   MekfState Xn = propagateMean(X, u, 0.05);
   EXPECT(veq(Xn.b_gyro, bg));
   EXPECT(veq(Xn.b_accel, ba));
+  EXPECT(veq(Xn.b_mag, bm));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +135,7 @@ static MekfState exampleState() {
   return MekfState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
-      Eigen::Vector3d(-0.05, 0.1, 0.0));
+      Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
 }
 static ImuInput exampleInput() {
   ImuInput u = gravityInput();
@@ -149,13 +151,13 @@ TEST(MekfDynamics, JacobianFirstOrderConsistency) {
   const double dt = 0.01;
   const MekfState X = exampleState();
   const ImuInput u = exampleInput();
-  const Mat15 F = transitionJacobian(X, u, dt);
+  const Mat18 F = transitionJacobian(X, u, dt);
   const MekfState Xn_ref = propagateMean(X, u, dt);
 
   // A few independent small directions (norm ~1e-4 -> O(1e-8) truncation).
   for (int trial = 0; trial < 5; ++trial) {
     Tangent delta = Tangent::Zero();
-    for (int k = 0; k < 15; ++k) {
+    for (int k = 0; k < MekfState::dimension; ++k) {
       delta(k) = std::sin(1.0 + trial + 0.37 * k);
     }
     delta *= 1e-4;
@@ -170,12 +172,12 @@ TEST(MekfDynamics, JacobianFirstOrderConsistency) {
 
 // Known-exact blocks of F (independent of finite-difference noise):
 //   position row: d(dp+)/d(dp) = I,   d(dp+)/d(dv) = I*dt
-//   bias rows are identity (biases are static, decoupled).
+//   bias rows (gyro, accel, magnetometer) are identity (static, decoupled).
 TEST(MekfDynamics, JacobianKnownBlocks) {
   const double dt = 0.02;
   const MekfState X = exampleState();
   const ImuInput u = exampleInput();
-  const Mat15 F = transitionJacobian(X, u, dt);
+  const Mat18 F = transitionJacobian(X, u, dt);
   const Eigen::Matrix3d I3 = Eigen::Matrix3d::Identity();
 
   EXPECT(meq(F.block<3, 3>(6, 6), I3, 1e-6));       // dp <- dp
@@ -186,6 +188,12 @@ TEST(MekfDynamics, JacobianKnownBlocks) {
   EXPECT(meq(F.block<3, 6>(9, 0), Eigen::Matrix<double, 3, 6>::Zero(), 1e-6));
   EXPECT(meq(F.block<3, 3>(9, 12), Eigen::Matrix3d::Zero(), 1e-6));
   EXPECT(meq(F.block<3, 9>(12, 0), Eigen::Matrix<double, 3, 9>::Zero(), 1e-6));
+  // The magnetometer bias neither drives nor is driven by the strapdown.
+  EXPECT(meq(F.block<3, 3>(15, 15), I3, 1e-6));  // d_bm <- d_bm
+  EXPECT(
+      meq(F.block<3, 15>(15, 0), Eigen::Matrix<double, 3, 15>::Zero(), 1e-6));
+  EXPECT(
+      meq(F.block<15, 3>(0, 15), Eigen::Matrix<double, 15, 3>::Zero(), 1e-6));
 }
 
 // Velocity-from-accel-bias block is -R*dt -> state dependent (varies with R).
@@ -198,8 +206,8 @@ TEST(MekfDynamics, JacobianStateDependent) {
   MekfState X2 = exampleState();
   X2.R = Rot3::Ry(1.1) * X2.R;  // different attitude only
 
-  const Mat15 F1 = transitionJacobian(X1, u, dt);
-  const Mat15 F2 = transitionJacobian(X2, u, dt);
+  const Mat18 F1 = transitionJacobian(X1, u, dt);
+  const Mat18 F2 = transitionJacobian(X2, u, dt);
 
   // dv <- d_ba equals -R*dt; differs because R differs.
   EXPECT(meq(F1.block<3, 3>(3, 12), -X1.R.matrix() * dt, 1e-6));

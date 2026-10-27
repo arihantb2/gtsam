@@ -2,30 +2,35 @@
 #include <gtsam/navigation/ManifoldEKF.h>
 #include <gtsam_unstable/mekf/BodyVelocityOutput.h>
 #include <gtsam_unstable/mekf/Dynamics.h>
+#include <gtsam_unstable/mekf/MagnetometerOutput.h>
 #include <gtsam_unstable/mekf/PositionOutput.h>
 #include <gtsam_unstable/mekf/State.h>
 
 #include <Eigen/Dense>
 
 // MultiplicativeEKF: baseline MEKF for biased INS. See mekf/README.md.
-// State-dependent F (finite-diff); naive position/DVL updates vs geometric
-// filters.
+// State-dependent F (finite-diff); naive position/DVL/magnetometer updates vs
+// geometric filters.
 
 namespace mekf {
 
 /// Continuous-time IMU noise PSDs, per-axis (diagonal, not isotropic). Same
-/// convention as tfg::ImuNoise / gtsam::tgeqf::ImuNoise.
+/// convention as tfg::ImuNoise / gtsam::tgeqf::ImuNoise. mag_bias_rw is the
+/// random-walk PSD of the magnetometer bias, not an IMU channel; it lives here
+/// so propagate() takes a single noise struct.
 struct ImuNoise {
   Eigen::Vector3d gyro = Eigen::Vector3d::Zero();
   Eigen::Vector3d accel = Eigen::Vector3d::Zero();
   Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();
   Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();
+  Eigen::Vector3d mag_bias_rw = Eigen::Vector3d::Zero();
 };
 
 class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
  public:
   using Base = gtsam::ManifoldEKF<MekfState>;
-  using Covariance = Eigen::Matrix<double, 15, 15>;
+  using Covariance = Eigen::Matrix<double, 18, 18>;
+  using Covariance15 = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
   using Covariance1 = Eigen::Matrix<double, 1, 1>;
 
@@ -34,6 +39,11 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
   static constexpr double kDefaultHorizontalVariance = 1e3;
 
   MultiplicativeEKF(const MekfState& X0, const Covariance& P0);
+
+  /// Block-diagonal initial covariance: the 15 navigation and IMU-bias states
+  /// [R v p bg ba] from Sigma_nav, then the magnetometer bias.
+  static Covariance initialCovariance(const Covariance15& Sigma_nav,
+                                      const Covariance3& Sigma_mag_bias);
 
   /// Strapdown predict + finite-diff F; P <- F P F^T + Qc dt.
   /// @param g_vec  Nav-frame gravity vector; its sign fixes the frame
@@ -70,9 +80,19 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
   void update_depth(double z_depth, const Covariance1& R_depth,
                     double horizontal_variance = kDefaultHorizontalVariance);
 
+  /**
+   * Biased magnetometer update, h = R^T m + b_mag (state-dependent H).
+   *
+   * @param z_mag  Measured body-frame magnetic field.
+   * @param m      Reference field in the navigation frame, in the same units.
+   * @param R_mag  Body-frame covariance of z_mag.
+   */
+  void update_magnetometer(const Eigen::Vector3d& z_mag,
+                           const Eigen::Vector3d& m, const Covariance3& R_mag);
+
   /// Error state eps = Local(estimate, X_true) in the filter's local chart
   /// (right/body multiplicative attitude, additive vectors), i.e. the chart
-  /// covariance() lives in. Block order R, v, p, bg, ba.
+  /// covariance() lives in. Block order R, v, p, bg, ba, bm.
   TangentVector errorStateVector(const MekfState& X_true) const;
 
   gtsam::Rot3 attitude() const;
@@ -80,6 +100,7 @@ class MultiplicativeEKF : public gtsam::ManifoldEKF<MekfState> {
   Eigen::Vector3d position() const;
   Eigen::Vector3d bias_gyro() const;
   Eigen::Vector3d bias_accel() const;
+  Eigen::Vector3d bias_mag() const;
 };
 
 }  // namespace mekf
