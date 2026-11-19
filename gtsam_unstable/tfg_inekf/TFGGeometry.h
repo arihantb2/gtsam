@@ -1,16 +1,20 @@
 #pragma once
 #include <gtsam/base/Lie.h>
+#include <gtsam/base/Matrix.h>
+#include <gtsam/base/Vector.h>
 #include <gtsam/geometry/Rot3.h>
 
 #include <Eigen/Dense>
 
 // Two-Frames Group G_TF = SO(3) x| R^15 (dim 18): attitude, velocity, position
 // and the gyro, accelerometer and magnetometer biases, each bias b stored in
-// the global frame as gamma = -R b.
+// the global frame as gamma = -R b. Its natural right action on itself is
+// the state space of the TFG-InEKF.
 
 namespace tfg {
 
 using gtsam::Rot3;
+using gtsam::Vector3;
 
 /// Lie algebra g_TF as an 18-vector, blocks [R v p gamma_w gamma_a gamma_m].
 using Tangent = Eigen::Matrix<double, 18, 1>;
@@ -22,29 +26,28 @@ class TwoFrameGroup {
   using Jacobian = Eigen::Matrix<double, dim, dim>;
 
   Rot3 R;
-  Eigen::Vector3d v;
-  Eigen::Vector3d p;
-  Eigen::Vector3d gamma_omega;
-  Eigen::Vector3d gamma_accel;
-  Eigen::Vector3d gamma_mag;
+  Vector3 v;
+  Vector3 p;
+  Vector3 gamma_omega;
+  Vector3 gamma_accel;
+  Vector3 gamma_mag;
 
   TwoFrameGroup();
 
-  TwoFrameGroup(const Rot3& R, const Eigen::Vector3d& v,
-                const Eigen::Vector3d& p, const Eigen::Vector3d& gamma_omega,
-                const Eigen::Vector3d& gamma_accel,
-                const Eigen::Vector3d& gamma_mag = Eigen::Vector3d::Zero());
+  TwoFrameGroup(const Rot3& R, const Vector3& v, const Vector3& p,
+                const Vector3& gamma_omega, const Vector3& gamma_accel,
+                const Vector3& gamma_mag = Vector3::Zero());
 
   /// Build from physical state (T, b); gamma = -R * b.
-  static TwoFrameGroup FromState(
-      const Rot3& R, const Eigen::Vector3d& v, const Eigen::Vector3d& p,
-      const Eigen::Vector3d& b_omega, const Eigen::Vector3d& b_accel,
-      const Eigen::Vector3d& b_mag = Eigen::Vector3d::Zero());
+  static TwoFrameGroup FromState(const Rot3& R, const Vector3& v,
+                                 const Vector3& p, const Vector3& b_omega,
+                                 const Vector3& b_accel,
+                                 const Vector3& b_mag = Vector3::Zero());
 
   /// Physical biases b = R^{-1} (-gamma).
-  Eigen::Vector3d bias_omega() const;
-  Eigen::Vector3d bias_accel() const;
-  Eigen::Vector3d bias_mag() const;
+  Vector3 bias_omega() const;
+  Vector3 bias_accel() const;
+  Vector3 bias_mag() const;
 
   static TwoFrameGroup Identity();
   TwoFrameGroup operator*(const TwoFrameGroup& Y) const;
@@ -57,7 +60,7 @@ class TwoFrameGroup {
   Jacobian AdjointMap() const;
 
   /// 5x5 matrix realisation of the SE_2(3) navigation part.
-  Eigen::Matrix<double, 5, 5> C_matrix() const;
+  gtsam::Matrix5 C_matrix() const;
 };
 
 }  // namespace tfg
@@ -113,3 +116,11 @@ template <>
 struct traits<const tfg::TwoFrameGroup> : traits<tfg::TwoFrameGroup> {};
 
 }  // namespace gtsam
+
+namespace tfg {
+
+/// Right group action phi(X, xi) = xi * X. The InEKF operates directly on
+/// TwoFrameGroup, so this is only needed for equivariance checks.
+TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi);
+
+}  // namespace tfg

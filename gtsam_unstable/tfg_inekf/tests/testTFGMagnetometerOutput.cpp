@@ -6,8 +6,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/base/numericalDerivative.h>
-#include <gtsam_unstable/tfg_inekf/MagnetometerOutput.h>
-#include <gtsam_unstable/tfg_inekf/Symmetry.h>
+#include <gtsam_unstable/tfg_inekf/TFGInEKF.h>  // MagnetometerOutput, phi
 
 using namespace tfg;
 using namespace gtsam;

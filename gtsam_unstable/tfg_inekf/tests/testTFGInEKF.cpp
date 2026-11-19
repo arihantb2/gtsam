@@ -6,8 +6,7 @@
 #include <CppUnitLite/TestHarness.h>
 #include <gtsam/base/TestableAssertions.h>
 #include <gtsam/navigation/Scenario.h>
-#include <gtsam_unstable/tfg_inekf/InEKF.h>
-#include <gtsam_unstable/tfg_inekf/MagnetometerOutput.h>
+#include <gtsam_unstable/tfg_inekf/TFGInEKF.h>
 
 using namespace tfg;
 using namespace gtsam;

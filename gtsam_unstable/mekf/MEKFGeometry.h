@@ -14,21 +14,26 @@
 
 namespace mekf {
 
+using gtsam::Rot3;
+using gtsam::Vector3;
+
 struct MekfState {
-  gtsam::Rot3 R;
-  Eigen::Vector3d v;
-  Eigen::Vector3d p;
-  Eigen::Vector3d b_gyro;
-  Eigen::Vector3d b_accel;
-  Eigen::Vector3d b_mag;
+  Rot3 R;
+  Vector3 v;
+  Vector3 p;
+  Vector3 b_gyro;
+  Vector3 b_accel;
+  Vector3 b_mag;
 
   static constexpr int dimension = 18;
 
+  using TangentVector = Eigen::Matrix<double, 18, 1>;
+  using Jacobian = Eigen::Matrix<double, 18, 18>;
+
   MekfState();
-  MekfState(const gtsam::Rot3& R, const Eigen::Vector3d& v,
-            const Eigen::Vector3d& p, const Eigen::Vector3d& b_gyro,
-            const Eigen::Vector3d& b_accel,
-            const Eigen::Vector3d& b_mag = Eigen::Vector3d::Zero());
+  MekfState(const Rot3& R, const Vector3& v, const Vector3& p,
+            const Vector3& b_gyro, const Vector3& b_accel,
+            const Vector3& b_mag = Vector3::Zero());
 
   static MekfState identity();
 };
@@ -41,8 +46,8 @@ namespace gtsam {
 template <>
 struct traits<mekf::MekfState> {
   using ManifoldType = mekf::MekfState;
-  using TangentVector = Eigen::Matrix<double, 18, 1>;
-  using Jacobian = Eigen::Matrix<double, 18, 18>;
+  using TangentVector = mekf::MekfState::TangentVector;
+  using Jacobian = mekf::MekfState::Jacobian;
   using structure_category = manifold_tag;
 
   static constexpr int dimension = mekf::MekfState::dimension;
