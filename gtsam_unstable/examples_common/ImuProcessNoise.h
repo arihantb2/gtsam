@@ -21,6 +21,10 @@ struct ImuNoisePSD {
   Eigen::Vector3d accel = Eigen::Vector3d::Zero();     ///< accelerometer white-noise PSD (m^2/s^3)
   Eigen::Vector3d gyro_rw = Eigen::Vector3d::Zero();   ///< gyro bias random-walk PSD   (rad^2/s^3)
   Eigen::Vector3d accel_rw = Eigen::Vector3d::Zero();  ///< accel bias random-walk PSD  (m^2/s^5)
+  /// Magnetometer bias random-walk PSD (uT^2/s). Not an IMU channel, so the
+  /// zero-noise check and the floor below leave it alone: zero is the
+  /// legitimate constant hard-iron model.
+  Eigen::Vector3d mag_bias_rw = Eigen::Vector3d::Zero();
 };
 
 /// Build PSDs from continuous noise densities: PSD = sigma^2, per axis.
@@ -31,6 +35,7 @@ inline ImuNoisePSD imuNoiseFromOptions(const RunOptions& opts) {
   n.accel = opts.accel_noise_sigma.array().square();
   n.gyro_rw = opts.gyro_bias_rw.array().square();
   n.accel_rw = opts.accel_bias_rw.array().square();
+  n.mag_bias_rw = opts.mag_bias_rw.array().square();
   return n;
 }
 
@@ -63,16 +68,19 @@ inline ImuNoisePSD applyProcessNoiseFloor(const ImuNoisePSD& psd,
   out.accel = floorAxes(psd.accel, floor.accel);
   out.gyro_rw = floorAxes(psd.gyro_rw, floor.gyro_rw);
   out.accel_rw = floorAxes(psd.accel_rw, floor.accel_rw);
+  out.mag_bias_rw = psd.mag_bias_rw;
   return out;
 }
 
-/// PSDs from CLI; when every channel is unset, apply
-/// defaultProcessNoiseFloor().
+/// PSDs from CLI; when every IMU channel is unset, apply
+/// defaultProcessNoiseFloor() to those, keeping the magnetometer bias PSD.
 template <typename RunOptions>
 inline ImuNoisePSD resolvedProcessNoise(const RunOptions& opts) {
   const ImuNoisePSD from_opts = imuNoiseFromOptions(opts);
   if (isZeroProcessNoise(from_opts)) {
-    return defaultProcessNoiseFloor();
+    ImuNoisePSD floor = defaultProcessNoiseFloor();
+    floor.mag_bias_rw = from_opts.mag_bias_rw;
+    return floor;
   }
   return from_opts;
 }
@@ -85,6 +93,7 @@ inline FilterImuNoise toFilterImuNoise(const ImuNoisePSD& psd) {
   n.accel = psd.accel;
   n.gyro_rw = psd.gyro_rw;
   n.accel_rw = psd.accel_rw;
+  n.mag_bias_rw = psd.mag_bias_rw;
   return n;
 }
 

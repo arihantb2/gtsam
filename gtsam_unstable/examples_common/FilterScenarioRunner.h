@@ -18,18 +18,21 @@
  *   Filter makeFilter(const InitialEstimate& initial,
  *                     const PhysicalStateCovariance& P0) const;
  *   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& bg,
- *                       const Eigen::Vector3d& ba) const;
+ *                       const Eigen::Vector3d& ba,
+ *                       const Eigen::Vector3d& bm) const;
  *   void propagate(Filter&, const ImuMeasurement&, double dt) const;
  *   void updatePosition(Filter&, const PositionMeasurement&) const;
  *   void updateDvl(Filter&, const DvlMeasurement&) const;
  *   void updateDepth(Filter&, const DepthMeasurement&) const;
+ *   void updateMagnetometer(Filter&, const MagnetometerMeasurement&) const;
  *   void writeCsvRow(std::ostream&, double t, const TrueState&,
  *                    const Filter&) const;
  * @endcode
  * The adapter is constructed from RunOptions, so anything it needs per run
- * (process noise, gravity) is set up once before the loop starts. P0 covers
- * only the 15 physical states; a filter with extra estimate-only states
- * (kDim > 15) fills those blocks in itself.
+ * (process noise, gravity, the magnetometer reference field) is set up once
+ * before the loop starts. P0 covers only the 18 physical states; a filter with
+ * extra estimate-only states (the TG-EqF virtual bias) fills those blocks in
+ * itself.
  */
 #pragma once
 
@@ -74,15 +77,19 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
   // error that actually occurs. The true biases stay at their configured
   // initial values and random-walk from there; the filter knows none of this.
   const gtsam::ScenarioRunner runner(scenario, params, opts.dt);
-  const InitialEstimate initial =
+  InitialEstimate initial =
       sampleInitialEstimate(rng, opts, scenario.navState(0.0));
   ImuSimulator sim(opts, rng, opts.gyro_bias, opts.accel_bias);
+  MagnetometerSimulator mag_sim(opts);
+  initial.bias_mag =
+      mag_sim.sampleInitialBiasEstimate(opts.init_mag_bias_sigma);
 
   auto filter = adapter.makeFilter(initial, initialCovariance(opts));
 
   PeriodicTrigger pos_updates(opts.pos_rate, opts.aiding_start_time);
   PeriodicTrigger dvl_updates(opts.dvl_rate, opts.aiding_start_time);
   PeriodicTrigger depth_updates(opts.depth_rate, opts.aiding_start_time);
+  PeriodicTrigger mag_updates(opts.mag_rate, opts.aiding_start_time);
   RunSummaryAccumulator errors;
 
   const size_t num_steps =
@@ -105,12 +112,16 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
     if (depth_updates.due(t)) {
       adapter.updateDepth(filter, sim.sampleDepth(gt, opts.depth_noise_sigma));
     }
+    if (mag_updates.due(t)) {
+      adapter.updateMagnetometer(filter, mag_sim.sample(gt));
+    }
 
     // Log every Nth step (and always the final one) to bound MC file sizes.
     if (k % static_cast<size_t>(opts.log_decim) == 0 || k == num_steps) {
-      adapter.writeCsvRow(
-          csv, t, adapter.trueState(gt, sim.gyroBias(), sim.accelBias()),
-          filter);
+      adapter.writeCsvRow(csv, t,
+                          adapter.trueState(gt, sim.gyroBias(), sim.accelBias(),
+                                            mag_sim.bias()),
+                          filter);
     }
     errors.add(gt, filter.attitude(), filter.velocity(), filter.position());
 
@@ -120,6 +131,7 @@ inline RunSummary runFilterScenario(const Adapter& adapter,
 
     adapter.propagate(filter, imu, opts.dt);
     sim.randomWalkBias();
+    mag_sim.randomWalkBias();
     t += opts.dt;
   }
 

@@ -25,9 +25,7 @@ namespace gtsam::tgeqf::examples {
 // Run configuration and reporting are shared with the other filter examples.
 // The shared options only describe the physical state: bv has no physical
 // truth, so the initial estimate leaves it at zero (the last 3 entries of
-// State::b) and its initial covariance comes from the filter itself. The
-// magnetometer bias bm is not simulated here: it stays at zero in both truth
-// and estimate and, with no magnetometer updates, decoupled from the rest.
+// State::b) and its initial covariance comes from the filter itself.
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -43,26 +41,28 @@ class ScenarioAdapter {
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(imu_scenarios::navGravity()),
+        mag_field_(opts.mag_field),
         reset_step_(opts.tg_eqf_reset_step),
         depth_direct_(opts.tg_eqf_depth_direct),
         dvl_c0_(opts.tg_eqf_dvl_c0),
+        mag_c0_(opts.tg_eqf_mag_c0),
         cov_format_(opts.log_full_covariance
                         ? imu_scenarios::CovarianceFormat::FullUpperTriangle
                         : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
 
-  /// The virtual bias bv and the magnetometer bias bm are estimate-only:
-  /// they have no ground-truth counterpart in these scenarios.
+  /// The virtual bias bv is estimate-only: it has no ground-truth
+  /// counterpart.
   std::string csvHeader() const {
     return imu_scenarios::trajectoryCsvHeader(
-        {"v", "p", "bg", "ba"}, {"v", "p", "bg", "ba", "bv", "bm"},
+        {"v", "p", "bg", "ba", "bm"}, {"v", "p", "bg", "ba", "bv", "bm"},
         {"R", "v", "p", "bg", "ba", "bv", "bm"}, cov_format_);
   }
 
   /// Pin the origin xi0 at the manifold identity, so the error dynamics are
   /// always linearized about the same point, and carry the perturbed initial
   /// belief in the group element: phi(X0, xi0) is that belief. P0 covers the
-  /// physical state only; TGEqF::initialCovariance() adds the virtual-bias
-  /// block and a unit magnetometer-bias block, which no update reaches here.
+  /// physical state only; TGEqF::initialCovariance() places its navigation
+  /// and magnetometer-bias blocks around the virtual-bias block.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
                     const imu_scenarios::PhysicalStateCovariance& P0) const {
     Eigen::Matrix<double, 3, 2> vp;
@@ -73,17 +73,20 @@ class ScenarioAdapter {
     xi_hat0.b.segment<3>(0) = initial.bias_gyro;
     xi_hat0.b.segment<3>(3) = initial.bias_accel;
     // b_v stays zero: the virtual bias has no physical truth to perturb.
-    Filter filter(
-        phiInverse(State::identity(), xi_hat0),
-        Filter::initialCovariance(P0, Filter::Covariance3::Identity()));
+    xi_hat0.bm = initial.bias_mag;
+    Filter filter(phiInverse(State::identity(), xi_hat0),
+                  Filter::initialCovariance(P0.topLeftCorner<15, 15>(),
+                                            P0.bottomRightCorner<3, 3>()));
     filter.set_reset_step(reset_step_);
     filter.set_dvl_jacobian(dvl_c0_ ? Filter::DvlJacobian::C0
                                     : Filter::DvlJacobian::Cstar);
+    filter.set_mag_jacobian(mag_c0_ ? Filter::MagJacobian::C0
+                                    : Filter::MagJacobian::Cstar);
     return filter;
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Vector3& true_bg,
-                      const Vector3& true_ba) const {
+                      const Vector3& true_ba, const Vector3& true_bm) const {
     Eigen::Matrix<double, 3, 2> vp;
     vp.col(0) = gt.velocity();
     vp.col(1) = gt.position();
@@ -92,6 +95,7 @@ class ScenarioAdapter {
     xi.b.segment<3>(0) = true_bg;
     xi.b.segment<3>(3) = true_ba;
     // b_v (segment<3>(6)) stays zero: no physical truth.
+    xi.bm = true_bm;
     return xi;
   }
 
@@ -118,6 +122,11 @@ class ScenarioAdapter {
     }
   }
 
+  void updateMagnetometer(
+      Filter& filter, const imu_scenarios::MagnetometerMeasurement& z) const {
+    filter.update_magnetometer(z.field, mag_field_, z.covariance);
+  }
+
   /// Truth, estimate, tangent error and covariance. The error is
   /// eps = Local(xi_ref, phi(g^{-1}, xi_true)) and the covariance is the
   /// matching errorCovariance(), both in the fixed origin chart.
@@ -129,7 +138,8 @@ class ScenarioAdapter {
         .v3(xi_true.T.x(0))
         .v3(xi_true.T.x(1))
         .v3(xi_true.b.segment<3>(0))
-        .v3(xi_true.b.segment<3>(3));
+        .v3(xi_true.b.segment<3>(3))
+        .v3(xi_true.bm);
     row.quat(xi_hat.T.rotation())
         .v3(xi_hat.T.x(0))
         .v3(xi_hat.T.x(1))
@@ -149,9 +159,11 @@ class ScenarioAdapter {
  private:
   ImuNoise noise_;
   gtsam::Vector3 gravity_;
+  gtsam::Vector3 mag_field_;
   bool reset_step_;
   bool depth_direct_;
   bool dvl_c0_;
+  bool mag_c0_;
   imu_scenarios::CovarianceFormat cov_format_;
 };
 

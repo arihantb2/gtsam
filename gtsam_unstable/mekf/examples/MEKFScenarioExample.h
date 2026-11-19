@@ -23,9 +23,6 @@
 namespace mekf::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
-// The magnetometer bias b_mag is not simulated here: it stays at zero in both
-// truth and estimate and, with no magnetometer updates, decoupled from the
-// rest.
 using imu_scenarios::parseRunOptions;
 using imu_scenarios::RunOptions;
 using imu_scenarios::RunSummary;
@@ -41,34 +38,32 @@ class ScenarioAdapter {
       : noise_(imu_scenarios::toFilterImuNoise<ImuNoise>(
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(imu_scenarios::navGravity()),
+        mag_field_(opts.mag_field),
         cov_format_(opts.log_full_covariance
                         ? imu_scenarios::CovarianceFormat::FullUpperTriangle
                         : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
 
-  /// The magnetometer bias b_mag is estimate-only: it has no ground-truth
-  /// counterpart in these scenarios.
   std::string csvHeader() const {
     return imu_scenarios::trajectoryCsvHeader(
-        {"v", "p", "bg", "ba"}, {"v", "p", "bg", "ba", "bm"},
+        {"v", "p", "bg", "ba", "bm"}, {"v", "p", "bg", "ba", "bm"},
         {"R", "v", "p", "bg", "ba", "bm"}, cov_format_);
   }
 
   /// Start at the perturbed initial belief, biases included. P0 covers the
-  /// physical state; a unit magnetometer-bias block is appended, which no
-  /// update reaches here.
+  /// whole MEKF state, so it is used as given.
   Filter makeFilter(const imu_scenarios::InitialEstimate& initial,
                     const imu_scenarios::PhysicalStateCovariance& P0) const {
     const MekfState X0(initial.nav.attitude(), initial.nav.velocity(),
                        initial.nav.position(), initial.bias_gyro,
-                       initial.bias_accel);
-    return Filter(
-        X0, Filter::initialCovariance(P0, Filter::Covariance3::Identity()));
+                       initial.bias_accel, initial.bias_mag);
+    return Filter(X0, P0);
   }
 
   TrueState trueState(const gtsam::NavState& gt, const Eigen::Vector3d& true_bg,
-                      const Eigen::Vector3d& true_ba) const {
+                      const Eigen::Vector3d& true_ba,
+                      const Eigen::Vector3d& true_bm) const {
     return MekfState(gt.attitude(), gt.velocity(), gt.position(), true_bg,
-                     true_ba);
+                     true_ba, true_bm);
   }
 
   void propagate(Filter& filter, const imu_scenarios::ImuMeasurement& imu,
@@ -90,6 +85,11 @@ class ScenarioAdapter {
     filter.update_depth(z.depth, z.covariance);
   }
 
+  void updateMagnetometer(
+      Filter& filter, const imu_scenarios::MagnetometerMeasurement& z) const {
+    filter.update_magnetometer(z.field, mag_field_, z.covariance);
+  }
+
   /// Truth, estimate, tangent error and covariance, all in the MEKF's local
   /// chart (right/body multiplicative attitude, additive vectors).
   void writeCsvRow(std::ostream& out, double t, const TrueState& X_true,
@@ -100,7 +100,8 @@ class ScenarioAdapter {
         .v3(X_true.v)
         .v3(X_true.p)
         .v3(X_true.b_gyro)
-        .v3(X_true.b_accel);
+        .v3(X_true.b_accel)
+        .v3(X_true.b_mag);
     row.quat(X_hat.R)
         .v3(X_hat.v)
         .v3(X_hat.p)
@@ -119,6 +120,7 @@ class ScenarioAdapter {
  private:
   ImuNoise noise_;
   Eigen::Vector3d gravity_;
+  Eigen::Vector3d mag_field_;
   imu_scenarios::CovarianceFormat cov_format_;
 };
 

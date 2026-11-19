@@ -56,7 +56,8 @@ struct RunOptions {
 
   // Per-channel initial stddevs for the physical state, forming the
   // block-diagonal P0 and (via sampleInitialEstimate) the matching offset of
-  // the filter's initial belief from the truth, so eps(0) ~ N(0, P0) holds.
+  // the filter's initial belief: around the truth for the navigation state,
+  // around zero for the biases (see InitialEstimate).
   // Each block gets its own per-axis (x, y, z) stddev rather than one
   // isotropic value. States a filter estimates without a physical
   // counterpart (the TG-EqF virtual bias) are not covered here: the filter
@@ -87,16 +88,33 @@ struct RunOptions {
   double depth_rate = 0.0;  // pressure-sensor depth update rate in Hz (0 = off)
   double depth_noise_sigma = 0.05;  // depth measurement noise stddev (m)
 
+  // Three-axis magnetometer y = R^T m + b_m + noise, in microtesla. The
+  // reference field m is given in the Z-down (NED) nav frame; the default is
+  // an illustrative mid-latitude field (inclination about 66 deg), not a
+  // particular site's. The true hard-iron bias b_m starts at mag_bias and
+  // random-walks at mag_bias_rw, which the filters also use as their b_m
+  // process noise.
+  double mag_rate = 0.0;  // magnetometer update rate in Hz (0 = off)
+  Eigen::Vector3d mag_noise_sigma = Eigen::Vector3d::Constant(
+      0.5);  // magnetometer measurement noise stddev (uT)
+  Eigen::Vector3d mag_field{20.0, 0.0, 45.0};  // reference field m, NED (uT)
+  Eigen::Vector3d mag_bias = Eigen::Vector3d::Zero();  // initial b_m (uT)
+  Eigen::Vector3d mag_bias_rw =
+      Eigen::Vector3d::Zero();  // b_m random-walk rate (uT/sqrt(s))
+  Eigen::Vector3d init_mag_bias_sigma =
+      Eigen::Vector3d::Constant(2.0);  // initial b_m stddev (uT)
+
   double aiding_start_time = 0.0;  // delay before aiding updates start (s)
 
   // TG-EqF only: the covariance transport (reset) step after each measurement
   // update, the depth output model -- equivariant pseudo-position (the
-  // default) or the direct scalar one -- and the DVL output matrix: the
-  // equivariant C* (default) or the naive chart derivative C0, for the
-  // velocity-model ablation. Other filter adapters ignore all three.
+  // default) or the direct scalar one -- and the DVL and magnetometer output
+  // matrices: the equivariant C* (default) or the naive chart derivative C0,
+  // for the output-model ablations. Other filter adapters ignore all four.
   bool tg_eqf_reset_step = true;
   bool tg_eqf_depth_direct = false;
   bool tg_eqf_dvl_c0 = false;
+  bool tg_eqf_mag_c0 = false;
 
   // Applies to all three filter adapters, unlike the two options above.
   // Default is the full upper triangle; pass --cov-format diag to opt out.
@@ -181,6 +199,18 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
       opts.depth_rate = std::stod(value());
     } else if (arg == "--depth-noise") {
       opts.depth_noise_sigma = std::stod(value());
+    } else if (arg == "--mag-rate") {
+      opts.mag_rate = std::stod(value());
+    } else if (arg == "--mag-noise") {
+      opts.mag_noise_sigma = parseVector3(value());
+    } else if (arg == "--mag-field") {
+      opts.mag_field = parseVector3(value());
+    } else if (arg == "--mag-bias") {
+      opts.mag_bias = parseVector3(value());
+    } else if (arg == "--mag-bias-rw") {
+      opts.mag_bias_rw = parseVector3(value());
+    } else if (arg == "--init-mag-bias-sigma") {
+      opts.init_mag_bias_sigma = parseVector3(value());
     } else if (arg == "--aiding-start-time") {
       opts.aiding_start_time = std::stod(value());
     } else if (arg == "--reset-step") {
@@ -206,6 +236,15 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
         opts.tg_eqf_dvl_c0 = true;
       } else {
         throw std::runtime_error("--dvl-jacobian requires 'cstar' or 'c0'");
+      }
+    } else if (arg == "--mag-jacobian") {
+      const std::string mode = value();
+      if (mode == "cstar") {
+        opts.tg_eqf_mag_c0 = false;
+      } else if (mode == "c0") {
+        opts.tg_eqf_mag_c0 = true;
+      } else {
+        throw std::runtime_error("--mag-jacobian requires 'cstar' or 'c0'");
       }
     } else if (arg == "--cov-format") {
       const std::string format = value();
@@ -246,38 +285,53 @@ inline void validateRunOptions(const RunOptions& opts) {
         "depth_noise_sigma must be > 0 when depth updates are enabled "
         "(depth_rate > 0)");
   }
+  if (opts.mag_rate > 0.0 && (opts.mag_noise_sigma.array() <= 0.0).any()) {
+    throw std::runtime_error(
+        "mag_noise_sigma must be > 0 on every axis when magnetometer updates "
+        "are enabled (mag_rate > 0)");
+  }
 }
 
 /// Covariance of the physical state every filter shares, ordered
-/// [attitude, velocity, position, gyro bias, accel bias].
-using PhysicalStateCovariance = Eigen::Matrix<double, 15, 15>;
+/// [attitude, velocity, position, gyro bias, accel bias, mag bias].
+using PhysicalStateCovariance = Eigen::Matrix<double, 18, 18>;
 
 /// Block-diagonal P0 = diag(sigma^2) over the physical state, matching the
-/// offset sampleInitialEstimate() draws. A filter that also estimates states
-/// with no physical counterpart (the TG-EqF virtual bias) extends this itself;
-/// none of the init-*-sigma options describe those.
+/// offsets sampleInitialEstimate() and
+/// MagnetometerSimulator::sampleInitialBiasEstimate() draw. A filter that also
+/// estimates states with no physical counterpart (the TG-EqF virtual bias)
+/// extends this itself; none of the init-*-sigma options describe those.
 inline PhysicalStateCovariance initialCovariance(const RunOptions& opts) {
-  Eigen::Matrix<double, 15, 1> sd;
+  Eigen::Matrix<double, 18, 1> sd;
   sd.segment<3>(0) = opts.init_att_sigma;
   sd.segment<3>(3) = opts.init_vel_sigma;
   sd.segment<3>(6) = opts.init_pos_sigma;
   sd.segment<3>(9) = opts.init_gyro_bias_sigma;
   sd.segment<3>(12) = opts.init_accel_bias_sigma;
+  sd.segment<3>(15) = opts.init_mag_bias_sigma;
   return sd.array().square().matrix().asDiagonal();
 }
 
-/// The belief a filter is initialized with: the ground truth at t = 0 offset by
-/// a draw from the same sigmas that build P0, so eps(0) ~ N(0, P0) holds. The
-/// filter never sees the truth itself.
+/// The belief a filter is initialized with, drawn from the same sigmas that
+/// build P0: the navigation state is the ground truth at t = 0 plus an offset,
+/// while the gyro, accel and magnetometer biases are zero-mean draws that do
+/// not depend on the true biases, so no bias is assumed pre-calibrated.
+/// eps(0) ~ N(0, P0) therefore holds for the bias blocks only when the true
+/// initial biases are zero; otherwise the bias estimates start a known
+/// distance away, which is the transient those runs study. The filter never
+/// sees the truth itself.
 struct InitialEstimate {
   gtsam::NavState nav;
   Eigen::Vector3d bias_gyro = Eigen::Vector3d::Zero();
   Eigen::Vector3d bias_accel = Eigen::Vector3d::Zero();
+  /// Drawn from the magnetometer's own stream, see MagnetometerSimulator.
+  Eigen::Vector3d bias_mag = Eigen::Vector3d::Zero();
 };
 
 /// Draw one InitialEstimate around the clean initial truth, consuming `rng`.
-/// Attitude gets a world-frame rotation offset; velocity, position and the two
-/// biases get additive offsets, the biases around their true initial values.
+/// Attitude gets a world-frame rotation offset and velocity and position
+/// additive offsets; the two IMU biases are zero-mean draws (see
+/// InitialEstimate). The magnetometer bias comes from MagnetometerSimulator.
 template <typename Rng>
 inline InitialEstimate sampleInitialEstimate(Rng& rng, const RunOptions& opts,
                                              const gtsam::NavState& truth) {
@@ -338,6 +392,13 @@ struct DvlMeasurement {
 struct DepthMeasurement {
   double depth;
   Eigen::Matrix<double, 1, 1> covariance;
+};
+
+/// Noisy three-axis magnetometer reading of the biased body-frame field,
+/// h(xi) = R^T m + b_m.
+struct MagnetometerMeasurement {
+  Eigen::Vector3d field;
+  Eigen::Matrix3d covariance;
 };
 
 /// IMU signals handed to a filter: corrupted by bias and white noise.
@@ -424,6 +485,67 @@ class ImuSimulator {
   Eigen::Vector3d accel_sd_;
   Eigen::Vector3d gyro_rw_step_;
   Eigen::Vector3d accel_rw_step_;
+};
+
+/// Simulates a three-axis magnetometer with a body-fixed hard-iron bias b_m:
+/// y = R^T m + b_m + noise, where b_m starts at opts.mag_bias and random-walks
+/// at opts.mag_bias_rw. It draws from its own RNG stream, derived from the run
+/// seed, rather than the one ImuSimulator borrows: enabling the magnetometer
+/// then leaves the IMU, position, DVL and depth noise of a seed unchanged, so a
+/// run with and without it differs only by the magnetometer updates. Draw
+/// order within the stream: the initial bias estimate, then per step the
+/// measurement (when one is taken) and the bias walk.
+class MagnetometerSimulator {
+ public:
+  explicit MagnetometerSimulator(const RunOptions& opts)
+      : rng_(makeStream(opts.seed)),
+        field_(opts.mag_field),
+        bias_(opts.mag_bias),
+        sd_(opts.mag_noise_sigma),
+        rw_step_(opts.mag_bias_rw * std::sqrt(opts.dt)) {}
+
+  /// The filter's initial b_m belief: a zero-mean draw from `sigma` that,
+  /// like the IMU biases, does not depend on the true bias, so the hard iron
+  /// is not assumed pre-calibrated (see InitialEstimate).
+  Eigen::Vector3d sampleInitialBiasEstimate(const Eigen::Vector3d& sigma) {
+    return draw(sigma);
+  }
+
+  /// Magnetometer reading at the true state: R^T m + b_m + white noise.
+  MagnetometerMeasurement sample(const gtsam::NavState& gt) {
+    const Eigen::Vector3d field = gt.attitude().unrotate(field_) + bias_;
+    return {field + draw(sd_), sd_.array().square().matrix().asDiagonal()};
+  }
+
+  /// Advance the true bias by one random-walk step (no-op at zero rate).
+  void randomWalkBias() {
+    if (rw_step_.squaredNorm() > 0.0) {
+      bias_ += draw(rw_step_);
+    }
+  }
+
+  const Eigen::Vector3d& bias() const { return bias_; }
+
+ private:
+  /// Arbitrary constant that separates this stream from the main one.
+  static constexpr unsigned kStreamTag = 0x6d616721u;
+
+  static std::mt19937 makeStream(unsigned seed) {
+    std::seed_seq sequence{seed, kStreamTag};
+    return std::mt19937(sequence);
+  }
+
+  Eigen::Vector3d draw(const Eigen::Vector3d& sd) {
+    return Eigen::Vector3d(sd.x() * normal_(rng_), sd.y() * normal_(rng_),
+                           sd.z() * normal_(rng_));
+  }
+
+  std::mt19937 rng_;
+  std::normal_distribution<double> normal_{0.0, 1.0};
+  Eigen::Vector3d field_;
+  Eigen::Vector3d bias_;
+  Eigen::Vector3d sd_;
+  Eigen::Vector3d rw_step_;
 };
 
 struct RunSummary {
