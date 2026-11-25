@@ -1,5 +1,5 @@
 /**
- * @file  testMekfMagnetometerOutput.cpp
+ * @file  testMEKFMagnetometerOutput.cpp
  * @brief Unit tests for the biased magnetometer output (h = R^T m + b_mag, H,
  *        FD check).
  *
@@ -11,7 +11,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/navigation/MEKF.h>
 
-using namespace mekf;
+using namespace gtsam::mekf;
 using namespace gtsam;
 
 /* ************************************************************************* */
@@ -31,8 +31,8 @@ bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
-MekfState exampleState() {
-  return MekfState(
+MEKFState exampleState() {
+  return MEKFState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
       Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
@@ -46,17 +46,17 @@ namespace predict {
 
 // h(xi) = R^T m + b_mag: the reference field seen in the body frame, offset by
 // the hard-iron bias.
-TEST(MekfMagnetometerOutput, PredictReturnsBiasedBodyField) {
-  const MekfState X = fixture::exampleState();
+TEST(MEKFMagnetometerOutput, PredictReturnsBiasedBodyField) {
+  const MEKFState X = fixture::exampleState();
   EXPECT(fixture::veq(X.R.unrotate(fixture::kField) + X.b_mag,
                       MagnetometerOutput::predict(X, fixture::kField)));
 }
 
 // At the identity attitude with no bias the reading is the reference field.
-TEST(MekfMagnetometerOutput, PredictAtIdentityIsTheField) {
+TEST(MEKFMagnetometerOutput, PredictAtIdentityIsTheField) {
   EXPECT(fixture::veq(
       fixture::kField,
-      MagnetometerOutput::predict(MekfState::identity(), fixture::kField)));
+      MagnetometerOutput::predict(MEKFState::identity(), fixture::kField)));
 }
 
 }  // namespace predict
@@ -66,8 +66,8 @@ TEST(MekfMagnetometerOutput, PredictAtIdentityIsTheField) {
 namespace jacobian {
 
 // H = [ [R^T m]^x | 0 | 0 | 0 | 0 | I ]; the other blocks vanish.
-TEST(MekfMagnetometerOutput, JacobianStructure) {
-  const MekfState X = fixture::exampleState();
+TEST(MEKFMagnetometerOutput, JacobianStructure) {
+  const MEKFState X = fixture::exampleState();
   const Eigen::Matrix<double, 3, 18> H =
       MagnetometerOutput::jacobian(X, fixture::kField);
 
@@ -78,14 +78,14 @@ TEST(MekfMagnetometerOutput, JacobianStructure) {
 }
 
 // Finite-difference check: H = d h(Retract(X, eps)) / d eps at eps = 0.
-TEST(MekfMagnetometerOutput, JacobianMatchesFiniteDifference) {
-  const MekfState X = fixture::exampleState();
+TEST(MEKFMagnetometerOutput, JacobianMatchesFiniteDifference) {
+  const MEKFState X = fixture::exampleState();
   const Eigen::Matrix<double, 3, 18> H =
       MagnetometerOutput::jacobian(X, fixture::kField);
 
   const Eigen::Matrix<double, 3, 18> Hfd =
-      numericalDerivative11<Eigen::Vector3d, MekfState>(
-          [](const MekfState& x) {
+      numericalDerivative11<Eigen::Vector3d, MEKFState>(
+          [](const MEKFState& x) {
             return MagnetometerOutput::predict(x, fixture::kField);
           },
           X);
@@ -94,8 +94,8 @@ TEST(MekfMagnetometerOutput, JacobianMatchesFiniteDifference) {
 
 // The attitude block [R^T m]^x annihilates the body-frame field direction:
 // the magnetometer cannot see rotation about m.
-TEST(MekfMagnetometerOutput, AttitudeBlockIsBlindToRotationAboutTheField) {
-  const MekfState X = fixture::exampleState();
+TEST(MEKFMagnetometerOutput, AttitudeBlockIsBlindToRotationAboutTheField) {
+  const MEKFState X = fixture::exampleState();
   const Eigen::Matrix<double, 3, 18> H =
       MagnetometerOutput::jacobian(X, fixture::kField);
   const Eigen::Vector3d field_body = X.R.unrotate(fixture::kField);

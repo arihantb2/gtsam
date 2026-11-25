@@ -1,3 +1,20 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file TFGGeometry.cpp
+ * @brief Two-frames group operations, exponential map and Jacobians.
+ * @author Arihant Lunawat
+ */
+
 #include <gtsam/geometry/SO3.h>
 #include <gtsam_unstable/navigation/TFGGeometry.h>
 
@@ -35,6 +52,7 @@ Matrix3 leftJacobianInverse(const Vector3& phi) {
 
 }  // namespace
 
+namespace gtsam {
 namespace tfg {
 
 TwoFrameGroup::TwoFrameGroup()
@@ -65,9 +83,9 @@ TwoFrameGroup TwoFrameGroup::FromState(const Rot3& R, const Vector3& v,
   return TwoFrameGroup(R, v, p, -(R * b_omega), -(R * b_accel), -(R * b_mag));
 }
 
-Vector3 TwoFrameGroup::bias_omega() const { return R.unrotate(-gamma_omega); }
-Vector3 TwoFrameGroup::bias_accel() const { return R.unrotate(-gamma_accel); }
-Vector3 TwoFrameGroup::bias_mag() const { return R.unrotate(-gamma_mag); }
+Vector3 TwoFrameGroup::biasOmega() const { return R.unrotate(-gamma_omega); }
+Vector3 TwoFrameGroup::biasAccel() const { return R.unrotate(-gamma_accel); }
+Vector3 TwoFrameGroup::biasMag() const { return R.unrotate(-gamma_mag); }
 
 TwoFrameGroup TwoFrameGroup::operator*(const TwoFrameGroup& Y) const {
   return TwoFrameGroup(
@@ -119,7 +137,7 @@ TwoFrameGroup::Jacobian TwoFrameGroup::AdjointMap() const {
   return Ad;
 }
 
-gtsam::Matrix5 TwoFrameGroup::C_matrix() const {
+gtsam::Matrix5 TwoFrameGroup::navigationMatrix() const {
   gtsam::Matrix5 C = gtsam::Matrix5::Zero();
   C.block<3, 3>(0, 0) = R.matrix();
   C.block<3, 1>(0, 3) = v;
@@ -134,8 +152,6 @@ TwoFrameGroup phi(const TwoFrameGroup& X, const TwoFrameGroup& xi) {
 }
 
 }  // namespace tfg
-
-namespace gtsam {
 
 using G = tfg::TwoFrameGroup;
 using T = traits<G>;

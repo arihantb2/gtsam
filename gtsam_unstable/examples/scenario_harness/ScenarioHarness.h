@@ -107,17 +107,19 @@ struct RunOptions {
 
   double aiding_start_time = 0.0;  // delay before aiding updates start (s)
 
+  // The depth output model for all three filters: the pseudo-position update
+  // (the default) or the direct scalar one.
+  bool depth_direct = false;
+
   // TG-EqF only: the covariance transport (reset) step after each measurement
-  // update, the depth output model -- equivariant pseudo-position (the
-  // default) or the direct scalar one -- and the DVL and magnetometer output
-  // matrices: the equivariant C* (default) or the naive chart derivative C0,
-  // for the output-model ablations. Other filter adapters ignore all four.
+  // update, and the DVL and magnetometer output matrices: the equivariant C*
+  // (default) or the naive chart derivative C0, for the output-model
+  // ablations. Other filter adapters ignore all three.
   bool tg_eqf_reset_step = true;
-  bool tg_eqf_depth_direct = false;
   bool tg_eqf_dvl_c0 = false;
   bool tg_eqf_mag_c0 = false;
 
-  // Applies to all three filter adapters, unlike the two options above.
+  // Applies to all three filter adapters, unlike the TG-EqF options above.
   // Default is the full upper triangle; pass --cov-format diag to opt out.
   bool log_full_covariance = true;
 };
@@ -225,9 +227,9 @@ inline RunOptions parseRunOptions(int argc, char* argv[],
     } else if (arg == "--depth-model") {
       const std::string model = value();
       if (model == "pseudo") {
-        opts.tg_eqf_depth_direct = false;
+        opts.depth_direct = false;
       } else if (model == "direct") {
-        opts.tg_eqf_depth_direct = true;
+        opts.depth_direct = true;
       } else {
         throw std::runtime_error("--depth-model requires 'pseudo' or 'direct'");
       }
@@ -404,6 +406,10 @@ struct MagnetometerMeasurement {
   Eigen::Matrix3d covariance;
 };
 
+/// Variance (m^2) of the pseudo-measured horizontal axes in every filter's
+/// depth pseudo-position update, so that the filters compare on the same
+/// measurement model.
+constexpr double kDepthHorizontalVariance = 1e6;
 /// IMU signals handed to a filter: corrupted by bias and white noise.
 struct ImuMeasurement {
   Eigen::Vector3d omega;

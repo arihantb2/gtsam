@@ -1,3 +1,20 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file TGEqF.cpp
+ * @brief TG-EqF input lift, measurement outputs and filter updates.
+ * @author Arihant Lunawat
+ */
+
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam_unstable/navigation/TGEqF.h>
 
@@ -19,7 +36,7 @@ Input::Vector24 Input::vector() const {
   return result;
 }
 
-Input Input::from_vector(const Input::Vector24& v) {
+Input Input::fromVector(const Input::Vector24& v) {
   Input u;
   u.w = v.segment<3>(0);
   u.a = v.segment<3>(3);
@@ -128,7 +145,7 @@ Vector3 DVLMeasurement::predict(const State& xi) {
   return xi.T.rotation().unrotate(xi.T.x(0));
 }
 
-DVLMeasurement::Jacobian DVLMeasurement::jacobian_C0(const State& xi_ref) {
+DVLMeasurement::Jacobian DVLMeasurement::jacobianC0(const State& xi_ref) {
   const Vector3 y0 = predict(xi_ref);
   Jacobian C0 = Jacobian::Zero();
   C0.block<3, 3>(0, 0) = gtsam::skewSymmetric(y0);
@@ -136,11 +153,11 @@ DVLMeasurement::Jacobian DVLMeasurement::jacobian_C0(const State& xi_ref) {
   return C0;
 }
 
-DVLMeasurement::Jacobian DVLMeasurement::jacobian_Cstar(const State& xi_ref,
-                                                        const TGMagElement& g,
-                                                        const Vector3& z_dvl) {
+DVLMeasurement::Jacobian DVLMeasurement::jacobianCstar(const State& xi_ref,
+                                                       const TGMagElement& g,
+                                                       const Vector3& z_dvl) {
   const Vector3 y0 = predict(xi_ref);
-  const Vector3 vec = y0 + inverse_output_action(g, z_dvl);
+  const Vector3 vec = y0 + inverseOutputAction(g, z_dvl);
 
   Jacobian Cstar = Jacobian::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
@@ -148,13 +165,13 @@ DVLMeasurement::Jacobian DVLMeasurement::jacobian_Cstar(const State& xi_ref,
   return Cstar;
 }
 
-Vector3 DVLMeasurement::output_action(const TGMagElement& X, const Vector3& y) {
+Vector3 DVLMeasurement::outputAction(const TGMagElement& X, const Vector3& y) {
   const ExtendedPose3<2>& A = X.first.first;
   return A.rotation().unrotate(y + A.x(0));
 }
 
-Vector3 DVLMeasurement::inverse_output_action(const TGMagElement& X,
-                                              const Vector3& y) {
+Vector3 DVLMeasurement::inverseOutputAction(const TGMagElement& X,
+                                            const Vector3& y) {
   const ExtendedPose3<2>& A = X.first.first;
   return A.rotation().rotate(y) - A.x(0);
 }
@@ -170,7 +187,7 @@ Vector3 PositionMeasurement::predictAtOrigin(const State& xi_ref,
   return y0 - g.first.first.x(1);
 }
 
-PositionMeasurement::Jacobian PositionMeasurement::jacobian_C0(
+PositionMeasurement::Jacobian PositionMeasurement::jacobianC0(
     const State& xi_ref, const Vector3& pi) {
   const Vector3 y0 = xi_ref.T.rotation().unrotate(pi - xi_ref.T.x(1));
   Jacobian C0 = Jacobian::Zero();
@@ -179,7 +196,7 @@ PositionMeasurement::Jacobian PositionMeasurement::jacobian_C0(
   return C0;
 }
 
-PositionMeasurement::Jacobian PositionMeasurement::jacobian_Cstar(
+PositionMeasurement::Jacobian PositionMeasurement::jacobianCstar(
     const State& xi_ref, const TGMagElement& g, const Vector3& pi) {
   const Vector3 y0 = xi_ref.T.rotation().unrotate(pi - xi_ref.T.x(1));
   const Vector3 vec = y0 + g.first.first.x(1);
@@ -190,16 +207,16 @@ PositionMeasurement::Jacobian PositionMeasurement::jacobian_Cstar(
   return Cstar;
 }
 
-Vector3 PositionMeasurement::output_action(const TGMagElement& X,
-                                           const Vector3& y) {
+Vector3 PositionMeasurement::outputAction(const TGMagElement& X,
+                                          const Vector3& y) {
   const ExtendedPose3<2>& A = X.first.first;
   return A.rotation().unrotate(y - A.x(1));
 }
 
 double DepthMeasurement::predict(const State& xi) { return xi.T.x(1).z(); }
 
-DepthMeasurement::Jacobian DepthMeasurement::jacobian_C(const State& xi_ref,
-                                                        const TGMagElement& g) {
+DepthMeasurement::Jacobian DepthMeasurement::jacobianC(const State& xi_ref,
+                                                       const TGMagElement& g) {
   const Vector3 n = xi_ref.T.rotation().unrotate(Vector3::UnitZ());
 
   Jacobian C = Jacobian::Zero();
@@ -212,7 +229,7 @@ Vector3 MagnetometerMeasurement::predict(const State& xi, const Vector3& m) {
   return xi.T.rotation().unrotate(m) + xi.bm;
 }
 
-MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobian_C0(
+MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobianC0(
     const State& xi_ref, const Vector3& m) {
   const Vector3 y0 = predict(xi_ref, m);
   Jacobian C0 = Jacobian::Zero();
@@ -221,11 +238,11 @@ MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobian_C0(
   return C0;
 }
 
-MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobian_Cstar(
+MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobianCstar(
     const State& xi_ref, const TGMagElement& g, const Vector3& m,
     const Vector3& z_mag) {
   const Vector3 y0 = predict(xi_ref, m);
-  const Vector3 vec = y0 + inverse_output_action(g, z_mag);
+  const Vector3 vec = y0 + inverseOutputAction(g, z_mag);
 
   Jacobian Cstar = Jacobian::Zero();
   Cstar.block<3, 3>(0, 0) = 0.5 * gtsam::skewSymmetric(vec);
@@ -233,13 +250,13 @@ MagnetometerMeasurement::Jacobian MagnetometerMeasurement::jacobian_Cstar(
   return Cstar;
 }
 
-Vector3 MagnetometerMeasurement::output_action(const TGMagElement& X,
-                                               const Vector3& y) {
+Vector3 MagnetometerMeasurement::outputAction(const TGMagElement& X,
+                                              const Vector3& y) {
   return X.first.first.rotation().unrotate(y - X.second);
 }
 
-Vector3 MagnetometerMeasurement::inverse_output_action(const TGMagElement& X,
-                                                       const Vector3& y) {
+Vector3 MagnetometerMeasurement::inverseOutputAction(const TGMagElement& X,
+                                                     const Vector3& y) {
   return X.first.first.rotation().rotate(y) + X.second;
 }
 
@@ -453,7 +470,7 @@ TGEqF::Covariance21 TGEqF::inputNoiseCov(const ImuNoise& noise) const {
   return Qc;
 }
 
-void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
+void TGEqF::updateDvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const State xi_ref = referenceState();
   const TGMagElement X = groupEstimate();
   const Matrix3 R_X = X.first.first.rotation().matrix();
@@ -461,17 +478,17 @@ void TGEqF::update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   // Compared in the origin output space: reference output against the
   // measurement pulled back through the output action.
   const Vector3 prediction = DVLMeasurement::predict(xi_ref);
-  const Vector3 z = DVLMeasurement::inverse_output_action(X, z_dvl);
+  const Vector3 z = DVLMeasurement::inverseOutputAction(X, z_dvl);
   const Covariance3 R_eff = R_X * R_dvl * R_X.transpose();
 
   const DVLMeasurement::Jacobian C =
       dvl_jacobian_ == DvlJacobian::C0
-          ? DVLMeasurement::jacobian_C0(xi_ref)
-          : DVLMeasurement::jacobian_Cstar(xi_ref, X, z_dvl);
+          ? DVLMeasurement::jacobianC0(xi_ref)
+          : DVLMeasurement::jacobianCstar(xi_ref, X, z_dvl);
   updateWithReset(prediction, C, z, R_eff);
 }
 
-void TGEqF::update_position(const Vector3& pi, const Covariance3& R_pos) {
+void TGEqF::updatePosition(const Vector3& pi, const Covariance3& R_pos) {
   const State xi_ref = referenceState();
   const Matrix3 R0 = xi_ref.T.rotation().matrix();
 
@@ -480,15 +497,15 @@ void TGEqF::update_position(const Vector3& pi, const Covariance3& R_pos) {
   const Vector3 prediction =
       PositionMeasurement::predictAtOrigin(xi_ref, groupEstimate(), pi);
   const PositionMeasurement::Jacobian Cstar =
-      PositionMeasurement::jacobian_Cstar(xi_ref, groupEstimate(), pi);
+      PositionMeasurement::jacobianCstar(xi_ref, groupEstimate(), pi);
 
   const Vector3 z = Vector3::Zero();
   const Covariance3 R_eff = R0.transpose() * R_pos * R0;
   updateWithReset(prediction, Cstar, z, R_eff);
 }
 
-void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
-                         double horizontal_variance) {
+void TGEqF::updateDepth(double z_depth, const Covariance1& R_depth,
+                        double horizontal_variance) {
   Vector3 pseudo_position = position();
   pseudo_position.z() = z_depth;
 
@@ -497,10 +514,10 @@ void TGEqF::update_depth(double z_depth, const Covariance1& R_depth,
   R_pseudo(1, 1) = horizontal_variance;
   R_pseudo(2, 2) = R_depth(0, 0);
 
-  update_position(pseudo_position, R_pseudo);
+  updatePosition(pseudo_position, R_pseudo);
 }
 
-void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
+void TGEqF::updateDepthDirect(double z_depth, const Covariance1& R_depth) {
   // No output action exists for h(xi) = e_3^T p, so the innovation is formed
   // in the raw sensor space: prediction at the estimate, R_depth untransported.
   Covariance1 prediction, z;
@@ -508,26 +525,26 @@ void TGEqF::update_depth_direct(double z_depth, const Covariance1& R_depth) {
   z(0, 0) = z_depth;
 
   const DepthMeasurement::Jacobian C =
-      DepthMeasurement::jacobian_C(referenceState(), groupEstimate());
+      DepthMeasurement::jacobianC(referenceState(), groupEstimate());
   updateWithReset(prediction, C, z, R_depth);
 }
 
-void TGEqF::update_magnetometer(const Vector3& z_mag, const Vector3& m,
-                                const Covariance3& R_mag) {
+void TGEqF::updateMagnetometer(const Vector3& z_mag, const Vector3& m,
+                               const Covariance3& R_mag) {
   const State xi_ref = referenceState();
   const TGMagElement X = groupEstimate();
   const Matrix3 R_X = X.first.first.rotation().matrix();
 
-  // Same pattern as update_dvl: the reference output against the measurement
+  // Same pattern as updateDvl: the reference output against the measurement
   // pulled back through the output action, with the noise rotated alongside.
   const Vector3 prediction = MagnetometerMeasurement::predict(xi_ref, m);
-  const Vector3 z = MagnetometerMeasurement::inverse_output_action(X, z_mag);
+  const Vector3 z = MagnetometerMeasurement::inverseOutputAction(X, z_mag);
   const Covariance3 R_eff = R_X * R_mag * R_X.transpose();
 
   const MagnetometerMeasurement::Jacobian C =
       mag_jacobian_ == MagJacobian::C0
-          ? MagnetometerMeasurement::jacobian_C0(xi_ref, m)
-          : MagnetometerMeasurement::jacobian_Cstar(xi_ref, X, m, z_mag);
+          ? MagnetometerMeasurement::jacobianC0(xi_ref, m)
+          : MagnetometerMeasurement::jacobianCstar(xi_ref, X, m, z_mag);
   updateWithReset(prediction, C, z, R_eff);
 }
 
@@ -547,15 +564,15 @@ Vector3 TGEqF::velocity() const { return state().T.x(0); }
 
 Vector3 TGEqF::position() const { return state().T.x(1); }
 
-Vector3 TGEqF::bias_gyro() const { return state().b.segment<3>(0); }
+Vector3 TGEqF::biasGyro() const { return state().b.segment<3>(0); }
 
-Vector3 TGEqF::bias_accel() const { return state().b.segment<3>(3); }
+Vector3 TGEqF::biasAccel() const { return state().b.segment<3>(3); }
 
-Vector3 TGEqF::bias_vel() const { return state().b.segment<3>(6); }
+Vector3 TGEqF::biasVel() const { return state().b.segment<3>(6); }
 
-Vector3 TGEqF::bias_mag() const { return state().bm; }
+Vector3 TGEqF::biasMag() const { return state().bm; }
 
-ExtendedPose3<2> TGEqF::extended_pose() const { return state().T; }
+ExtendedPose3<2> TGEqF::extendedPose() const { return state().T; }
 
 Vector9 TGEqF::biases() const { return state().b; }
 

@@ -1,22 +1,40 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file MEKF.cpp
+ * @brief MEKF strapdown propagation, measurement outputs and updates.
+ * @author Arihant Lunawat
+ *
+ * Strapdown mean (forward Euler):
+ *   R+ = R * Exp((omega - b_gyro) dt)
+ *   v+ = v + (R (accel - b_accel) + g) dt   (g = u.g_vec, caller's frame)
+ *   p+ = p + v dt
+ * F: finite-diff of discrete map in local coords, re-evaluated each step.
+ *
+ * Attitude correction via Retract, followed by the posterior-mean covariance
+ * reset P <- B P B^T, B = resetJacobian(eta).
+ */
+
 #include <gtsam/base/Matrix.h>
 #include <gtsam_unstable/navigation/MEKF.h>
 
-// Strapdown mean (forward Euler):
-//   R+ = R * Exp((omega - b_gyro) dt)
-//   v+ = v + (R (accel - b_accel) + g) dt   (g = u.g_vec, caller's frame)
-//   p+ = p + v dt
-// F: finite-diff of discrete map in local coords, re-evaluated each step.
-//
-// Attitude correction via Retract, followed by the posterior-mean covariance
-// reset P <- B P B^T, B = resetJacobian(eta).
-
+namespace gtsam {
 namespace mekf {
 
-MekfState propagateMean(const MekfState& X, const ImuInput& u, double dt) {
+MEKFState propagateMean(const MEKFState& X, const ImuInput& u, double dt) {
   const Vector3 gyro_corr = u.omega - X.b_gyro;
   const Vector3 acc_corr = u.accel - X.b_accel;
 
-  MekfState Xn;
+  MEKFState Xn;
   Xn.R = X.R * gtsam::Rot3::Expmap(gyro_corr * dt);
   Xn.v = X.v + (X.R.rotate(acc_corr) + u.g_vec) * dt;
   Xn.p = X.p + X.v * dt;
@@ -26,28 +44,28 @@ MekfState propagateMean(const MekfState& X, const ImuInput& u, double dt) {
   return Xn;
 }
 
-MekfState::Jacobian transitionJacobian(const MekfState& X, const ImuInput& u,
+MEKFState::Jacobian transitionJacobian(const MEKFState& X, const ImuInput& u,
                                        double dt) {
   constexpr double h = 1e-7;
 
-  const MekfState Xn_ref = propagateMean(X, u, dt);
+  const MEKFState Xn_ref = propagateMean(X, u, dt);
 
-  MekfState::Jacobian F;
-  for (int j = 0; j < MekfState::dimension; ++j) {
-    MekfState::TangentVector e = MekfState::TangentVector::Zero();
+  MEKFState::Jacobian F;
+  for (int j = 0; j < MEKFState::dimension; ++j) {
+    MEKFState::TangentVector e = MEKFState::TangentVector::Zero();
     e(j) = h;
-    const MekfState Xp = gtsam::traits<MekfState>::Retract(X, e);
-    const MekfState Xpn = propagateMean(Xp, u, dt);
-    F.col(j) = gtsam::traits<MekfState>::Local(Xn_ref, Xpn) / h;
+    const MEKFState Xp = gtsam::traits<MEKFState>::Retract(X, e);
+    const MEKFState Xpn = propagateMean(Xp, u, dt);
+    F.col(j) = gtsam::traits<MEKFState>::Local(Xn_ref, Xpn) / h;
   }
   return F;
 }
 
-Vector3 BodyVelocityOutput::predict(const MekfState& X) {
+Vector3 BodyVelocityOutput::predict(const MEKFState& X) {
   return X.R.unrotate(X.v);
 }
 
-BodyVelocityOutput::Jacobian BodyVelocityOutput::jacobian(const MekfState& X) {
+BodyVelocityOutput::Jacobian BodyVelocityOutput::jacobian(const MEKFState& X) {
   const Vector3 body_v = predict(X);
 
   Jacobian H = Jacobian::Zero();
@@ -56,7 +74,7 @@ BodyVelocityOutput::Jacobian BodyVelocityOutput::jacobian(const MekfState& X) {
   return H;
 }
 
-Vector3 PositionOutput::predict(const MekfState& X) { return X.p; }
+Vector3 PositionOutput::predict(const MEKFState& X) { return X.p; }
 
 PositionOutput::Jacobian PositionOutput::jacobian() {
   Jacobian H = Jacobian::Zero();
@@ -64,11 +82,19 @@ PositionOutput::Jacobian PositionOutput::jacobian() {
   return H;
 }
 
-Vector3 MagnetometerOutput::predict(const MekfState& X, const Vector3& m) {
+double DepthOutput::predict(const MEKFState& X) { return X.p.z(); }
+
+DepthOutput::Jacobian DepthOutput::jacobian() {
+  Jacobian H = Jacobian::Zero();
+  H(0, 8) = 1.0;
+  return H;
+}
+
+Vector3 MagnetometerOutput::predict(const MEKFState& X, const Vector3& m) {
   return X.R.unrotate(m) + X.b_mag;
 }
 
-MagnetometerOutput::Jacobian MagnetometerOutput::jacobian(const MekfState& X,
+MagnetometerOutput::Jacobian MagnetometerOutput::jacobian(const MEKFState& X,
                                                            const Vector3& m) {
   Jacobian H = Jacobian::Zero();
   H.block<3, 3>(0, 0) = gtsam::skewSymmetric(X.R.unrotate(m));
@@ -76,33 +102,30 @@ MagnetometerOutput::Jacobian MagnetometerOutput::jacobian(const MekfState& X,
   return H;
 }
 
-MultiplicativeEKF::MultiplicativeEKF(const MekfState& X0, const Covariance& P0)
-    : Base(X0, P0) {}
+MEKF::MEKF(const MEKFState& X0, const Covariance& P0) : Base(X0, P0) {}
 
-MultiplicativeEKF::Covariance MultiplicativeEKF::initialCovariance(
-    const Covariance15& Sigma_nav, const Covariance3& Sigma_mag_bias) {
+MEKF::Covariance MEKF::initialCovariance(const Covariance15& Sigma_nav,
+                                         const Covariance3& Sigma_mag_bias) {
   Covariance P0 = Covariance::Zero();
   P0.topLeftCorner<15, 15>() = Sigma_nav;
   P0.block<3, 3>(15, 15) = Sigma_mag_bias;
   return P0;
 }
 
-void MultiplicativeEKF::propagate(const Vector3& omega, const Vector3& accel,
-                                  const Vector3& g_vec, const Covariance& Qc,
-                                  double dt) {
+void MEKF::propagate(const Vector3& omega, const Vector3& accel,
+                     const Vector3& g_vec, const Covariance& Qc, double dt) {
   ImuInput u;
   u.omega = omega;
   u.accel = accel;
   u.g_vec = g_vec;
 
-  const MekfState X_next = propagateMean(this->state(), u, dt);
+  const MEKFState X_next = propagateMean(this->state(), u, dt);
   const Jacobian F = transitionJacobian(this->state(), u, dt);
   this->predict(X_next, F, Qc * dt);
 }
 
-void MultiplicativeEKF::propagate(const Vector3& omega, const Vector3& accel,
-                                  const Vector3& g_vec, const ImuNoise& noise,
-                                  double dt) {
+void MEKF::propagate(const Vector3& omega, const Vector3& accel,
+                     const Vector3& g_vec, const ImuNoise& noise, double dt) {
   const gtsam::Matrix3 R = this->state().R.matrix();
   Covariance Qc = Covariance::Zero();
   Qc.block<3, 3>(0, 0) = noise.gyro.asDiagonal();
@@ -113,23 +136,21 @@ void MultiplicativeEKF::propagate(const Vector3& omega, const Vector3& accel,
   propagate(omega, accel, g_vec, Qc, dt);
 }
 
-void MultiplicativeEKF::update_position(const Vector3& pi,
-                                        const Covariance3& R_pos) {
+void MEKF::updatePosition(const Vector3& pi, const Covariance3& R_pos) {
   const Vector3 prediction = PositionOutput::predict(this->state());
   const PositionOutput::Jacobian H = PositionOutput::jacobian();
   updateWithReset(prediction, H, pi, R_pos);
 }
 
-void MultiplicativeEKF::update_dvl(const Vector3& z_dvl,
-                                   const Covariance3& R_dvl) {
+void MEKF::updateDvl(const Vector3& z_dvl, const Covariance3& R_dvl) {
   const Vector3 prediction = BodyVelocityOutput::predict(this->state());
   const BodyVelocityOutput::Jacobian H =
       BodyVelocityOutput::jacobian(this->state());
   updateWithReset(prediction, H, z_dvl, R_dvl);
 }
 
-void MultiplicativeEKF::update_depth(double z_depth, const Covariance1& R_depth,
-                                     double horizontal_variance) {
+void MEKF::updateDepth(double z_depth, const Covariance1& R_depth,
+                       double horizontal_variance) {
   Vector3 pseudo_position = position();
   pseudo_position.z() = z_depth;
 
@@ -138,47 +159,50 @@ void MultiplicativeEKF::update_depth(double z_depth, const Covariance1& R_depth,
   R_pseudo(1, 1) = horizontal_variance;
   R_pseudo(2, 2) = R_depth(0, 0);
 
-  update_position(pseudo_position, R_pseudo);
+  updatePosition(pseudo_position, R_pseudo);
 }
 
-void MultiplicativeEKF::update_magnetometer(const Vector3& z_mag,
-                                            const Vector3& m,
-                                            const Covariance3& R_mag) {
+void MEKF::updateDepthDirect(double z_depth, const Covariance1& R_depth) {
+  const Vector1 prediction{DepthOutput::predict(this->state())};
+  const Vector1 z{z_depth};
+  updateWithReset(prediction, DepthOutput::jacobian(), z, R_depth);
+}
+
+void MEKF::updateMagnetometer(const Vector3& z_mag, const Vector3& m,
+                              const Covariance3& R_mag) {
   const Vector3 prediction = MagnetometerOutput::predict(this->state(), m);
   const MagnetometerOutput::Jacobian H =
       MagnetometerOutput::jacobian(this->state(), m);
   updateWithReset(prediction, H, z_mag, R_mag);
 }
 
-MultiplicativeEKF::Jacobian MultiplicativeEKF::resetJacobian(
-    const TangentVector& eta) {
+MEKF::Jacobian MEKF::resetJacobian(const TangentVector& eta) {
   Jacobian B = Jacobian::Identity();
   B.block<3, 3>(0, 0) = gtsam::Rot3::ExpmapDerivative(eta.head<3>());
   return B;
 }
 
-void MultiplicativeEKF::updateWithReset(const gtsam::Vector& prediction,
-                                        const gtsam::Matrix& H,
-                                        const gtsam::Vector& z,
-                                        const gtsam::Matrix& R) {
-  const MekfState prior = this->state();
+void MEKF::updateWithReset(const gtsam::Vector& prediction,
+                           const gtsam::Matrix& H, const gtsam::Vector& z,
+                           const gtsam::Matrix& R) {
+  const MEKFState prior = this->state();
   this->updateWithVector(prediction, H, z, R, /*performReset=*/false);
   const TangentVector eta =
-      gtsam::traits<MekfState>::Local(prior, this->state());
+      gtsam::traits<MEKFState>::Local(prior, this->state());
   const Jacobian B = resetJacobian(eta);
   this->P_ = B * this->P_ * B.transpose();
 }
 
-MultiplicativeEKF::TangentVector MultiplicativeEKF::errorStateVector(
-    const MekfState& X_true) const {
-  return gtsam::traits<MekfState>::Local(this->state(), X_true);
+MEKF::TangentVector MEKF::errorStateVector(const MEKFState& X_true) const {
+  return gtsam::traits<MEKFState>::Local(this->state(), X_true);
 }
 
-gtsam::Rot3 MultiplicativeEKF::attitude() const { return this->state().R; }
-Vector3 MultiplicativeEKF::velocity() const { return this->state().v; }
-Vector3 MultiplicativeEKF::position() const { return this->state().p; }
-Vector3 MultiplicativeEKF::bias_gyro() const { return this->state().b_gyro; }
-Vector3 MultiplicativeEKF::bias_accel() const { return this->state().b_accel; }
-Vector3 MultiplicativeEKF::bias_mag() const { return this->state().b_mag; }
+gtsam::Rot3 MEKF::attitude() const { return this->state().R; }
+Vector3 MEKF::velocity() const { return this->state().v; }
+Vector3 MEKF::position() const { return this->state().p; }
+Vector3 MEKF::biasGyro() const { return this->state().b_gyro; }
+Vector3 MEKF::biasAccel() const { return this->state().b_accel; }
+Vector3 MEKF::biasMag() const { return this->state().b_mag; }
 
 }  // namespace mekf
+}  // namespace gtsam

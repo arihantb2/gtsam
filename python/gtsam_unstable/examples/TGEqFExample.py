@@ -57,25 +57,25 @@ def main():
     # 5. Position update: a GNSS-like fix pulls the estimate toward a known
     # world-frame position.
     R_pos = 0.01 * np.eye(3)
-    filt.update_position(np.array([0.1, -0.05, 0.0]), R_pos)
+    filt.updatePosition(np.array([0.1, -0.05, 0.0]), R_pos)
 
     # 6. DVL update: a body-frame velocity measurement pulls the estimate
     # toward the (still at-rest) true body velocity.
     R_dvl = 0.001 * np.eye(3)
-    filt.update_dvl(np.array([0.0, 0.0, 0.0]), R_dvl)
+    filt.updateDvl(np.array([0.0, 0.0, 0.0]), R_dvl)
 
     # 7. Magnetometer update: the reference field m (normalized, in the
     # global frame) seen by a level, north-facing body with no hard-iron
     # bias.
     m = np.array([0.4, 0.0, 0.9])
     R_mag = 0.01**2 * np.eye(3)
-    filt.update_magnetometer(m, m, R_mag)
+    filt.updateMagnetometer(m, m, R_mag)
 
     print("\nAfter position + DVL + magnetometer updates:")
     print("  attitude:", filt.attitude())
     print("  position:", filt.position())
     print("  velocity:", filt.velocity())
-    print("  magnetometer bias:", filt.bias_mag())
+    print("  magnetometer bias:", filt.biasMag())
     print("  error covariance diagonal:\n", np.diag(filt.errorCovariance()))
 
 

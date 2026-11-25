@@ -1,3 +1,26 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file TFGGeometry.h
+ * @brief The two-frames group SO(3) x R^15, the state space of the
+ *        TFG-InEKF.
+ * @author Arihant Lunawat
+ *
+ * The two-frames group G_TF = SO(3) x R^15 has dimension 18 and acts on
+ * itself by right multiplication. Its elements hold the attitude, velocity,
+ * position and the gyro, accelerometer and magnetometer biases, each bias b
+ * stored in the global frame as gamma = -R b.
+ */
+
 #pragma once
 #include <gtsam/base/Lie.h>
 #include <gtsam/base/Matrix.h>
@@ -7,15 +30,8 @@
 
 #include <Eigen/Dense>
 
-// Two-Frames Group G_TF = SO(3) x| R^15 (dim 18): attitude, velocity, position
-// and the gyro, accelerometer and magnetometer biases, each bias b stored in
-// the global frame as gamma = -R b. Its natural right action on itself is
-// the state space of the TFG-InEKF.
-
+namespace gtsam {
 namespace tfg {
-
-using gtsam::Rot3;
-using gtsam::Vector3;
 
 /// Lie algebra g_TF as an 18-vector, blocks [R v p gamma_w gamma_a gamma_m].
 using Tangent = Eigen::Matrix<double, 18, 1>;
@@ -46,9 +62,9 @@ class GTSAM_UNSTABLE_EXPORT TwoFrameGroup {
                                  const Vector3& b_mag = Vector3::Zero());
 
   /// Physical biases b = R^{-1} (-gamma).
-  Vector3 bias_omega() const;
-  Vector3 bias_accel() const;
-  Vector3 bias_mag() const;
+  Vector3 biasOmega() const;
+  Vector3 biasAccel() const;
+  Vector3 biasMag() const;
 
   static TwoFrameGroup Identity();
   TwoFrameGroup operator*(const TwoFrameGroup& Y) const;
@@ -61,12 +77,10 @@ class GTSAM_UNSTABLE_EXPORT TwoFrameGroup {
   Jacobian AdjointMap() const;
 
   /// 5x5 matrix realisation of the SE_2(3) navigation part.
-  gtsam::Matrix5 C_matrix() const;
+  gtsam::Matrix5 navigationMatrix() const;
 };
 
 }  // namespace tfg
-
-namespace gtsam {
 
 template <>
 struct GTSAM_UNSTABLE_EXPORT traits<tfg::TwoFrameGroup> {
@@ -116,8 +130,6 @@ struct GTSAM_UNSTABLE_EXPORT traits<tfg::TwoFrameGroup> {
 template <>
 struct traits<const tfg::TwoFrameGroup> : traits<tfg::TwoFrameGroup> {};
 
-}  // namespace gtsam
-
 namespace tfg {
 
 /// Right group action phi(X, xi) = xi * X. The InEKF operates directly on
@@ -126,3 +138,4 @@ GTSAM_UNSTABLE_EXPORT TwoFrameGroup phi(const TwoFrameGroup& X,
                                         const TwoFrameGroup& xi);
 
 }  // namespace tfg
+}  // namespace gtsam

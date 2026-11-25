@@ -2,7 +2,7 @@
  * @file  TGEqFScenarioExample.cpp
  * @brief TG-EqF on a simulated IMU trajectory with optional position, DVL and
  *        depth aiding. Pick the trajectory with --scenario (Vertical,
- *        TypicalNavigation, WaypointSpline or SamoaSurvey).
+ *        TypicalNavigation or WaypointSpline).
  *
  * The run loop, CLI, IMU simulation, CSV format and error reporting are shared
  * with the other filter examples (scenario_harness/FilterScenarioRunner.h); only
@@ -45,7 +45,7 @@ class ScenarioAdapter {
         gravity_(imu_scenarios::navGravity()),
         mag_field_(opts.mag_field),
         reset_step_(opts.tg_eqf_reset_step),
-        depth_direct_(opts.tg_eqf_depth_direct),
+        depth_direct_(opts.depth_direct),
         dvl_c0_(opts.tg_eqf_dvl_c0),
         mag_c0_(opts.tg_eqf_mag_c0),
         cov_format_(opts.log_full_covariance
@@ -79,11 +79,11 @@ class ScenarioAdapter {
     Filter filter(phiInverse(State::identity(), xi_hat0),
                   Filter::initialCovariance(P0.topLeftCorner<15, 15>(),
                                             P0.bottomRightCorner<3, 3>()));
-    filter.set_reset_step(reset_step_);
-    filter.set_dvl_jacobian(dvl_c0_ ? Filter::DvlJacobian::C0
-                                    : Filter::DvlJacobian::Cstar);
-    filter.set_mag_jacobian(mag_c0_ ? Filter::MagJacobian::C0
-                                    : Filter::MagJacobian::Cstar);
+    filter.setResetStep(reset_step_);
+    filter.setDvlJacobian(dvl_c0_ ? Filter::DvlJacobian::C0
+                                  : Filter::DvlJacobian::Cstar);
+    filter.setMagJacobian(mag_c0_ ? Filter::MagJacobian::C0
+                                  : Filter::MagJacobian::Cstar);
     return filter;
   }
 
@@ -108,25 +108,26 @@ class ScenarioAdapter {
 
   void updatePosition(Filter& filter,
                       const imu_scenarios::PositionMeasurement& z) const {
-    filter.update_position(z.position, z.covariance);
+    filter.updatePosition(z.position, z.covariance);
   }
 
   void updateDvl(Filter& filter, const imu_scenarios::DvlMeasurement& z) const {
-    filter.update_dvl(z.body_velocity, z.covariance);
+    filter.updateDvl(z.body_velocity, z.covariance);
   }
 
   void updateDepth(Filter& filter,
                    const imu_scenarios::DepthMeasurement& z) const {
     if (depth_direct_) {
-      filter.update_depth_direct(z.depth, z.covariance);
+      filter.updateDepthDirect(z.depth, z.covariance);
     } else {
-      filter.update_depth(z.depth, z.covariance);
+      filter.updateDepth(z.depth, z.covariance,
+                         imu_scenarios::kDepthHorizontalVariance);
     }
   }
 
   void updateMagnetometer(
       Filter& filter, const imu_scenarios::MagnetometerMeasurement& z) const {
-    filter.update_magnetometer(z.field, mag_field_, z.covariance);
+    filter.updateMagnetometer(z.field, mag_field_, z.covariance);
   }
 
   /// Truth, estimate, tangent error and covariance. The error is

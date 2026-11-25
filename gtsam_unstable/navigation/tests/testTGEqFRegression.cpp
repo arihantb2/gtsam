@@ -97,7 +97,7 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
     ekf.propagate(omega_meas, accel_meas, g, Qc, dt);
     t += dt;
     if (with_position_updates && (k + 1) % gnss_decim == 0) {
-      ekf.update_position(scenario.navState(t).position(), R_pos);
+      ekf.updatePosition(scenario.navState(t).position(), R_pos);
     }
   }
 
@@ -106,8 +106,8 @@ static RegressionResult runBiasedImu30s(bool with_position_updates) {
   r.pos_err = Vector3(gt_end.position()) - ekf.position();
   r.vel_err = Vector3(gt_end.velocity()) - ekf.velocity();
   r.att_err = gtsam::Rot3::Logmap(gt_end.attitude().between(ekf.attitude()));
-  r.bg_est = ekf.bias_gyro();
-  r.ba_est = ekf.bias_accel();
+  r.bg_est = ekf.biasGyro();
+  r.ba_est = ekf.biasAccel();
   r.bg_err = r.bg_est - true_bg;
   r.ba_err = r.ba_est - true_ba;
   // Origin-chart covariance: canonical [att,vel,pos,b_w,b_a,b_v,b_m] order.
@@ -254,9 +254,9 @@ static HeadingResult runMagHeading60s(double yaw_rate) {
     t += dt;
     if ((k + 1) % aiding_decim == 0) {
       const gtsam::NavState gt_now = scenario.navState(t);
-      ekf.update_dvl(gt_now.bodyVelocity(), R_dvl);
-      ekf.update_magnetometer(gt_now.attitude().unrotate(field) + true_bm,
-                              field, R_mag);
+      ekf.updateDvl(gt_now.bodyVelocity(), R_dvl);
+      ekf.updateMagnetometer(gt_now.attitude().unrotate(field) + true_bm, field,
+                             R_mag);
     }
   }
 
@@ -270,7 +270,7 @@ static HeadingResult runMagHeading60s(double yaw_rate) {
   const Vector3 up_body = ekf.attitude().unrotate(Vector3::UnitZ());
   r.yaw_sigma =
       std::sqrt(up_body.transpose() * P_est.block<3, 3>(0, 0) * up_body);
-  r.bm_err = ekf.bias_mag() - true_bm;
+  r.bm_err = ekf.biasMag() - true_bm;
   r.min_eig = minEig(ekf.errorCovariance());
   return r;
 }

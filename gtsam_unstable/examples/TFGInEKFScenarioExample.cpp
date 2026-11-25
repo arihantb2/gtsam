@@ -2,7 +2,7 @@
  * @file  TFGInEKFScenarioExample.cpp
  * @brief TFG-IEKF on a simulated IMU trajectory with optional position, DVL and
  *        depth aiding. Pick the trajectory with --scenario (Vertical,
- *        TypicalNavigation, WaypointSpline or SamoaSurvey).
+ *        TypicalNavigation or WaypointSpline).
  *
  * The run loop, CLI, IMU simulation, CSV format and error reporting are shared
  * with the other filter examples (scenario_harness/FilterScenarioRunner.h); only
@@ -21,7 +21,7 @@
 #include <ostream>
 #include <string>
 
-namespace tfg::examples {
+namespace gtsam::tfg::examples {
 
 // Run configuration and reporting are shared with the other filter examples.
 using imu_scenarios::parseRunOptions;
@@ -32,7 +32,7 @@ using imu_scenarios::RunSummary;
 class ScenarioAdapter {
  public:
   static constexpr int kDim = TwoFrameGroup::dim;
-  using Filter = TfgInEKF;
+  using Filter = TFGInEKF;
   using TrueState = TwoFrameGroup;
 
   explicit ScenarioAdapter(const RunOptions& opts)
@@ -40,6 +40,7 @@ class ScenarioAdapter {
             imu_scenarios::resolvedProcessNoise(opts))),
         gravity_(imu_scenarios::navGravity()),
         mag_field_(opts.mag_field),
+        depth_direct_(opts.depth_direct),
         cov_format_(opts.log_full_covariance
                         ? imu_scenarios::CovarianceFormat::FullUpperTriangle
                         : imu_scenarios::CovarianceFormat::BlockDiagonal) {}
@@ -72,23 +73,31 @@ class ScenarioAdapter {
     filter.propagate(imu.omega, imu.accel, gravity_, noise_, dt);
   }
 
+  /// Position and depth pseudo-position updates use the C* output Jacobian,
+  /// as TG-EqF does, so the comparison isolates the choice of symmetry.
   void updatePosition(Filter& filter,
                       const imu_scenarios::PositionMeasurement& z) const {
-    filter.update_position(z.position, z.covariance);
+    filter.updatePosition(z.position, z.covariance, /*use_cstar=*/true);
   }
 
   void updateDvl(Filter& filter, const imu_scenarios::DvlMeasurement& z) const {
-    filter.update_dvl(z.body_velocity, z.covariance);
+    filter.updateDvl(z.body_velocity, z.covariance);
   }
 
   void updateDepth(Filter& filter,
                    const imu_scenarios::DepthMeasurement& z) const {
-    filter.update_depth(z.depth, z.covariance);
+    if (depth_direct_) {
+      filter.updateDepthDirect(z.depth, z.covariance);
+    } else {
+      filter.updateDepth(z.depth, z.covariance,
+                         imu_scenarios::kDepthHorizontalVariance,
+                         /*use_cstar=*/true);
+    }
   }
 
   void updateMagnetometer(
       Filter& filter, const imu_scenarios::MagnetometerMeasurement& z) const {
-    filter.update_magnetometer(z.field, mag_field_, z.covariance);
+    filter.updateMagnetometer(z.field, mag_field_, z.covariance);
   }
 
   /// Truth, estimate, tangent error and covariance, all in the group's local
@@ -100,15 +109,15 @@ class ScenarioAdapter {
     row.quat(X_true.R)
         .v3(X_true.v)
         .v3(X_true.p)
-        .v3(X_true.bias_omega())
-        .v3(X_true.bias_accel())
-        .v3(X_true.bias_mag());
+        .v3(X_true.biasOmega())
+        .v3(X_true.biasAccel())
+        .v3(X_true.biasMag());
     row.quat(X_hat.R)
         .v3(X_hat.v)
         .v3(X_hat.p)
-        .v3(X_hat.bias_omega())
-        .v3(X_hat.bias_accel())
-        .v3(X_hat.bias_mag());
+        .v3(X_hat.biasOmega())
+        .v3(X_hat.biasAccel())
+        .v3(X_hat.biasMag());
     row.tangent<kDim>(filter.errorStateVector(X_true));
     if (cov_format_ == imu_scenarios::CovarianceFormat::FullUpperTriangle) {
       row.covarianceFullUpper<kDim>(filter.covariance());
@@ -122,6 +131,7 @@ class ScenarioAdapter {
   ImuNoise noise_;
   Eigen::Vector3d gravity_;
   Eigen::Vector3d mag_field_;
+  bool depth_direct_;
   imu_scenarios::CovarianceFormat cov_format_;
 };
 
@@ -132,9 +142,10 @@ inline RunSummary runScenario(const gtsam::Scenario& scenario,
                                           scenario_name);
 }
 
-}  // namespace tfg::examples
+}  // namespace gtsam::tfg::examples
 
 int main(int argc, char* argv[]) {
   return imu_scenarios::exampleMain(argc, argv, "TFGInEKFScenarioExample",
-                                    "tfg_inekf", tfg::examples::runScenario);
+                                    "tfg_inekf",
+                                    gtsam::tfg::examples::runScenario);
 }

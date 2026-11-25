@@ -1,3 +1,28 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file MEKFGeometry.h
+ * @brief MEKF state manifold SO(3) x R^15 and its retraction.
+ * @author Arihant Lunawat
+ *
+ * MEKFState: xi = [R, v, p, b_gyro, b_accel, b_mag] on SO(3) x R^15 (dim 18).
+ * b_mag is the body-frame hard-iron bias of the magnetometer.
+ *
+ * Error convention (body/right multiplicative, additive on vectors):
+ *     R_true = R_hat * Exp(d_theta),  v = v_hat + d_v, ...
+ * Matches TG-EqF and TFG-InEKF so NEES/error metrics are comparable.
+ * Tangent block order: R, v, p, b_gyro, b_accel, b_mag.
+ */
+
 #pragma once
 #include <gtsam/base/Lie.h>
 #include <gtsam/geometry/Rot3.h>
@@ -5,20 +30,10 @@
 
 #include <Eigen/Dense>
 
-// MekfState: xi = [R, v, p, b_gyro, b_accel, b_mag] on SO(3) x R^15 (dim 18).
-// b_mag is the body-frame hard-iron bias of the magnetometer.
-//
-// Error convention (body/right multiplicative, additive on vectors):
-//     R_true = R_hat * Exp(d_theta),  v = v_hat + d_v, ...
-// Matches tg_eqf and tfg_inekf so NEES/error metrics are comparable.
-// Tangent block order: R, v, p, b_gyro, b_accel.
-
+namespace gtsam {
 namespace mekf {
 
-using gtsam::Rot3;
-using gtsam::Vector3;
-
-struct GTSAM_UNSTABLE_EXPORT MekfState {
+struct GTSAM_UNSTABLE_EXPORT MEKFState {
   Rot3 R;
   Vector3 v;
   Vector3 p;
@@ -31,42 +46,43 @@ struct GTSAM_UNSTABLE_EXPORT MekfState {
   using TangentVector = Eigen::Matrix<double, 18, 1>;
   using Jacobian = Eigen::Matrix<double, 18, 18>;
 
-  MekfState();
-  MekfState(const Rot3& R, const Vector3& v, const Vector3& p,
+  MEKFState();
+  MEKFState(const Rot3& R, const Vector3& v, const Vector3& p,
             const Vector3& b_gyro, const Vector3& b_accel,
             const Vector3& b_mag = Vector3::Zero());
 
-  static MekfState identity();
+  static MEKFState identity();
 };
 
 }  // namespace mekf
+}  // namespace gtsam
 
-// GTSAM Manifold traits for ManifoldEKF<MekfState>.
+// GTSAM Manifold traits for ManifoldEKF<MEKFState>.
 namespace gtsam {
 
 template <>
-struct GTSAM_UNSTABLE_EXPORT traits<mekf::MekfState> {
-  using ManifoldType = mekf::MekfState;
-  using TangentVector = mekf::MekfState::TangentVector;
-  using Jacobian = mekf::MekfState::Jacobian;
+struct GTSAM_UNSTABLE_EXPORT traits<mekf::MEKFState> {
+  using ManifoldType = mekf::MEKFState;
+  using TangentVector = mekf::MEKFState::TangentVector;
+  using Jacobian = mekf::MEKFState::Jacobian;
   using structure_category = manifold_tag;
 
-  static constexpr int dimension = mekf::MekfState::dimension;
-  static int GetDimension(const mekf::MekfState&) { return dimension; }
+  static constexpr int dimension = mekf::MEKFState::dimension;
+  static int GetDimension(const mekf::MEKFState&) { return dimension; }
 
-  static mekf::MekfState Retract(const mekf::MekfState& xi,
+  static mekf::MEKFState Retract(const mekf::MEKFState& xi,
                                  const TangentVector& delta);
-  static TangentVector Local(const mekf::MekfState& xi_ref,
-                             const mekf::MekfState& xi);
+  static TangentVector Local(const mekf::MEKFState& xi_ref,
+                             const mekf::MEKFState& xi);
 
-  static mekf::MekfState Identity() { return mekf::MekfState::identity(); }
+  static mekf::MEKFState Identity() { return mekf::MEKFState::identity(); }
 
-  static bool Equals(const mekf::MekfState& a, const mekf::MekfState& b,
+  static bool Equals(const mekf::MEKFState& a, const mekf::MEKFState& b,
                      double tol = 1e-9);
-  static void Print(const mekf::MekfState& xi, const std::string& s = "");
+  static void Print(const mekf::MEKFState& xi, const std::string& s = "");
 };
 
 template <>
-struct traits<const mekf::MekfState> : traits<mekf::MekfState> {};
+struct traits<const mekf::MEKFState> : traits<mekf::MEKFState> {};
 
 }  // namespace gtsam

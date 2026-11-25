@@ -1,5 +1,5 @@
 /**
- * @file  testMekfPositionOutput.cpp
+ * @file  testMEKFPositionOutput.cpp
  * @brief Unit tests for the naive world-frame position output (h=p, H, FD
  * check).
  *
@@ -10,7 +10,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/navigation/MEKF.h>
 
-using namespace mekf;
+using namespace gtsam::mekf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -24,8 +24,8 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
-static MekfState exampleState() {
-  return MekfState(
+static MEKFState exampleState() {
+  return MEKFState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
       Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
@@ -36,8 +36,8 @@ static MekfState exampleState() {
 // ---------------------------------------------------------------------------
 
 // h(xi) = p (the global position), independent of attitude / velocity / bias.
-TEST(MekfPositionOutput, PredictReturnsPosition) {
-  const MekfState X = exampleState();
+TEST(MEKFPositionOutput, PredictReturnsPosition) {
+  const MEKFState X = exampleState();
   EXPECT(veq(PositionOutput::predict(X), X.p));
 }
 
@@ -46,7 +46,7 @@ TEST(MekfPositionOutput, PredictReturnsPosition) {
 // ---------------------------------------------------------------------------
 
 // H selects the d_p block: H = [0 0 I 0 0 0].
-TEST(MekfPositionOutput, JacobianStructure) {
+TEST(MEKFPositionOutput, JacobianStructure) {
   Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian();
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
   expected.block<3, 3>(0, 6) = Eigen::Matrix3d::Identity();
@@ -54,18 +54,18 @@ TEST(MekfPositionOutput, JacobianStructure) {
 }
 
 // The position Jacobian does not depend on the state.
-TEST(MekfPositionOutput, JacobianIsConstant) {
+TEST(MEKFPositionOutput, JacobianIsConstant) {
   EXPECT(meq(PositionOutput::jacobian(), PositionOutput::jacobian()));
 }
 
 // Finite-difference check: H = d h(Retract(X, eps)) / d eps at eps = 0.
-TEST(MekfPositionOutput, JacobianMatchesFiniteDifference) {
-  const MekfState X = exampleState();
+TEST(MEKFPositionOutput, JacobianMatchesFiniteDifference) {
+  const MEKFState X = exampleState();
   const Eigen::Matrix<double, 3, 18> H = PositionOutput::jacobian();
 
   const Eigen::Matrix<double, 3, 18> Hfd =
-      numericalDerivative11<Eigen::Vector3d, MekfState>(
-          [](const MekfState& x) { return PositionOutput::predict(x); }, X);
+      numericalDerivative11<Eigen::Vector3d, MEKFState>(
+          [](const MEKFState& x) { return PositionOutput::predict(x); }, X);
   EXPECT(meq(H, Hfd, 1e-6));
 }
 

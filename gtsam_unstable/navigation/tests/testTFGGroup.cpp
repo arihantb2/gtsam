@@ -7,7 +7,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/navigation/TFGGeometry.h>
 
-using namespace tfg;
+using namespace gtsam::tfg;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -57,7 +57,7 @@ TEST(TwoFrameGroup, Identity) {
 
 TEST(TwoFrameGroup, CMatrixBlocks) {
   auto X = makeX();
-  auto C = X.C_matrix();
+  auto C = X.navigationMatrix();
   EXPECT(meq(X.R.matrix(), C.block<3, 3>(0, 0)));
   EXPECT(veq(X.v, C.block<3, 1>(0, 3)));
   EXPECT(veq(X.p, C.block<3, 1>(0, 4)));
@@ -106,9 +106,9 @@ TEST(TwoFrameGroup, FromStateBiasRoundTrip) {
   EXPECT(X.R.equals(R, kTol));
   EXPECT(veq(X.v, v));
   EXPECT(veq(X.p, p));
-  EXPECT(veq(X.bias_omega(), bw, kTolL));
-  EXPECT(veq(X.bias_accel(), ba, kTolL));
-  EXPECT(veq(X.bias_mag(), bm, kTolL));
+  EXPECT(veq(X.biasOmega(), bw, kTolL));
+  EXPECT(veq(X.biasAccel(), ba, kTolL));
+  EXPECT(veq(X.biasMag(), bm, kTolL));
   EXPECT(veq(X.gamma_mag, -(R * bm), kTolL));
 }
 
@@ -226,7 +226,8 @@ TEST(TwoFrameGroup, RetractLocalFromNonIdentity) {
 TEST(TwoFrameGroup, ComposeMatchesMatrixRealisation) {
   auto X = makeX(), Y = makeY();
   auto XY = X * Y;
-  EXPECT(meq(XY.C_matrix(), X.C_matrix() * Y.C_matrix(), kTolL));
+  EXPECT(meq(XY.navigationMatrix(), X.navigationMatrix() * Y.navigationMatrix(),
+             kTolL));
   EXPECT(veq(XY.gamma_omega, X.gamma_omega + X.R * Y.gamma_omega, kTolL));
   EXPECT(veq(XY.gamma_accel, X.gamma_accel + X.R * Y.gamma_accel, kTolL));
   EXPECT(veq(XY.gamma_mag, X.gamma_mag + X.R * Y.gamma_mag, kTolL));
@@ -236,7 +237,7 @@ TEST(TwoFrameGroup, ComposeMatchesMatrixRealisation) {
 TEST(TwoFrameGroup, InverseMatchesMatrixRealisation) {
   auto X = makeX();
   auto Xi = X.inverse();
-  EXPECT(meq(Xi.C_matrix(), X.C_matrix().inverse(), kTolL));
+  EXPECT(meq(Xi.navigationMatrix(), X.navigationMatrix().inverse(), kTolL));
   EXPECT(veq(Xi.gamma_omega, -(X.R.unrotate(X.gamma_omega)), kTolL));
   EXPECT(veq(Xi.gamma_accel, -(X.R.unrotate(X.gamma_accel)), kTolL));
   EXPECT(veq(Xi.gamma_mag, -(X.R.unrotate(X.gamma_mag)), kTolL));

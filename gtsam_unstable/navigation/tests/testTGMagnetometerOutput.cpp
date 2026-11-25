@@ -71,7 +71,7 @@ TGMagElement makeY() {
 /* ************************************************************************* */
 
 /* ************************************************************************* */
-namespace output_action {
+namespace outputAction {
 
 // psi is a right action on the output space, the axiom that lets the filter
 // carry a measurement from the estimate's body frame to the origin.
@@ -80,22 +80,22 @@ TEST(MagnetometerOutput, IsARightAction) {
   const TGMagElement X = fixture::makeX(), Y = fixture::makeY();
 
   EXPECT(fixture::veq(
-      y, MagnetometerMeasurement::output_action(TGMagElement::Identity(), y)));
-  EXPECT(fixture::veq(MagnetometerMeasurement::output_action(X * Y, y),
-                      MagnetometerMeasurement::output_action(
-                          Y, MagnetometerMeasurement::output_action(X, y)),
+      y, MagnetometerMeasurement::outputAction(TGMagElement::Identity(), y)));
+  EXPECT(fixture::veq(MagnetometerMeasurement::outputAction(X * Y, y),
+                      MagnetometerMeasurement::outputAction(
+                          Y, MagnetometerMeasurement::outputAction(X, y)),
                       fixture::kTolL));
 }
 
-// inverse_output_action is psi_{X^-1}, which for a group action is psi_X^-1.
+// inverseOutputAction is psi_{X^-1}, which for a group action is psi_X^-1.
 TEST(MagnetometerOutput, InverseActionIsTheActionOfTheInverse) {
   const Vector3 y(0.3, -0.1, 0.2);
   const TGMagElement X = fixture::makeX();
 
-  EXPECT(fixture::veq(MagnetometerMeasurement::output_action(X.inverse(), y),
-                      MagnetometerMeasurement::inverse_output_action(X, y)));
-  EXPECT(fixture::veq(y, MagnetometerMeasurement::inverse_output_action(
-                             X, MagnetometerMeasurement::output_action(X, y))));
+  EXPECT(fixture::veq(MagnetometerMeasurement::outputAction(X.inverse(), y),
+                      MagnetometerMeasurement::inverseOutputAction(X, y)));
+  EXPECT(fixture::veq(y, MagnetometerMeasurement::inverseOutputAction(
+                             X, MagnetometerMeasurement::outputAction(X, y))));
 }
 
 // Output equivariance h_m(phi(X, xi)) = psi_X(h_m(xi)), including elements
@@ -111,7 +111,7 @@ TEST(MagnetometerOutput, IsEquivariant) {
                                 TGMagElement::Expmap(logX)}) {
     EXPECT(fixture::veq(
         MagnetometerMeasurement::predict(phi(X, xi), fixture::kField),
-        MagnetometerMeasurement::output_action(
+        MagnetometerMeasurement::outputAction(
             X, MagnetometerMeasurement::predict(xi, fixture::kField)),
         fixture::kTolL));
   }
@@ -126,11 +126,11 @@ TEST(MagnetometerOutput, TransportedMeasurementIsTheBiasCorrectedGlobalField) {
   const Vector3 z(0.2, 0.6, 0.7);
 
   EXPECT(fixture::veq(xi_hat.T.rotation().rotate(z - xi_hat.bm),
-                      MagnetometerMeasurement::inverse_output_action(X_hat, z),
+                      MagnetometerMeasurement::inverseOutputAction(X_hat, z),
                       fixture::kTolL));
 }
 
-}  // namespace output_action
+}  // namespace outputAction
 /* ************************************************************************* */
 
 /* ************************************************************************* */
@@ -155,7 +155,7 @@ TEST(MagnetometerOutput, C0MatchesNumerical) {
           xi_ref);
 
   EXPECT(assert_equal(
-      (Matrix)MagnetometerMeasurement::jacobian_C0(xi_ref, fixture::kField),
+      (Matrix)MagnetometerMeasurement::jacobianC0(xi_ref, fixture::kField),
       (Matrix)H_num, 1e-5));
 }
 
@@ -168,9 +168,9 @@ TEST(MagnetometerOutput, CstarMeetsC0AtConvergence) {
       MagnetometerMeasurement::predict(phi(g, xi_ref), fixture::kField);
 
   EXPECT(assert_equal(
-      (Matrix)MagnetometerMeasurement::jacobian_C0(xi_ref, fixture::kField),
-      (Matrix)MagnetometerMeasurement::jacobian_Cstar(xi_ref, g,
-                                                      fixture::kField, z),
+      (Matrix)MagnetometerMeasurement::jacobianC0(xi_ref, fixture::kField),
+      (Matrix)MagnetometerMeasurement::jacobianCstar(xi_ref, g, fixture::kField,
+                                                     z),
       fixture::kTol));
 }
 
@@ -182,7 +182,7 @@ TEST(MagnetometerOutput, AttitudeBlockIsBlindToRotationAboutTheField) {
   const Vector3 z =
       MagnetometerMeasurement::predict(phi(g, xi_ref), fixture::kField);
   const Eigen::Matrix<double, 3, 21> Cstar =
-      MagnetometerMeasurement::jacobian_Cstar(xi_ref, g, fixture::kField, z);
+      MagnetometerMeasurement::jacobianCstar(xi_ref, g, fixture::kField, z);
 
   EXPECT(fixture::veq(Vector3::Zero(), Cstar.leftCols<3>() * fixture::kField));
   EXPECT((Cstar.leftCols<3>() * Vector3::UnitZ()).norm() > 0.1);
@@ -203,22 +203,21 @@ Vector3 measurementAt(const fixture::Tangent& eps) {
       phi(kG, traits<State>::Retract(kXiRef, eps)), fixture::kField);
 }
 
-/// The residual TGEqF::update_magnetometer linearizes: the pulled-back
+/// The residual TGEqF::updateMagnetometer linearizes: the pulled-back
 /// measurement against the reference output, as a function of the error.
 Vector3 residual(const fixture::Tangent& eps) {
-  return MagnetometerMeasurement::inverse_output_action(kG,
-                                                        measurementAt(eps)) -
+  return MagnetometerMeasurement::inverseOutputAction(kG, measurementAt(eps)) -
          MagnetometerMeasurement::predict(kXiRef, fixture::kField);
 }
 
 double errorC0(const fixture::Tangent& eps) {
   return (residual(eps) -
-          MagnetometerMeasurement::jacobian_C0(kXiRef, fixture::kField) * eps)
+          MagnetometerMeasurement::jacobianC0(kXiRef, fixture::kField) * eps)
       .norm();
 }
 
 double errorCstar(const fixture::Tangent& eps) {
-  return (residual(eps) - MagnetometerMeasurement::jacobian_Cstar(
+  return (residual(eps) - MagnetometerMeasurement::jacobianCstar(
                               kXiRef, kG, fixture::kField, measurementAt(eps)) *
                               eps)
       .norm();

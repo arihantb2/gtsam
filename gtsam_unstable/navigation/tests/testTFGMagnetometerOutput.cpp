@@ -8,7 +8,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/navigation/TFGInEKF.h>  // MagnetometerOutput, phi
 
-using namespace tfg;
+using namespace gtsam::tfg;
 using namespace gtsam;
 
 /* ************************************************************************* */
@@ -47,12 +47,12 @@ TwoFrameGroup makeX() {
 /* ************************************************************************* */
 
 /* ************************************************************************* */
-namespace output_action {
+namespace outputAction {
 
 // h(xi) = R^T (m - gamma_m) is the biased body-frame reading R^T m + b_m.
 TEST(MagnetometerOutput, PredictIsTheBiasedBodyField) {
   const TwoFrameGroup xi = fixture::makeState();
-  EXPECT(fixture::veq(xi.R.unrotate(fixture::kField) + xi.bias_mag(),
+  EXPECT(fixture::veq(xi.R.unrotate(fixture::kField) + xi.biasMag(),
                       MagnetometerOutput::predict(xi, fixture::kField),
                       fixture::kTolL));
 }
@@ -64,10 +64,10 @@ TEST(MagnetometerOutput, OutputActionIsARightAction) {
   const TwoFrameGroup X = fixture::makeX(), Y = fixture::makeState();
 
   EXPECT(fixture::veq(
-      y, MagnetometerOutput::output_action(TwoFrameGroup::Identity(), y)));
-  EXPECT(fixture::veq(MagnetometerOutput::output_action(X * Y, y),
-                      MagnetometerOutput::output_action(
-                          Y, MagnetometerOutput::output_action(X, y)),
+      y, MagnetometerOutput::outputAction(TwoFrameGroup::Identity(), y)));
+  EXPECT(fixture::veq(MagnetometerOutput::outputAction(X * Y, y),
+                      MagnetometerOutput::outputAction(
+                          Y, MagnetometerOutput::outputAction(X, y)),
                       fixture::kTolL));
 }
 
@@ -78,12 +78,12 @@ TEST(MagnetometerOutput, OutputEquivariance) {
   const TwoFrameGroup X = fixture::makeX();
 
   EXPECT(fixture::veq(MagnetometerOutput::predict(phi(X, xi), fixture::kField),
-                      MagnetometerOutput::output_action(
+                      MagnetometerOutput::outputAction(
                           X, MagnetometerOutput::predict(xi, fixture::kField)),
                       fixture::kTolL));
 }
 
-}  // namespace output_action
+}  // namespace outputAction
 /* ************************************************************************* */
 
 /* ************************************************************************* */

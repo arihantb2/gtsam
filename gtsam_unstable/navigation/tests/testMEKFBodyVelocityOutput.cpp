@@ -1,5 +1,5 @@
 /**
- * @file  testMekfBodyVelocityOutput.cpp
+ * @file  testMEKFBodyVelocityOutput.cpp
  * @brief Unit tests for the DVL body-frame velocity output (h=R^T v, H, FD).
  *
  * Tangent block order: R, v, p, b_gyro, b_accel.
@@ -9,7 +9,7 @@
 #include <gtsam/base/numericalDerivative.h>
 #include <gtsam_unstable/navigation/MEKF.h>
 
-using namespace mekf;
+using namespace gtsam::mekf;
 using namespace gtsam;
 
 static constexpr double kTol = 1e-9;
@@ -23,8 +23,8 @@ static bool meq(const Eigen::MatrixXd& a, const Eigen::MatrixXd& b,
   return assert_equal((Matrix)a, (Matrix)b, tol);
 }
 
-static MekfState exampleState() {
-  return MekfState(
+static MEKFState exampleState() {
+  return MEKFState(
       Rot3::Rz(0.4) * Rot3::Rx(0.2), Eigen::Vector3d(1.0, -0.5, 0.3),
       Eigen::Vector3d(2.0, 1.0, -1.0), Eigen::Vector3d(0.01, -0.02, 0.03),
       Eigen::Vector3d(-0.05, 0.1, 0.0), Eigen::Vector3d(0.05, -0.08, 0.03));
@@ -35,8 +35,8 @@ static MekfState exampleState() {
 // ---------------------------------------------------------------------------
 
 // h(xi) = R^T v (world velocity rotated into the body frame).
-TEST(MekfBodyVelocityOutput, PredictReturnsBodyVelocity) {
-  const MekfState X = exampleState();
+TEST(MEKFBodyVelocityOutput, PredictReturnsBodyVelocity) {
+  const MEKFState X = exampleState();
   EXPECT(veq(BodyVelocityOutput::predict(X), X.R.unrotate(X.v)));
 }
 
@@ -45,8 +45,8 @@ TEST(MekfBodyVelocityOutput, PredictReturnsBodyVelocity) {
 // ---------------------------------------------------------------------------
 
 // H = [ [R^T v]^x | R^T | 0 | 0 | 0 | 0 ]; other blocks vanish.
-TEST(MekfBodyVelocityOutput, JacobianStructure) {
-  const MekfState X = exampleState();
+TEST(MEKFBodyVelocityOutput, JacobianStructure) {
+  const MEKFState X = exampleState();
   const Eigen::Matrix<double, 3, 18> H = BodyVelocityOutput::jacobian(X);
 
   Eigen::Matrix<double, 3, 18> expected = Eigen::Matrix<double, 3, 18>::Zero();
@@ -56,13 +56,13 @@ TEST(MekfBodyVelocityOutput, JacobianStructure) {
 }
 
 // Finite-difference check: H = d h(Retract(X, eps)) / d eps at eps = 0.
-TEST(MekfBodyVelocityOutput, JacobianMatchesFiniteDifference) {
-  const MekfState X = exampleState();
+TEST(MEKFBodyVelocityOutput, JacobianMatchesFiniteDifference) {
+  const MEKFState X = exampleState();
   const Eigen::Matrix<double, 3, 18> H = BodyVelocityOutput::jacobian(X);
 
   const Eigen::Matrix<double, 3, 18> Hfd =
-      numericalDerivative11<Eigen::Vector3d, MekfState>(
-          [](const MekfState& x) { return BodyVelocityOutput::predict(x); }, X);
+      numericalDerivative11<Eigen::Vector3d, MEKFState>(
+          [](const MEKFState& x) { return BodyVelocityOutput::predict(x); }, X);
   EXPECT(meq(H, Hfd, 1e-6));
 }
 

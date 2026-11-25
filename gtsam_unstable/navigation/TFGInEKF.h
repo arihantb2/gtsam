@@ -1,13 +1,32 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file TFGInEKF.h
+ * @brief TFG-InEKF: invariant EKF for biased inertial navigation on the
+ *        two-frames group.
+ * @author Arihant Lunawat
+ *
+ * Built on InvariantEKF<TwoFrameGroup>. The process model (lift) and
+ * measurement outputs live here; the group and its action are in
+ * TFGGeometry.h.
+ */
+
 #pragma once
 #include <gtsam/navigation/InvariantEKF.h>
 #include <gtsam_unstable/navigation/TFGGeometry.h>
 
 #include <Eigen/Dense>
 
-// TFG-InEKF: biased INS on G_TF via InvariantEKF<TwoFrameGroup>. The process
-// model (lift) and measurement outputs live here; the group and its action
-// are in TFGGeometry.h.
-
+namespace gtsam {
 namespace tfg {
 
 /// Lifted IMU input for InvariantEKF::predict (biases are in the state).
@@ -77,7 +96,7 @@ struct GTSAM_UNSTABLE_EXPORT BodyVelocityOutput {
   static Vector3 predict(const TwoFrameGroup& xi);
 
   /// Output action psi_d(X, y) = R_X^T y + R_X^T v_X; for equivariance checks.
-  static Vector3 output_action(const TwoFrameGroup& X, const Vector3& y);
+  static Vector3 outputAction(const TwoFrameGroup& X, const Vector3& y);
 
   /// Output Jacobian H = [ y_hat^  I  0  0  0  0 ] in the right-retract chart.
   /// d_v block is identity (velocity perturbed in rotated frame, not R^T).
@@ -89,15 +108,24 @@ struct GTSAM_UNSTABLE_EXPORT PositionOutput {
   static constexpr int dim = 3;
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
+  enum class Variant {
+    C0,     ///< first-order Jacobian
+    Cstar,  ///< midpoint-symmetrised (cubic linearisation error)
+  };
+
   /// Body-frame residual h = R^T (pi - p).
   static Vector3 predict(const TwoFrameGroup& xi, const Vector3& pi);
 
   /// Output action rho_X(y) = R_X^T (y - p_X); for equivariance checks.
-  static Vector3 output_action(const TwoFrameGroup& X, const Vector3& y);
+  static Vector3 outputAction(const TwoFrameGroup& X, const Vector3& y);
 
-  /// First-order output Jacobian C0 = [ y_hat^  0  -I  0  0  0 ] for the
-  /// chart xi(eps) = xi_hat * Expmap(eps).
-  static Jacobian jacobian(const TwoFrameGroup& xi_hat, const Vector3& pi);
+  /// Output Jacobian for chart xi(eps) = xi_hat * Expmap(eps).
+  /// Right-retract chart: noise-free residual y_hat = J_l(eps_theta) eps_p.
+  ///   C0    = [ y_hat^      0  -I  0  0  0 ]
+  ///   Cstar = [ 1/2 y_hat^  0  -I  0  0  0 ]  (halves attitude coupling ->
+  ///   O(||e||^3) error)
+  static Jacobian jacobian(const TwoFrameGroup& xi_hat, const Vector3& pi,
+                           Variant variant = Variant::C0);
 };
 
 /// Biased magnetometer output (equivariant). With the hard-iron bias stored
@@ -112,14 +140,28 @@ struct GTSAM_UNSTABLE_EXPORT MagnetometerOutput {
   static Vector3 predict(const TwoFrameGroup& xi, const Vector3& m);
 
   /// Output action rho_X(y) = R_X^T (y - gamma_m,X); for equivariance checks.
-  static Vector3 output_action(const TwoFrameGroup& X, const Vector3& y);
+  static Vector3 outputAction(const TwoFrameGroup& X, const Vector3& y);
 
   /// First-order output Jacobian C0 = [ y_hat^  0  0  0  0  -I ] for the
   /// chart xi(eps) = xi_hat * Expmap(eps), with y_hat = predict(xi_hat, m).
   static Jacobian jacobian(const TwoFrameGroup& xi_hat, const Vector3& m);
 };
 
-class GTSAM_UNSTABLE_EXPORT TfgInEKF
+/// Direct depth output h(xi) = e_3^T p, the world-frame z position. It is not
+/// equivariant, so it has no output action.
+struct GTSAM_UNSTABLE_EXPORT DepthOutput {
+  using Jacobian = Eigen::Matrix<double, 1, 18>;
+
+  /// World-frame z position of xi.
+  static double predict(const TwoFrameGroup& xi);
+
+  /// Output Jacobian for chart xi(eps) = xi_hat * Expmap(eps). Since
+  /// p(eps) = p + R J_l(eps_theta) eps_p, it is e_3^T R on the position block
+  /// and zero elsewhere.
+  static Jacobian jacobian(const TwoFrameGroup& xi_hat);
+};
+
+class GTSAM_UNSTABLE_EXPORT TFGInEKF
     : public gtsam::InvariantEKF<TwoFrameGroup> {
  public:
   using Base = gtsam::InvariantEKF<TwoFrameGroup>;
@@ -130,12 +172,12 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
 
   /// Default variance (m^2) given to the pseudo-measured horizontal axes of a
   /// depth update, large enough that the update leaves x and y untouched.
-  static constexpr double kDefaultHorizontalVariance = 1e3;
+  static constexpr double kDefaultHorizontalVariance = 1e6;
 
   /// @param X0 initial group state (TwoFrameGroup::FromState for physical
   /// coords)
   /// @param P0 initial 18-dim tangent covariance.
-  TfgInEKF(const TwoFrameGroup& X0, const Covariance& P0);
+  TFGInEKF(const TwoFrameGroup& X0, const Covariance& P0);
 
   /// Block-diagonal initial covariance: the 15 navigation and IMU-bias blocks
   /// [R v p gamma_w gamma_a] from Sigma_nav, then the magnetometer bias. Like
@@ -155,10 +197,11 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
                  const Vector3& g_vec, const ImuNoise& noise, double dt);
 
   /// Position update: h = R^T(pi - p).
-  void update_position(const Vector3& pi, const Covariance3& R_pos);
+  void updatePosition(const Vector3& pi, const Covariance3& R_pos,
+                      bool use_cstar = false);
 
   /// DVL update: h_d = R^T v; R_dvl in body frame.
-  void update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl);
+  void updateDvl(const Vector3& z_dvl, const Covariance3& R_dvl);
 
   /**
    * Pressure-sensor depth update from the world-frame z position.
@@ -178,9 +221,24 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
    * @param R_depth              Variance of z_depth, as a 1x1 matrix.
    * @param horizontal_variance  Variance assigned to the pseudo-measured x and
    *                             y axes.
+   * @param use_cstar            Forwarded to updatePosition.
    */
-  void update_depth(double z_depth, const Covariance1& R_depth,
-                    double horizontal_variance = kDefaultHorizontalVariance);
+  void updateDepth(double z_depth, const Covariance1& R_depth,
+                   double horizontal_variance = kDefaultHorizontalVariance,
+                   bool use_cstar = false);
+
+  /**
+   * Pressure-sensor depth update through the scalar model h(xi) = e_3^T p
+   * (see DepthOutput).
+   *
+   * Unlike updateDepth(), no horizontal pseudo-measurement is formed: the
+   * Jacobian has no horizontal component, so x and y move only through their
+   * prior correlation with z.
+   *
+   * @param z_depth  Measured world-frame z position.
+   * @param R_depth  Variance of z_depth, as a 1x1 matrix.
+   */
+  void updateDepthDirect(double z_depth, const Covariance1& R_depth);
 
   /**
    * Biased magnetometer update, h = R^T m + b_m = R^T (m - gamma_m).
@@ -189,8 +247,8 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
    * @param m      Reference field in the global frame, in the same units.
    * @param R_mag  Body-frame covariance of z_mag, used directly.
    */
-  void update_magnetometer(const Vector3& z_mag, const Vector3& m,
-                           const Covariance3& R_mag);
+  void updateMagnetometer(const Vector3& z_mag, const Vector3& m,
+                          const Covariance3& R_mag);
 
   /// Error state eps = Local(estimate, X_true) in the group's local chart, i.e.
   /// the chart covariance() lives in. Block order R, v, p, bg, ba, bm.
@@ -200,9 +258,9 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
   gtsam::Rot3 attitude() const;
   Vector3 velocity() const;
   Vector3 position() const;
-  Vector3 bias_gyro() const;
-  Vector3 bias_accel() const;
-  Vector3 bias_mag() const;
+  Vector3 biasGyro() const;
+  Vector3 biasAccel() const;
+  Vector3 biasMag() const;
 
   /**
    * Covariance reset Jacobian for a correction eta applied as X * Expmap(eta).
@@ -223,3 +281,4 @@ class GTSAM_UNSTABLE_EXPORT TfgInEKF
 };
 
 }  // namespace tfg
+}  // namespace gtsam

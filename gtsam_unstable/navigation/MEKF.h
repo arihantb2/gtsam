@@ -1,14 +1,31 @@
+/* ----------------------------------------------------------------------------
+
+ * GTSAM Copyright 2010, Georgia Tech Research Corporation,
+ * Atlanta, Georgia 30332-0415
+ * All Rights Reserved
+ * Authors: Frank Dellaert, et al. (see THANKS for the full author list)
+
+ * See LICENSE for the license information
+
+ * -------------------------------------------------------------------------- */
+
+/**
+ * @file MEKF.h
+ * @brief Multiplicative EKF (MEKF) baseline for biased inertial navigation.
+ * @author Arihant Lunawat
+ *
+ * State-dependent F (finite-diff); naive position/DVL/magnetometer updates vs
+ * geometric filters. The process model (propagateMean/transitionJacobian) and
+ * measurement outputs live here; the state manifold is in MEKFGeometry.h.
+ */
+
 #pragma once
 #include <gtsam/navigation/ManifoldEKF.h>
 #include <gtsam_unstable/navigation/MEKFGeometry.h>
 
 #include <Eigen/Dense>
 
-// MultiplicativeEKF: baseline MEKF for biased INS.
-// State-dependent F (finite-diff); naive position/DVL/magnetometer updates vs
-// geometric filters. The process model (propagateMean/transitionJacobian) and
-// measurement outputs live here; the state manifold is in MEKFGeometry.h.
-
+namespace gtsam {
 namespace mekf {
 
 struct ImuInput {
@@ -21,12 +38,12 @@ struct ImuInput {
   Vector3 g_vec = Vector3::Zero();
 };
 
-GTSAM_UNSTABLE_EXPORT MekfState propagateMean(const MekfState& X,
+GTSAM_UNSTABLE_EXPORT MEKFState propagateMean(const MEKFState& X,
                                               const ImuInput& u, double dt);
 
 /// Finite-difference transition Jacobian F (state-dependent, recomputed each
 /// step).
-GTSAM_UNSTABLE_EXPORT MekfState::Jacobian transitionJacobian(const MekfState& X,
+GTSAM_UNSTABLE_EXPORT MEKFState::Jacobian transitionJacobian(const MEKFState& X,
                                                              const ImuInput& u,
                                                              double dt);
 
@@ -37,15 +54,24 @@ GTSAM_UNSTABLE_EXPORT MekfState::Jacobian transitionJacobian(const MekfState& X,
 struct GTSAM_UNSTABLE_EXPORT BodyVelocityOutput {
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
-  static Vector3 predict(const MekfState& X);
-  static Jacobian jacobian(const MekfState& X);
+  static Vector3 predict(const MEKFState& X);
+  static Jacobian jacobian(const MEKFState& X);
 };
 
 /// Direct global position output: h(xi) = p.
 struct GTSAM_UNSTABLE_EXPORT PositionOutput {
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
-  static Vector3 predict(const MekfState& X);
+  static Vector3 predict(const MEKFState& X);
+  static Jacobian jacobian();
+};
+
+/// Direct depth output: h(xi) = e_3^T p, the world-frame z position.
+struct GTSAM_UNSTABLE_EXPORT DepthOutput {
+  using Jacobian = Eigen::Matrix<double, 1, 18>;
+
+  static double predict(const MEKFState& X);
+  /// e_3^T on the additive position block, zero elsewhere.
   static Jacobian jacobian();
 };
 
@@ -57,8 +83,8 @@ struct GTSAM_UNSTABLE_EXPORT PositionOutput {
 struct GTSAM_UNSTABLE_EXPORT MagnetometerOutput {
   using Jacobian = Eigen::Matrix<double, 3, 18>;
 
-  static Vector3 predict(const MekfState& X, const Vector3& m);
-  static Jacobian jacobian(const MekfState& X, const Vector3& m);
+  static Vector3 predict(const MEKFState& X, const Vector3& m);
+  static Jacobian jacobian(const MEKFState& X, const Vector3& m);
 };
 
 /// Continuous-time IMU noise PSDs, per-axis (diagonal, not isotropic). Same
@@ -73,10 +99,9 @@ struct ImuNoise {
   Vector3 mag_bias_rw = Vector3::Zero();
 };
 
-class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
-    : public gtsam::ManifoldEKF<MekfState> {
+class GTSAM_UNSTABLE_EXPORT MEKF : public gtsam::ManifoldEKF<MEKFState> {
  public:
-  using Base = gtsam::ManifoldEKF<MekfState>;
+  using Base = gtsam::ManifoldEKF<MEKFState>;
   using Covariance = Eigen::Matrix<double, 18, 18>;
   using Covariance15 = Eigen::Matrix<double, 15, 15>;
   using Covariance3 = Eigen::Matrix<double, 3, 3>;
@@ -84,9 +109,9 @@ class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
 
   /// Default variance (m^2) given to the pseudo-measured horizontal axes of a
   /// depth update, large enough that the update leaves x and y untouched.
-  static constexpr double kDefaultHorizontalVariance = 1e3;
+  static constexpr double kDefaultHorizontalVariance = 1e6;
 
-  MultiplicativeEKF(const MekfState& X0, const Covariance& P0);
+  MEKF(const MEKFState& X0, const Covariance& P0);
 
   /// Block-diagonal initial covariance: the 15 navigation and IMU-bias states
   /// [R v p bg ba] from Sigma_nav, then the magnetometer bias.
@@ -117,10 +142,10 @@ class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
                  const Vector3& g_vec, const ImuNoise& noise, double dt);
 
   /// GNSS position update (h = p, world-frame R_pos).
-  void update_position(const Vector3& pi, const Covariance3& R_pos);
+  void updatePosition(const Vector3& pi, const Covariance3& R_pos);
 
   /// DVL update (h = R^T v, state-dependent H, body-frame R_dvl).
-  void update_dvl(const Vector3& z_dvl, const Covariance3& R_dvl);
+  void updateDvl(const Vector3& z_dvl, const Covariance3& R_dvl);
 
   /**
    * Pressure-sensor depth update from the world-frame z position.
@@ -140,8 +165,21 @@ class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
    * @param horizontal_variance  Variance assigned to the pseudo-measured x and
    *                             y axes.
    */
-  void update_depth(double z_depth, const Covariance1& R_depth,
-                    double horizontal_variance = kDefaultHorizontalVariance);
+  void updateDepth(double z_depth, const Covariance1& R_depth,
+                   double horizontal_variance = kDefaultHorizontalVariance);
+
+  /**
+   * Pressure-sensor depth update through the scalar model h(xi) = e_3^T p
+   * (see DepthOutput).
+   *
+   * Unlike updateDepth(), no horizontal pseudo-measurement is formed: the
+   * Jacobian has no horizontal component, so x and y move only through their
+   * prior correlation with z.
+   *
+   * @param z_depth  Measured world-frame z position.
+   * @param R_depth  Variance of z_depth, as a 1x1 matrix.
+   */
+  void updateDepthDirect(double z_depth, const Covariance1& R_depth);
 
   /**
    * Biased magnetometer update, h = R^T m + b_mag (state-dependent H).
@@ -150,20 +188,20 @@ class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
    * @param m      Reference field in the navigation frame, in the same units.
    * @param R_mag  Body-frame covariance of z_mag.
    */
-  void update_magnetometer(const Vector3& z_mag, const Vector3& m,
-                           const Covariance3& R_mag);
+  void updateMagnetometer(const Vector3& z_mag, const Vector3& m,
+                          const Covariance3& R_mag);
 
   /// Error state eps = Local(estimate, X_true) in the filter's local chart
   /// (right/body multiplicative attitude, additive vectors), i.e. the chart
   /// covariance() lives in. Block order R, v, p, bg, ba, bm.
-  TangentVector errorStateVector(const MekfState& X_true) const;
+  TangentVector errorStateVector(const MEKFState& X_true) const;
 
   gtsam::Rot3 attitude() const;
   Vector3 velocity() const;
   Vector3 position() const;
-  Vector3 bias_gyro() const;
-  Vector3 bias_accel() const;
-  Vector3 bias_mag() const;
+  Vector3 biasGyro() const;
+  Vector3 biasAccel() const;
+  Vector3 biasMag() const;
 
   /**
    * Covariance reset Jacobian for a correction eta applied by Retract.
@@ -184,3 +222,4 @@ class GTSAM_UNSTABLE_EXPORT MultiplicativeEKF
 };
 
 }  // namespace mekf
+}  // namespace gtsam
