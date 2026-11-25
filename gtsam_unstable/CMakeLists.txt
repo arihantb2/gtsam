@@ -6,14 +6,12 @@ set (gtsam_unstable_subdirs
     base
     geometry
     navigation
-    tg_eqf
-    tfg_inekf
-    mekf
     linear
     discrete
     dynamics
     nonlinear
     slam
+    planning
 )
 
 if(GTSAM_SUPPORT_NESTED_DISSECTION) # Only build partition if metis is built
@@ -71,14 +69,12 @@ set(gtsam_unstable_srcs
     ${base_srcs}
     ${geometry_srcs}
     ${navigation_srcs}
-    ${tg_eqf_srcs}
-    ${tfg_inekf_srcs}
-    ${mekf_srcs}
     ${linear_srcs}
     ${discrete_srcs}
     ${dynamics_srcs}
     ${nonlinear_srcs}
     ${slam_srcs}
+    ${planning_srcs}
 )
 
 if(GTSAM_SUPPORT_NESTED_DISSECTION) # Only build partition if metis is built
